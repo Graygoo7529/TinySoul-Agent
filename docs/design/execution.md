@@ -18,6 +18,8 @@ JobBackend 的受理、poll、stop、execution close、describe 和 cleanup 统�
 
 `execution.collect` 读取 stdout/stderr 分页、退出事实与结果文件引用，重复读取相同 cursor 不会再次执行进程。JobSnapshot 的 `result_refs` 只指向 stdout/stderr 等实际输出文件；Job 根目录和 logs 目录属于 Workspace 导航引用。日志保存在 Job 的 Workspace 目录中，随日生命周期归档。`execution.stdin` 只向仍可写的交互管道提交最多 4096 UTF-8 字节，返回实际接收字节数；未接收部分仍由调用者负责。没有输出不能证明进程正在等待输入。
 
+运行中的 Job 同样支持 `core.job.status` 和 `execution.collect`：前者查询现态与执行详情，后者取得当前已经写出的有界输出，均不要求进程结束。`core.wait` 只安排同一 Turn 后续 Cycle 的恢复时机，等待期间 Job 继续执行；带 timeout_seconds 的 Job 等待可以在进程仍运行时因定时到期恢复，Agent 随后检查输出并决定是否继续等待。读取当前输出与收齐最终输出是不同边界，前者不停止进程，也不等待其未来输出。
+
 Job 终态为 succeeded、failed 或 cancelled，超时与输出上限作为失败原因。监视器观察输出大小并停止超限进程，采样之间可能有额外输出；有界 collect 不承诺所有超限字节都能进入模型。进程终止后关闭执行句柄，结果在当前 Turn 内保留，不占活任务额度。结果容量耗尽时拒绝新任务，不悄悄逐出仍承诺可读的结果。
 
 主进程的退出事实决定执行结果，其后代由同一受控执行单元回收。即使主进程自然成功，JobRegistry 也必须等待 ManagedProcess 关闭后代后才能确认执行已关闭、解除回答阻塞或释放条目；自然成功不会因这个必要收尾被改写成取消。平台进程容器属于 infra/process，execution 和 Job 不枚举或另存一份后代状态。

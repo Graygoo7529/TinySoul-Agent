@@ -622,6 +622,72 @@ describe("ActionDetailPanel", () => {
     expect(container.querySelectorAll("[data-line-number]")).toHaveLength(0);
     expect(container.textContent).toContain("plain text");
   });
+
+  it("renders job summaries, submitted Memory Markdown and Home text diffs in detail views", async () => {
+    serveEvents([
+      event("action.call", 10, {
+        call_id: "c1", action: "core.job.status", domain: "core", sequence: 1,
+        params: { job_id: "job_9" },
+      }, [TURN, CYCLE, PHASE2]),
+      event("action.result", 20, {
+        result_id: "r1", call_id: "c1", action: "core.job.status",
+        status: "success", stage: "execution", sequence: 1, domain: "core",
+        invoke_id: "invoke_c1", batch_id: "b1", failure: null,
+        payload: { job_id: "job_9", state: "running", summary: "uv run --locked --extra dev python scripts/test.py --suite full" },
+      }, [TURN, CYCLE, PHASE3]),
+    ]);
+    render(
+      <ActionDetailPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29"
+        selector={{ callId: "c1", action: "core.job.status", ordinal: 0 }} />,
+    );
+    await flush();
+    expect(container.textContent).toContain("summary");
+    expect(container.textContent).toContain("uv run --locked --extra dev python scripts/test.py --suite full");
+
+    serveEvents([
+      event("action.call", 30, {
+        call_id: "c2", action: "memory.write_daily", domain: "memory", sequence: 1,
+        params: { markdown: "## 今日进展\n- 完成 Context 容量恢复设计" },
+      }, [TURN, CYCLE, PHASE2]),
+      event("action.result", 40, {
+        result_id: "r2", call_id: "c2", action: "memory.write_daily",
+        status: "success", stage: "execution", sequence: 1, domain: "memory",
+        invoke_id: "invoke_c2", batch_id: "b1", failure: null,
+        payload: { ref: "memory:daily/2026-10-28", written: true },
+      }, [TURN, CYCLE, PHASE3]),
+    ]);
+    render(
+      <ActionDetailPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29"
+        selector={{ callId: "c2", action: "memory.write_daily", ordinal: 0 }} />,
+    );
+    await flush();
+    expect(container.textContent).toContain("提交内容");
+    expect(container.querySelector(".md-body h2")?.textContent).toBe("今日进展");
+
+    serveEvents([
+      event("action.call", 50, {
+        call_id: "c3", action: "home.diff", domain: "home", sequence: 1,
+        params: { paths: ["home:top/agent/context"] },
+      }, [TURN, CYCLE, PHASE2]),
+      event("action.result", 60, {
+        result_id: "r3", call_id: "c3", action: "home.diff",
+        status: "success", stage: "execution", sequence: 1, domain: "home",
+        invoke_id: "invoke_c3", batch_id: "b1", failure: null,
+        payload: { items: [{
+          ref: "home:top/agent/context", kind: "change",
+          actual: { text: "Context 容量压力由 provider 重试" },
+          runtime: { text: "Context 容量压力由 owner 回收并重建" },
+        }] },
+      }, [TURN, CYCLE, PHASE3]),
+    ]);
+    render(
+      <ActionDetailPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29"
+        selector={{ callId: "c3", action: "home.diff", ordinal: 0 }} />,
+    );
+    await flush();
+    expect(container.textContent).toContain("− Context 容量压力由 provider 重试");
+    expect(container.textContent).toContain("+ Context 容量压力由 owner 回收并重建");
+  });
 });
 
 // ---------------------------------------------------------------------------

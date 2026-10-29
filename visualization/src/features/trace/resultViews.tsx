@@ -1059,6 +1059,9 @@ function JobControlView({ result, params, nav }: ResultViewProps) {
           <FactRow label="event" value={asString(result.event_id)} />
         )}
         {timeout !== null && <FactRow label="timeout" value={`${timeout}s`} />}
+        {asString(result.summary) !== null && asString(result.summary) !== "" && (
+          <FactRow label="summary" value={asString(result.summary)} />
+        )}
         {result.ready !== undefined && (
           <FactRow label="ready" value={result.ready === true ? "yes" : "no"} />
         )}
@@ -1220,10 +1223,11 @@ function SessionOrganizeView({ result, nav }: ResultViewProps) {
 }
 
 /** Home review/diff and Memory persistent writes (Reflection scope). */
-function ReflectionWriteView({ result, nav }: ResultViewProps) {
+function ReflectionWriteView({ action, result, params, nav }: ResultViewProps) {
   if (result === null) return <EmptyResult />;
   const items = Array.isArray(result.items) ? result.items : null;
   const link = asString(result.ref);
+  const markdown = params !== null ? asString(params.markdown) : null;
   return (
     <div className="space-y-2">
       {link !== null && (
@@ -1232,6 +1236,14 @@ function ReflectionWriteView({ result, nav }: ResultViewProps) {
           <ReferenceButton reference={link} onOpen={nav.openReference} />
           {result.written === true && <Badge tone="green">written</Badge>}
         </div>
+      )}
+      {markdown !== null && markdown.trim() !== "" &&
+        (action === "memory.write" || action === "memory.write_daily") && (
+        <Collapsible title={`提交内容（${markdown.length} 字符）`} defaultOpen={markdown.length <= 1200}>
+          <Markdown className="md-calm text-[12px]" origin={{ ref: "" }}>
+            {markdown}
+          </Markdown>
+        </Collapsible>
       )}
       {items !== null && (
         <div className="space-y-1">
@@ -1242,30 +1254,36 @@ function ReflectionWriteView({ result, nav }: ResultViewProps) {
             const decision = asString(item.decision);
             const reason = asString(item.reason);
             const kind = asString(item.kind);
+            const before = asString(asObject(item.actual)?.text) ?? "";
+            const after = asString(asObject(item.runtime)?.text) ?? "";
+            const hasDiff = action === "home.diff" && before !== after;
             return (
               <div
                 key={index}
-                className="flex items-center gap-2 rounded-md border border-line/60 px-2.5 py-1.5"
+                className="space-y-2 rounded-md border border-line/60 px-2.5 py-1.5"
               >
-                <span className="min-w-0 flex-1">
-                  {itemLink !== null ? (
-                    <ReferenceButton reference={itemLink} onOpen={nav.openReference} />
-                  ) : (
-                    <span className="text-[12px] text-fg-muted">item {index + 1}</span>
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1">
+                    {itemLink !== null ? (
+                      <ReferenceButton reference={itemLink} onOpen={nav.openReference} />
+                    ) : (
+                      <span className="text-[12px] text-fg-muted">item {index + 1}</span>
+                    )}
+                  </span>
+                  {item.reviewed === true && <Badge tone="green">reviewed</Badge>}
+                  {item.reviewed === false && (
+                    <Badge tone="gray" title={reason ?? undefined}>
+                      not reviewed{reason !== null ? `: ${reason}` : ""}
+                    </Badge>
                   )}
-                </span>
-                {item.reviewed === true && <Badge tone="green">reviewed</Badge>}
-                {item.reviewed === false && (
-                  <Badge tone="gray" title={reason ?? undefined}>
-                    not reviewed{reason !== null ? `: ${reason}` : ""}
-                  </Badge>
-                )}
-                {decision !== null && (
-                  <Badge tone={decision === "accept" ? "green" : "yellow"}>
-                    {decision}
-                  </Badge>
-                )}
-                {kind !== null && <Badge tone="gray">{kind}</Badge>}
+                  {decision !== null && (
+                    <Badge tone={decision === "accept" ? "green" : "yellow"}>
+                      {decision}
+                    </Badge>
+                  )}
+                  {kind !== null && <Badge tone="gray">{kind}</Badge>}
+                </div>
+                {hasDiff && <DiffGlimpse oldText={before} newText={after} />}
               </div>
             );
           })}

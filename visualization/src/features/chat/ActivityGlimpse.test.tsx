@@ -196,3 +196,89 @@ it("falls back to field counts for nested or empty core.reason results", () => {
   expect(host.textContent).toContain("对象 · 0 个字段");
   expect(glimpseBody(result({ actionId: "core.ask", payload: { question: "not a gist" } }))).toBeNull();
 });
+
+it("shows wait conditions and actual job content", () => {
+  act(() => root.render(glimpseBody(result({
+    actionId: "core.wait",
+    payload: { event_kind: "job", timeout_seconds: 30 },
+  }))));
+  expect(host.textContent).toContain("等待 Job 事件");
+  expect(host.textContent).toContain("30s");
+  expect(host.textContent).not.toContain("completed");
+
+  act(() => root.render(glimpseBody(result({
+    actionId: "core.job.status",
+    payload: { job_id: "job_9", state: "running", summary: "uv run --locked --extra dev python scripts/test.py --suite full" },
+  }))));
+  expect(host.textContent).toContain("job_9");
+  expect(host.textContent).toContain("running");
+  expect(host.textContent).toContain("uv run --locked --extra dev python scripts/test.py --suite full");
+});
+
+it("shows ACP briefs and real MCP names and call content", () => {
+  act(() => root.render(glimpseBody(result({
+    actionId: "subagent.delegate", stage: "plan",
+    params: { connection_id: "conn_3", brief: "分析失败原因\n第二行不显示" },
+  }))));
+  expect(host.textContent).toContain("委派 conn_3");
+  expect(host.textContent).toContain("分析失败原因");
+  expect(host.textContent).not.toContain("第二行不显示");
+
+  act(() => root.render(glimpseBody(result({
+    actionId: "subagent.delegate",
+    payload: { connection_id: "conn_3", job_id: "job_9" },
+  }))));
+  expect(host.textContent).toContain("conn_3");
+  expect(host.textContent).toContain("job_9");
+  expect(host.textContent).toContain("已受理");
+  expect(host.textContent).not.toContain("running");
+
+  act(() => root.render(glimpseBody(result({
+    actionId: "expand.describe_servers",
+    payload: { servers: [{ server_id: "filesystem" }, { server_id: "docs" }] },
+  }))));
+  expect(host.textContent).toContain("filesystem");
+  expect(host.textContent).toContain("docs");
+
+  act(() => root.render(glimpseBody(result({
+    actionId: "expand.describe_tools",
+    payload: { tools: [{ tool_name: "read_file" }, { tool_name: "search" }, { tool_name: "get_weather" }] },
+  }))));
+  expect(host.textContent).toContain("read_file");
+  expect(host.textContent).toContain("search");
+  expect(host.textContent).toContain("get_weather");
+
+  act(() => root.render(glimpseBody(result({
+    actionId: "expand.call",
+    params: { server_id: "docs", tool_name: "search", arguments: { query: "Context" } },
+    payload: { content: [{ type: "text", text: "找到 2 条相关文档，建议先读取 Context 设计部分。" }] },
+  }))));
+  expect(host.textContent).toContain("docs:search");
+  expect(host.textContent).toContain("找到 2 条相关文档，建议先读取 Context 设计部分。");
+});
+
+it("shows created session refs, submitted Markdown and actual Home differences", () => {
+  act(() => root.render(glimpseBody(result({
+    actionId: "core.session.organize",
+    payload: { changed_refs: ["session:node/2026-10-28/1", "session:edge/2026-10-28/2"], created_refs: { "release-review": "session:thread/2026-10-28/7" } },
+  }))));
+  expect(host.textContent).toContain("新建解释 release-review");
+  expect(host.textContent).toContain("session:thread/2026-10-28/7");
+
+  act(() => root.render(glimpseBody(result({
+    actionId: "memory.write_daily",
+    params: { markdown: "## 今日进展\n- 完成 Context 容量恢复设计\n- 补充 4 个回归测试" },
+    payload: { ref: "memory:daily/2026-10-28", written: true },
+  }))));
+  expect(host.textContent).toContain("已写入");
+  expect(host.textContent).toContain("今日进展");
+  expect(host.textContent).toContain("完成 Context 容量恢复设计");
+  expect(host.textContent).toContain("补充 4 个回归测试");
+
+  act(() => root.render(glimpseBody(result({
+    actionId: "home.diff",
+    payload: { items: [{ ref: "home:top/agent/context", kind: "change", actual: { text: "Context 容量压力由 provider 重试" }, runtime: { text: "Context 容量压力由 owner 回收并重建" } }] },
+  }))));
+  expect(host.textContent).toContain("− Context 容量压力由 provider 重试");
+  expect(host.textContent).toContain("+ Context 容量压力由 owner 回收并重建");
+});

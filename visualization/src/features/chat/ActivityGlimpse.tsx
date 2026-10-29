@@ -3,8 +3,9 @@
  * diff rows, terminal tails and bounded search hits retain the baseline layout.
  * Full result-family views stay in the trace drawer.
  */
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactElement } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { Markdown } from "../../components/markdown/Markdown";
 import { Crossfade } from "../../components/ui/Crossfade";
 import { diffLines } from "../../utils/diff";
 import { EASE_CALM } from "../../utils/motion";
@@ -80,6 +81,16 @@ export function glimpseBody(data: ActionGlimpseData) {
           </div>
         : null;
     }
+    if (data.actionId === "subagent.delegate") {
+      const brief = asString(params.brief);
+      const line = brief?.split("\n").map((part) => part.trim()).find((part) => part !== "") ?? null;
+      const connectionId = asString(params.connection_id);
+      if (line === null && connectionId === null) return null;
+      return <div className="min-w-0">
+        {connectionId !== null && <div className="text-[10px] font-medium text-accent">委派 {connectionId}</div>}
+        {line !== null && <div className="line-clamp-2 break-words text-[11px] text-fg-muted">{line}</div>}
+      </div>;
+    }
     const instruction = asString(params.instruction) ?? asString(params.text) ?? asString(asObject(params.source)?.query);
     return instruction ? <div className="line-clamp-2 break-words text-[11px] text-fg-muted">{instruction}</div> : null;
   }
@@ -91,6 +102,8 @@ export function glimpseBody(data: ActionGlimpseData) {
   if (family === "write") return <WriteResultGlimpse actionId={data.actionId} payload={payload} />;
   if (family === "execution") return <TerminalGlimpse payload={payload} />;
   if (data.actionId === "core.reason") return <ReasonResultGlimpse payload={payload} />;
+  const lowFrequency = lowFrequencyGist(data);
+  if (lowFrequency !== undefined) return lowFrequency;
   if (family === "analysis") {
     const gist = analysisGist(data.actionId, payload);
     if (gist !== null) return <div className="min-w-0">
@@ -142,6 +155,191 @@ export function glimpseBody(data: ActionGlimpseData) {
     {title && <div className="truncate text-[11px] font-medium text-fg">{title}</div>}
     {text && <div className="line-clamp-2 break-words text-[11px] text-fg-muted">{text}</div>}
   </div> : null;
+}
+
+type ChipTone = "accent" | "green" | "gray" | "red";
+
+function Chip({ text, tone = "gray" }: { text: string; tone?: ChipTone }) {
+  const className = tone === "accent"
+    ? "bg-accent-soft text-accent"
+    : tone === "green"
+      ? "bg-success-soft text-success"
+      : tone === "red"
+        ? "bg-danger-soft text-danger"
+        : "bg-hover text-fg-muted";
+  return <span className={`rounded px-1.5 py-px font-mono text-[9px] ${className}`}>{text}</span>;
+}
+
+function ChipRow({ items }: { items: { text: string; tone?: ChipTone }[] }) {
+  return <div className="flex flex-wrap gap-1">{items.map((item, index) => <Chip key={index} text={item.text} tone={item.tone} />)}</div>;
+}
+
+function GistText({ text }: { text: string }) {
+  return <div className="line-clamp-2 break-words text-[11px] text-fg-muted">{text}</div>;
+}
+
+function markdownExcerpt(text: string): string {
+  const lines = text.split("\n").slice(0, 4).join("\n");
+  return lines.length > 240 ? `${lines.slice(0, 240)}…` : lines;
+}
+
+function lowFrequencyGist(data: ActionGlimpseData): ReactElement | null | undefined {
+  const payload = data.payload;
+  if (payload === null || payload === undefined) return undefined;
+  const params = asObject(data.params) ?? {};
+  if (data.actionId === "core.wait") {
+    const kind = asString(payload.event_kind);
+    const label = kind === "job" ? "等待 Job 事件" : kind === "timer" ? "等待定时器" : kind === "event" ? "等待环境事件" : "等待";
+    const timeout = asNumber(payload.timeout_seconds);
+    const topic = asString(payload.topic);
+    const source = asString(payload.source);
+    const eventId = asString(payload.event_id);
+    return <div className="space-y-1">
+      <ChipRow items={[{ text: label, tone: "accent" }, ...(timeout !== null ? [{ text: `${timeout}s` }] : [])]} />
+      {(topic !== null || source !== null || eventId !== null) && <GistText text={eventId ?? topic ?? source ?? ""} />}
+    </div>;
+  }
+  if (data.actionId === "core.job.status" || data.actionId === "core.job.stop") {
+    const jobId = asString(payload.job_id);
+    const state = asString(payload.state);
+    const summary = asString(payload.summary);
+    return <div className="space-y-1">
+      <ChipRow items={[
+        ...(jobId !== null ? [{ text: jobId, tone: "accent" as const }] : []),
+        ...(state !== null ? [{ text: state, tone: state === "completed" ? "green" as const : state === "failed" || state === "stopped" ? "red" as const : "gray" as const }] : []),
+      ]} />
+      {summary !== null && summary !== "" && <GistText text={summary} />}
+    </div>;
+  }
+  if (data.actionId === "subagent.delegate") {
+    const connectionId = asString(payload.connection_id);
+    const jobId = asString(payload.job_id);
+    const state = asString(payload.state);
+    return <div className="space-y-1">
+      <ChipRow items={[
+        ...(connectionId !== null ? [{ text: connectionId, tone: "accent" as const }] : []),
+        ...(jobId !== null ? [{ text: jobId, tone: "accent" as const }] : []),
+        { text: "已受理", tone: "accent" },
+        ...(state !== null ? [{ text: state, tone: "gray" as const }] : []),
+      ]} />
+    </div>;
+  }
+  if (data.actionId === "subagent.connect") {
+    const connectionId = asString(payload.connection_id);
+    const agentId = asString(payload.agent_id);
+    return <div className="space-y-1">
+      <div className="text-[10px] font-medium text-accent">已连接</div>
+      <ChipRow items={[
+        ...(connectionId !== null ? [{ text: connectionId, tone: "accent" as const }] : []),
+        ...(agentId !== null ? [{ text: agentId }] : []),
+      ]} />
+    </div>;
+  }
+  if (data.actionId === "subagent.agents") {
+    const agents = Array.isArray(payload.agents) ? payload.agents : [];
+    const items = agents.flatMap((entry) => {
+      const id = asString(asObject(entry)?.agent_id);
+      return id !== null ? [{ text: id }] : [];
+    });
+    return items.length > 0 ? <div className="space-y-1"><div className="text-[10px] font-medium text-accent">可委派 Agent</div><ChipRow items={items.slice(0, 3)} /></div> : undefined;
+  }
+  if (data.actionId === "subagent.respond") {
+    const jobId = asString(payload.job_id);
+    const requestId = asString(payload.request_id);
+    return <div className="space-y-1">
+      <div className="text-[10px] font-medium text-accent">已回应</div>
+      <ChipRow items={[...(jobId !== null ? [{ text: jobId, tone: "accent" as const }] : []), ...(requestId !== null ? [{ text: requestId }] : [])]} />
+    </div>;
+  }
+  if (data.actionId === "subagent.collect") {
+    const text = asString(payload.text);
+    const jobId = asString(payload.job_id);
+    const resultRef = asString(payload.result_ref);
+    return <div className="space-y-1">
+      {jobId !== null && <div className="text-[10px] font-medium text-accent">读取输出 {jobId}</div>}
+      {text !== null && text !== "" ? <GistText text={text} /> : resultRef !== null ? <div className="font-mono text-[11px] text-accent">{resultRef}</div> : null}
+    </div>;
+  }
+  if (data.actionId === "subagent.disconnect") {
+    const connectionId = asString(payload.connection_id);
+    return <div className="space-y-1"><div className="text-[10px] font-medium text-accent">已断开</div>{connectionId !== null && <ChipRow items={[{ text: connectionId, tone: "accent" }]} />}</div>;
+  }
+  if (data.actionId === "expand.describe_servers") {
+    const servers = Array.isArray(payload.servers) ? payload.servers : [];
+    const items = servers.flatMap((entry) => {
+      const id = asString(asObject(entry)?.server_id);
+      return id !== null ? [{ text: id }] : [];
+    });
+    return items.length > 0 ? <div className="space-y-1"><div className="text-[10px] font-medium text-accent">MCP 服务</div><ChipRow items={items.slice(0, 3)} /></div> : undefined;
+  }
+  if (data.actionId === "expand.describe_tools") {
+    const tools = Array.isArray(payload.tools) ? payload.tools : [];
+    const items = tools.flatMap((entry) => {
+      const id = asString(asObject(entry)?.tool_name);
+      return id !== null ? [{ text: id }] : [];
+    });
+    return items.length > 0 ? <div className="space-y-1"><div className="text-[10px] font-medium text-accent">MCP 工具</div><ChipRow items={items.slice(0, 3)} /></div> : undefined;
+  }
+  if (data.actionId === "expand.call") {
+    const server = asString(params.server_id);
+    const tool = asString(params.tool_name);
+    const content = Array.isArray(payload.content) ? payload.content : [];
+    const first = content.map(asObject).find((entry) => asString(entry?.text) !== null);
+    const text = first !== undefined && first !== null ? asString(first.text) : null;
+    const resultRef = asString(payload.result_ref);
+    return <div className="space-y-1">
+      {(server !== null || tool !== null) && <div className="font-mono text-[10px] font-medium text-accent">{server ?? ""}{server !== null && tool !== null ? ":" : ""}{tool ?? ""}</div>}
+      {text !== null ? <GistText text={text} /> : resultRef !== null ? <div className="font-mono text-[11px] text-accent">{resultRef}</div> : null}
+    </div>;
+  }
+  if (data.actionId === "core.session.organize") {
+    const created = asObject(payload.created_refs);
+    const first = created !== null ? Object.entries(created)[0] : undefined;
+    if (first !== undefined) {
+      const [name, ref] = first;
+      return <div className="space-y-0.5"><div className="text-[10px] font-medium text-accent">新建解释 {name}</div>{typeof ref === "string" && <div className="font-mono text-[11px] text-accent">{ref}</div>}</div>;
+    }
+    const changed = Array.isArray(payload.changed_refs) ? payload.changed_refs.filter((value): value is string => typeof value === "string") : [];
+    return changed.length > 0 ? <div className="space-y-0.5"><div className="text-[10px] font-medium text-accent">变更引用</div>{changed.slice(0, 2).map((ref) => <div key={ref} className="truncate font-mono text-[11px] text-accent">{ref}</div>)}</div> : undefined;
+  }
+  if (data.actionId === "memory.write" || data.actionId === "memory.write_daily") {
+    const markdown = asString(params.markdown);
+    const ref = asString(payload.ref);
+    return <div className="space-y-1">
+      <ChipRow items={[{ text: "已写入", tone: "green" }]} />
+      {markdown !== null && markdown.trim() !== ""
+        ? <Markdown className="md-calm text-[11px]" origin={{ ref: "" }}>{markdownExcerpt(markdown)}</Markdown>
+        : ref !== null ? <div className="font-mono text-[11px] text-accent">{ref}</div> : null}
+    </div>;
+  }
+  if (data.actionId === "home.diff") {
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    for (const entry of items) {
+      const item = asObject(entry);
+      if (item === null) continue;
+      const before = asString(asObject(item.actual)?.text) ?? "";
+      const after = asString(asObject(item.runtime)?.text) ?? "";
+      if (before !== after) return <DiffGlimpse oldText={before} newText={after} />;
+    }
+    return undefined;
+  }
+  if (data.actionId === "home.review") {
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    const item = asObject(items[0]);
+    if (item === null) return undefined;
+    const ref = asString(item.ref);
+    const decision = asString(item.decision);
+    const reason = asString(item.reason);
+    return <div className="space-y-1">
+      <ChipRow items={[
+        ...(decision !== null ? [{ text: decision, tone: decision === "accept" ? "green" as const : "gray" as const }] : []),
+        ...(item.reviewed === false ? [{ text: "not reviewed" }] : []),
+      ]} />
+      {ref !== null && <div className="font-mono text-[11px] text-accent">{ref}</div>}
+      {reason !== null && reason !== "" && <GistText text={reason} />}
+    </div>;
+  }
+  return undefined;
 }
 
 function ReasonResultGlimpse({ payload }: { payload: Record<string, unknown> }) {
