@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
 
-from lxml import html
+from lxml import etree, html
 
 from tinysoul.infra import JsonObject, dumps_json, to_json_object
 from tinysoul.infra.http import client_headers, httpx2_sync_mounts
@@ -59,9 +59,13 @@ def main() -> int:
             "dependency_unavailable",
             prompt_text.WEB_WORKER_DEPENDENCY_IS_UNAVAILABLE,
         )
-    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+    except Exception as exc:
+        # The fixed worker boundary reports unexpected implementation failures
+        # without presenting them as invalid page content or leaking raw errors.
         response = _failure(
-            "worker_failed", prompt_text.WEB_WORKER_COULD_NOT_COMPLETE_THE_REQUEST
+            "worker_failed",
+            prompt_text.WEB_WORKER_COULD_NOT_COMPLETE_THE_REQUEST,
+            payload={"error_type": type(exc).__name__},
         )
     sys.stdout.write(dumps_json(response))
     return 0 if response.get("ok") is True else 1
@@ -581,7 +585,7 @@ def _html_title(value: str, url: str) -> str:
     try:
         document = html.fromstring(value)
         titles = document.xpath("//title/text()")
-    except Exception:
+    except (etree.ParserError, etree.XMLSyntaxError, ValueError):
         titles = []
     if titles:
         normalized = " ".join(str(titles[0]).split())

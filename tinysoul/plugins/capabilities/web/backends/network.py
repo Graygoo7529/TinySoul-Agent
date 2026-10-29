@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
-from lxml import html
+from lxml import etree, html
 
 from tinysoul.infra.http import httpx_sync_mounts
 from tinysoul.infra.network import ResolvedNetwork
@@ -295,13 +295,13 @@ def normalize_html_links(value: str, *, base_url: str) -> str:
 
     try:
         document = html.fromstring(value, base_url=base_url)
-        document.make_refs_absolute(base_url, resolve_base_href=True)
+        document.make_links_absolute(base_url, resolve_base_href=True)
         return html.tostring(document, encoding="unicode", method="html")
-    # lxml does not expose a stable cross-version parser exception hierarchy.
-    except Exception as exc:
+    except (etree.ParserError, etree.XMLSyntaxError, ValueError) as exc:
         raise WebProcessingError(
             prompt_text.WEB_PAGE_HTML_COULD_NOT_BE_NORMALIZED,
             reason="invalid_html",
+            payload={"error_type": type(exc).__name__},
         ) from exc
 
 

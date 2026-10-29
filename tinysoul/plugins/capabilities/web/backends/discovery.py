@@ -16,7 +16,7 @@ from crawlee import ConcurrencySettings, Request
 from crawlee.crawlers import BasicCrawler, BasicCrawlingContext
 from crawlee.storage_clients import MemoryStorageClient
 from crawlee.storages import RequestQueue
-from lxml import html
+from lxml import etree, html
 
 from tinysoul.infra import JsonObject, to_json_object
 
@@ -362,7 +362,7 @@ def _page_links(
 ) -> tuple[list[tuple[str, _Reference, bool]], bool]:
     try:
         document = html.fromstring(page.html)
-    except Exception as exc:
+    except (etree.ParserError, etree.XMLSyntaxError, ValueError) as exc:
         raise WebProcessingError(
             "Discovery page HTML could not be inspected",
             reason="invalid_html",
@@ -438,7 +438,7 @@ def _candidate_url(
 def _page_metadata(page: FetchedPage) -> dict[str, str]:
     try:
         document = html.fromstring(page.html)
-    except Exception:
+    except (etree.ParserError, etree.XMLSyntaxError, ValueError):
         return {"title": "", "description": "", "h1": "", "canonical_url": ""}
     canonical = ""
     canonical_values = document.xpath(
@@ -554,7 +554,7 @@ def _reference_key(reference: _Reference) -> tuple[str, str, str, str]:
 def _failure_reason(error: Exception) -> str:
     if isinstance(error, WebProcessingError):
         return error.reason
-    return "page_visit_failed"
+    return "worker_failed"
 
 
 def _stop_reason(reasons: set[str]) -> str:

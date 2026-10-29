@@ -74,6 +74,8 @@ Search answer/results、网页正文、title、snippet 和远程链接都属于�
 
 worker 超时或 Runtime transfer 通过 `ControlledProcessRunner` 终止进程树；commit point 前再次检查 cancellation/deadline。worker 非零退出、无效 JSON、staged path 越界或字段不满足协议收敛为稳定局部失败，并且不得提交 Workspace 或发布 snapshot signal。Action 边界保留 Web owner 已整理的具体反馈，同时按现有 failure reason 计算 disposition；搜索/抓取的原始异常、绝对路径、密钥、worker stderr 和供应商原始响应不进入模型反馈。配置限制、HTTP 状态、结果大小等对模型修正有用的事实可由 owner 以有界动态值进入 feedback、constraint 或 payload。Action 的执行 deadline 仍由 Action Catalog/runtime 负责，文案不复制默认时长；如果需要说明实际生效时长，由 Action owner 传入当前值。
 
+HTML 规范化共用于两个 Fetch 与 Discovery，只将已知解析异常归为 `invalid_html`。未知实现错误在固定 worker 边界返回 `worker_failed`，使用已有 `stop` 处置和有界 `error_type` 诊断；Discovery 的未知页面处理错误也使用 `worker_failed`，不将编程错误解释为可以通过切换提取器修正的页面问题。
+
 ## 后续边界
 
 Playwright/browser rendering、跨域 discovery、sitemap loader、持久 RequestQueue、缓存、跨重启 resume、WARC 和自动整站正文提交不属于首版 Page Discovery。它们不能通过扩大 `web.discover_pages` 参数隐式加入，也不要求新增 backend kind；出现真实场景时应增加清晰 action 或独立设计长期状态边界。
