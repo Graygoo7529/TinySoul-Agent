@@ -68,6 +68,18 @@ export function glimpseBody(data: ActionGlimpseData) {
       return kinds.length ? <div className="flex flex-wrap gap-1">{kinds.map((kind, i) =>
         <span key={i} className="rounded bg-hover px-1.5 py-px font-mono text-[10px] text-fg-muted">{kind}</span>)}</div> : null;
     }
+    if (data.actionId === "core.reason") {
+      const blocks = Array.isArray(params.guide_blocks) ? params.guide_blocks : [];
+      const guide = asObject(blocks[0]);
+      const text = asString(guide?.text);
+      const line = text?.split("\n").map((part) => part.trim()).find((part) => part !== "") ?? null;
+      return line !== null
+        ? <div className="min-w-0">
+            <div className="text-[10px] font-medium text-accent">推理任务</div>
+            <div className="line-clamp-2 break-words text-[11px] text-fg-muted">{line}</div>
+          </div>
+        : null;
+    }
     const instruction = asString(params.instruction) ?? asString(params.text) ?? asString(asObject(params.source)?.query);
     return instruction ? <div className="line-clamp-2 break-words text-[11px] text-fg-muted">{instruction}</div> : null;
   }
@@ -78,6 +90,7 @@ export function glimpseBody(data: ActionGlimpseData) {
   if (!payload) return null;
   if (family === "write") return <WriteResultGlimpse actionId={data.actionId} payload={payload} />;
   if (family === "execution") return <TerminalGlimpse payload={payload} />;
+  if (data.actionId === "core.reason") return <ReasonResultGlimpse payload={payload} />;
   if (family === "analysis") {
     const gist = analysisGist(data.actionId, payload);
     if (gist !== null) return <div className="min-w-0">
@@ -129,6 +142,36 @@ export function glimpseBody(data: ActionGlimpseData) {
     {title && <div className="truncate text-[11px] font-medium text-fg">{title}</div>}
     {text && <div className="line-clamp-2 break-words text-[11px] text-fg-muted">{text}</div>}
   </div> : null;
+}
+
+function ReasonResultGlimpse({ payload }: { payload: Record<string, unknown> }) {
+  let scalar: { key: string; value: string } | null = null;
+  for (const [key, value] of Object.entries(payload)) {
+    if (typeof value === "string" && value.trim() !== "") {
+      const text = value.trim();
+      scalar = { key, value: text.length > 180 ? `${text.slice(0, 180)}…` : text };
+      break;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      scalar = { key, value: String(value) };
+      break;
+    }
+    if (typeof value === "boolean") {
+      scalar = { key, value: String(value) };
+      break;
+    }
+  }
+  return <div className="min-w-0">
+    <div className="flex items-center gap-1.5 text-[10px]">
+      <span className="rounded bg-accent-soft px-1.5 py-px font-mono text-accent">JSON</span>
+      {scalar === null && <span className="text-fg-faint">对象 · {Object.keys(payload).length} 个字段</span>}
+    </div>
+    {scalar !== null && (
+      <div className="mt-0.5 break-words font-mono text-[11px] text-fg-muted">
+        <span className="text-accent">{scalar.key}</span>: {scalar.value}
+      </div>
+    )}
+  </div>;
 }
 
 function WriteResultGlimpse({ actionId, payload }: { actionId: string; payload: Record<string, unknown> }) {

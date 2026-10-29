@@ -149,3 +149,50 @@ it("keeps web gists focused on primary content and adds only discovery states", 
   expect(host.textContent).not.toContain("2 已访问");
   expect(host.textContent).not.toContain("第四页不进入有界 gist");
 });
+
+it("shows the first nonempty guide line for core.reason planning", () => {
+  act(() => root.render(glimpseBody(result({
+    actionId: "core.reason", stage: "plan",
+    params: {
+      guide_blocks: [{ text: "\n判断由谁负责容量恢复\n第二行不进入摘要" }],
+      input_blocks: [{ text: "输入区不进入摘要" }],
+      output_blocks: [{ text: "输出协议不进入摘要" }],
+    },
+  }))));
+  expect(host.textContent).toContain("推理任务");
+  expect(host.textContent).toContain("判断由谁负责容量恢复");
+  expect(host.textContent).not.toContain("第二行不进入摘要");
+  expect(host.textContent).not.toContain("输入区不进入摘要");
+  expect(host.textContent).not.toContain("输出协议不进入摘要");
+});
+
+it("summarizes the first readable scalar in a core.reason JSON object", () => {
+  act(() => root.render(glimpseBody(result({
+    actionId: "core.reason",
+    payload: { decision: "rebuild_context", confidence: 0.86, evidence: [{ ref: "turn:trace/1" }] },
+  }))));
+  expect(host.textContent).toContain("JSON");
+  expect(host.textContent).toContain("decision: rebuild_context");
+  expect(host.textContent).not.toContain("confidence");
+  expect(host.textContent).not.toContain("evidence");
+
+  act(() => root.render(glimpseBody(result({
+    actionId: "core.reason",
+    payload: { cache_hit: false, retries: 0 },
+  }))));
+  expect(host.textContent).toContain("cache_hit: false");
+  expect(host.textContent).not.toContain("retries");
+});
+
+it("falls back to field counts for nested or empty core.reason results", () => {
+  act(() => root.render(glimpseBody(result({
+    actionId: "core.reason",
+    payload: { trace: { nodes: 3 }, tags: ["context"] },
+  }))));
+  expect(host.textContent).toContain("对象 · 2 个字段");
+  expect(host.textContent).not.toContain("nodes");
+
+  act(() => root.render(glimpseBody(result({ actionId: "core.reason", payload: {} }))));
+  expect(host.textContent).toContain("对象 · 0 个字段");
+  expect(glimpseBody(result({ actionId: "core.ask", payload: { question: "not a gist" } }))).toBeNull();
+});
