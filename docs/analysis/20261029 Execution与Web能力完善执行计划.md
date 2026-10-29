@@ -156,7 +156,7 @@ ManagedProcessRunner 将 stdout/stderr 接到二进制管道；每个流由有�
 
 采集器是 Infra 的具体资源对象，负责管道、增量解码器、文件和完成事件；不拥有 Job 状态、Turn、重试或 Runtime bridge。Windows/POSIX 复用文本采集，现有平台进程容器保持职责。可新增 `infra/process/capture.py`，不在 Execution 私有化通用 I/O。
 
-- 按有界块读取、解码、写入、刷新，不使用无界字符串缓冲，不额外保存 raw 日志。
+- 按当前可取得的有界块读取、解码、写入、刷新，不等待缓冲区填满、换行或 EOF 才发布已经解码的完整字符；不使用无界字符串缓冲，不额外保存 raw 日志。
 - 多字节字符跨读取块时由同一增量解码器保留尾部，EOF 后才完成解码。
 - `collect` 的 cursor 继续是规范化日志的字符位置；同 cursor 重读不重跑进程。
 - `stdout_bytes/stderr_bytes/max_output_bytes` 统一解释为实际 UTF-8 日志字节数；现有轮询监督继续负责进程输出上限。
@@ -165,13 +165,29 @@ ManagedProcessRunner 将 stdout/stderr 接到二进制管道；每个流由有�
 
 StdioProcess 的 MCP/ACP 协议管道保持原始字节和协议已有编码，不进入日志转码路径。进程请求字段迁移只同步构造调用，不改变协议通信。
 
-### 6.3 结束顺序和现有消费者
+### 6.3 运行期间的状态查询和输出读取
 
-管道采集不能仅等待主 PID 退出后就读取最终结果：后代可能仍持有流，采集线程也可能尚未写完。需要在现有 ManagedProcess 中明确必要 finish 与附属 close：
+维护者明确要求：Job 仍在进行时，Agent 可以主动探查其状态和已有输出。这是现有能力，编码与采集改动必须保留并验证，不以终态或 finish 作为读取前提。
+
+现有链路为 execution.start 返回 Job → Agent 可做其他行动或 core.wait → 定时/匹配事件恢复同一 Turn 的后续 Cycle → core.job.status 与 execution.collect → 判断继续执行、提供输入、停止或再次等待。Agent 也可在未调用 wait 时直接查询；wait 负责安排后续决策时机，不控制 Job 运行或输出可读性。
+
+- core.job.status 返回当前监督快照和 backend 详情，例如当前状态、退出事实、已采集字节数与资源引用。该调用不等待 Job 终态。
+- execution.collect 在 running 和 terminal 状态都可使用，返回当前已采集输出的有界页面与续读 cursor；不停止 Job、不等待 EOF，也不主动排空全部未来输出。
+- 采集器在进程运行期间持续写入 UTF-8 日志。读操作只做短时读取，不持有整个进程生命周期的锁，不调用 finish/terminate，不 join 尚在运行的进程或采集器。
+- 只有多字节字符尚不完整的尾部需要留待后续字节补全；已经完成的字符及时可见。子程序尚未写出或仍缓冲在自身内存里的内容不属于已取得输出，不能由没有新输出推断它已结束、卡死或正在请求输入。
+- 同一 cursor 可重读当前页；按返回 cursor 可取得后续追加内容。一次返回空页不表示 EOF 或 Job 完成，应结合状态判断。
+
+`core.wait(event_kind="job", timeout_seconds=30)` 表示 Job 终态/待答事件与 30 秒时限二者先到者恢复 Turn；定时醒来时 Job 完全可以仍在 running。当前普通 stdout/stderr 追加不自动触发新的 Cycle，仍可通过定时醒来主动 collect；按需监听 Workspace 变化沿现有显式事件过滤。无需为可读的运行中输出增加逐块唤醒或第二套定时机制。
+
+### 6.4 进程退出后的收尾与最终输出
+
+这里的“进程结束”只指操作系统进程退出或被停止后的资源收尾，与 Agent 的 core.wait 是不同层次。运行中的输出按上一节持续可读；只有在承诺最终输出完整、交付稳定终态时，才需要收齐剩余内容。
+
+管道采集不能仅凭主 PID 退出就把已有输出当成最终完整结果：后代可能仍持有流，采集线程也可能尚未写完。需要在现有 ManagedProcess 中明确必要 finish 与附属 close：
 
 1. 根进程自然退出或被停止后，沿现有 ProcessScope 停止并确认剩余后代；保留真实根退出码。
 2. 等待两个采集流 EOF，完成解码、写入与必要 flush，join 采集器。
-3. 此后正式输出稳定可读；必要采集失败影响结果。
+3. 此后完整输出已收齐，终态结果可稳定读取；不是此时才允许读取已有输出。必要采集失败影响结果。
 4. 附属 close 再关闭句柄、清理临时目录；调用方提供的 Workspace 日志继续保留。附属清理诊断不覆盖已完成主结果。
 
 在现有对象上增加幂等 finish 边界，不另建业务状态机。close 调用 finish 后清理；terminate 继续表达停止执行单元。finish 使用已有生命周期的有界等待，不能在持有采集写锁时 join，也不能先删除日志再读输出。
@@ -282,9 +298,11 @@ Web 行为变化：Discovery 429 保留 status_code；已知页面超时不再�
 | 进程启动 | 真实 CMD 带空格路径/引号/参数/退出码；普通 argv 空参数；现有进程容器测试 |
 | 源码适配 | PowerShell 非 ASCII、命名参数、switch、exit；CMD 中文执行工件；无法编码时不启动进程 |
 | Infra 采集 | UTF-8 和非 UTF-8 字节按明确 codec 转换；字符跨块；流结束前后读取；双流及时排空；写入失败的资源回收 |
+| 运行期间探查 | 子进程先输出一段并等待明确信号，保持 running；此时 status/collect 可及时返回，含未换行的完整字符；再次输出后按 cursor 取得新增部分，读取不触发 finish 或停止 |
 | 结束协作 | 根进程退出但后代持有流；停止后日志收齐；必要采集失败不可发布成功；附属清理不覆盖主结果 |
 | 固定 Action worker | finish 后读取完整结构化输出；输出失败转局部结果；取消与超时保持原语义 |
 | Execution + Workspace | run/start 共用能力；多页/重复 collect；日志与 Workspace.inspect 内容一致；最终输出限额 |
+| Wait 协作 | Job 继续 running 时定时恢复同一 Turn；恢复后能查询已有输出并再次等待；Job 终态/待答仍可提前恢复，普通输出不强制新增 Cycle |
 | 配置及 Endpoint | output_encoding 可读写、校验和 reload；有效 schema 有可选覆盖；不写个人路径 |
 | 网络，D1 确认后 | 直连/代理/no_proxy/端口/redirect；代理域名不调用本地 resolver；字面私网仍拒绝；路由查询与真实 mount 一致 |
 
