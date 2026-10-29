@@ -53,14 +53,15 @@ Crawlee 是 `web-crawl` wheel extra 和开发测试依赖，项目模板默认�
 
 Discovery 保存页面的有限失败 reason/facts。seed 失败保留 HTTP 状态等事实供既有分类使用，例如 429 仍为 retry_same；已知 handler TimeoutError/UserHandlerTimeoutError 是 page_visit_failed/use_fallback，未知实现错误仍为 worker_failed/stop。子页面失败只标记该页面，保留已有部分图。固定 worker 的管道收集失败由 Web/Resource 各自映射为局部 worker_failed，不冒充非零退出或解析失败。
 
-Discovery 的网络解析边界允许显式注入 resolver。生产默认仍使用真实 DNS 与公开地址校验；本地测试共同注入 resolver、页面和 robots 响应，不依赖宿主网络或代理，也不修改生产代理策略。
+Discovery 显式把同一有效网络配置和 resolver 传给 robots、seed 和递归页面读取。入口只规范化 seed URL，实际访问前由共用下载边界根据路由校验目标，不再重复做入口 DNS 检查。测试可注入 resolver、页面和 robots 响应，不依赖宿主网络或代理。
 
 ## Fetch 与提取
 
 Fetch action 接收 `url`、显式 `.md` `target_ref`、显式 overwrite。宿主通过固定 worker 完成“网络读取 -> 本地提取 -> staged Markdown”，校验结果后在单次 `WorkspaceEngine.write_bundle()` 中提交。Web 与 Resource 共用 Agent 装配的项目级 `runtime/.staging/` 根；每次 action 使用唯一子目录，完成、失败或取消后清理，进程中断遗留内容在下次 Agent 启动时清理。staging 不进入 Workspace Manifest、Daily archive 或 capability 持久状态：
 
-- 只接受公开 HTTPS URL，拒绝 userinfo、localhost 以及解析到非 public IP 的目标；
-- 每次跳转重新解析和校验，跳转次数、请求时长、响应 bytes、输出 chars 都有硬上限；
+- 只接受 HTTPS URL，拒绝 userinfo、localhost 和显式非公网 IP；域名直连（包括命中 no_proxy）时使用本机 DNS，要求所有解析地址为公网；
+- 域名实际通过已配置代理时，由代理处理目标解析，不用本机 DNS 结果提前否决；这信任代理的解析和路由能力，TinySoul 不验证代理最终连接的目标 IP；
+- 每次实际访问及重定向均按 Infra 的同一路由判断校验一次；纯 URL 规范化和响应 final_url 不发 DNS 查询。跳转次数、请求时长、响应 bytes、输出 chars 都有硬上限；
 - HTTP client 使用显式网络配置，禁用隐式环境代理、cookie、认证和自动跳转，只接受 HTML/XHTML/plain text；
 - HTML 进入 extractor 前把相对 link/image URL 规范化为远程绝对 URL；
 - Defuddle 只读取已下载的本地 HTML，不能自行 fetch URL；Trafilatura 也只处理同一 staged HTML；

@@ -11,7 +11,6 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from functools import partial
 from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
@@ -73,7 +72,7 @@ def main() -> int:
 
 
 def _search_by_kimi(request: JsonObject) -> JsonObject:
-    from openai import DefaultHttpxClient, OpenAI, OpenAIError
+    from openai import DEFAULT_CONNECTION_LIMITS, DefaultHttpxClient, OpenAI, OpenAIError
     from openai.types.chat import ChatCompletion
 
     query = _required_string(request, "query")
@@ -95,7 +94,9 @@ def _search_by_kimi(request: JsonObject) -> JsonObject:
         default_headers=client_headers(),
         http_client=DefaultHttpxClient(
             trust_env=False,
-            mounts=httpx2_sync_mounts(network_from_environment(os.environ)),
+            mounts=httpx2_sync_mounts(
+                network_from_environment(os.environ), limits=DEFAULT_CONNECTION_LIMITS
+            ),
         ),
     ) as client:
         messages: list[object] = [
@@ -320,7 +321,6 @@ def _kimi_call_shape_facts(
 
 def _discover_pages(request: JsonObject) -> JsonObject:
     from .discovery import DiscoveryRequest, discover_pages
-    from .network import fetch_public_robots
 
     network = network_from_environment(os.environ)
 
@@ -369,8 +369,7 @@ def _discover_pages(request: JsonObject) -> JsonObject:
                 user_agent=_required_string(request, "user_agent"),
                 allow_query_links=_required_bool(request, "allow_query_links"),
             ),
-            page_fetcher=partial(fetch_public_page, network=network),
-            robots_fetcher=partial(fetch_public_robots, network=network),
+            network=network,
         )
     )
     if len(dumps_json(result)) > max_result_chars:

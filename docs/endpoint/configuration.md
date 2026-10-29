@@ -18,6 +18,8 @@
 
 网络设置复用配置 catalog、草稿、PATCH/apply/reload，并由 `GET /v2/config/network` 提供只读的脱敏路由概览。`network` 是一个原子 object；选择另一模式时整体替换，避免 direct/inherit 残留旧地址。支持 `mode = inherit | direct | override`；仅 override 接受 `http_proxy`、`https_proxy`、`no_proxy`，至少填写一个代理地址。override 完整替换父配置，未填协议直连；no_proxy 未填写默认绕过 localhost/127.0.0.1/::1，空字符串不绕过。
 
+`no_proxy` 是逗号分隔的目标绕过列表，支持 IP、域名及子域、可选端口和 `*` 全部直连。未填端口匹配该主机的全部端口；例如 `example.com:443` 只绕过该域及子域的有效 443 端口，包括省略端口的 HTTPS URL。它按请求目标匹配，不按代理服务器地址或目标 DNS 解析结果匹配，也不授予 Web 私网访问权限。该语义适用于 TinySoul 装配的 HTTP 客户端；子进程接收相同配置的环境提示，具体遵循方式由外部程序决定。接口字段与保存、apply/reload 流程不变。
+
 | 配置路径 | 上级 |
 | --- | --- |
 | `infra.network` | Infra 读取的 dotenv/process 常规代理环境 |

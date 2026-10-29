@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 
 from anthropic import (
+    DEFAULT_CONNECTION_LIMITS,
     APIConnectionError,
     APIError,
     APIStatusError,
@@ -32,7 +33,8 @@ async def read_anthropic_model_capabilities(
         http_client=DefaultAsyncHttpxClient(
             trust_env=False,
             mounts=httpx2_mounts(
-                provider.resolved_network(ApiMode.ANTHROPIC_MESSAGES, network)
+                provider.resolved_network(ApiMode.ANTHROPIC_MESSAGES, network),
+                limits=DEFAULT_CONNECTION_LIMITS,
             ),
         ),
         api_key=provider.resolve_api_key(env),

@@ -7,6 +7,7 @@ from pathlib import Path
 from time import monotonic
 from typing import cast
 import pytest
+import httpx
 from crawlee.errors import UserHandlerTimeoutError
 
 from tinysoul.kernel.action import (
@@ -41,6 +42,8 @@ from tinysoul.plugins.capabilities.web.service import WebCapabilityService
 from tinysoul.plugins.capabilities.web.errors import WebProcessingError, web_failure_disposition
 from tinysoul.kernel.action import ActionFailureDisposition
 from tinysoul.infra import JsonValue, StagingDirectoryManager, dumps_json
+from tinysoul.infra.network import ResolvedNetwork
+from tinysoul.plugins.capabilities.web.backends import network as web_network
 from tinysoul.runtime import RunScope
 from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
@@ -180,6 +183,36 @@ async def test_crawlee_discovery_returns_direct_candidates_and_recursive_metadat
     assert recursive_pages[0]["h1"] == "Install TinySoul"
     assert recursive_pages[1]["state"] == "candidate"
     assert recursive["visited_count"] == 2
+
+
+async def test_discovery_uses_effective_proxy_for_robots_seed_and_recursive_page(monkeypatch):
+    policy = ResolvedNetwork(https_proxy="http://proxy.test:8000")
+    requests, connections = [], []
+
+    def unexpected_dns(*args, **kwargs):
+        raise AssertionError("The configured proxy resolves discovery targets")
+
+    def respond(request):
+        requests.append(request.url.path)
+        body = (
+            "User-agent: *\nAllow: /\n" if request.url.path == "/robots.txt"
+            else '<title>Docs</title><a href="/docs/install">Install</a>'
+            if request.url.path == "/docs/"
+            else "<title>Install</title>"
+        )
+        return httpx.Response(200, text=body, headers={"content-type": "text/html"})
+
+    def mounts(actual):
+        connections.append(actual)
+        return {"all://": httpx.MockTransport(respond)}
+
+    monkeypatch.setattr(web_network, "httpx_sync_mounts", mounts)
+    result = await discover_pages(
+        _discovery_request(depth=1), network=policy, resolver=unexpected_dns
+    )
+    assert result["visited_count"] == 2
+    assert requests == ["/robots.txt", "/docs/", "/docs/install"]
+    assert len(connections) == 3 and all(item is policy for item in connections)
 
 
 async def test_discovery_service_returns_complete_inline_result(

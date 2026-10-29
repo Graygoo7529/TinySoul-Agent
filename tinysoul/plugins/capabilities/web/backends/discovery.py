@@ -20,6 +20,7 @@ from crawlee.storages import RequestQueue
 from lxml import etree, html
 
 from tinysoul.infra import JsonObject, to_json_object
+from tinysoul.infra.network import ResolvedNetwork
 
 from tinysoul.prompts.plugins.capabilities import web as prompt_text
 
@@ -29,7 +30,7 @@ from .network import (
     FetchedPage,
     fetch_public_page,
     fetch_public_robots,
-    validate_public_https_url,
+    normalize_https_url,
 )
 
 _MAX_PATTERN_COUNT = 20
@@ -146,13 +147,14 @@ class _DiscoveryState:
 async def discover_pages(
     request: DiscoveryRequest,
     *,
+    network: ResolvedNetwork = ResolvedNetwork(),
     page_fetcher: PageFetcher = fetch_public_page,
     robots_fetcher: RobotsFetcher = fetch_public_robots,
     resolver: AddressResolver = socket.getaddrinfo,
 ) -> JsonObject:
     """Return one bounded discovery graph without preserving page bodies."""
 
-    start_url = validate_public_https_url(request.start_url, resolver=resolver)
+    start_url = normalize_https_url(request.start_url)
     origin = _origin(start_url)
     robots_text = await asyncio.to_thread(
         robots_fetcher,
@@ -161,6 +163,8 @@ async def discover_pages(
         timeout_seconds=request.request_timeout_seconds,
         max_redirects=request.max_redirects,
         user_agent=request.user_agent,
+        network=network,
+        resolver=resolver,
     )
     robots = RobotFileParser()
     robots.set_url(urlunsplit((*origin, "/robots.txt", "", "")))
@@ -236,6 +240,8 @@ async def discover_pages(
             timeout_seconds=request.request_timeout_seconds,
             max_redirects=request.max_redirects,
             user_agent=request.user_agent,
+            network=network,
+            resolver=resolver,
         )
         if _origin(page.final_url) != origin:
             raise WebProcessingError(

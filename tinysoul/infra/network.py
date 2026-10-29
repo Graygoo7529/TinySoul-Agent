@@ -5,9 +5,11 @@ from __future__ import annotations
 import ipaddress
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from urllib.parse import urlsplit
+
+import httpx
 
 from .config import ConfigEnvironment, ConfigError, reject_unknown_keys
 from .config.validation import config_table
@@ -38,46 +40,82 @@ def _proxy_url(value: str | None, key: str) -> None:
         raise ConfigError("Expected an HTTP or HTTPS proxy URL", key=key)
 
 
-def _bypass_patterns(value: str) -> tuple[str, ...]:
-    patterns: list[str] = []
+class NetworkTargetError(Exception):
+    """A caller supplied a target that cannot be interpreted as a network URL."""
+
+
+def _normalized_host(value: str) -> str:
+    host = value.lower().rstrip(".")
+    try:
+        return str(ipaddress.ip_address(host))
+    except ValueError:
+        return httpx.URL(host=host).raw_host.decode("ascii")
+
+
+@dataclass(frozen=True)
+class _BypassRule:
+    host: str | None
+    port: int | None = None
+    subdomains: bool = False
+
+    def matches(self, host: str, port: int) -> bool:
+        if self.port is not None and self.port != port:
+            return False
+        return (
+            self.host is None
+            or host == self.host
+            or (self.subdomains and host.endswith("." + self.host))
+        )
+
+
+def _bypass_rules(value: str) -> tuple[_BypassRule, ...]:
+    rules: list[_BypassRule] = []
     for item in value.split(","):
         item = item.strip().lower()
         if not item:
             continue
         if item == "*":
-            return ("all://",)
+            return (_BypassRule(None),)
         # Bare IPv6 is a host, not a host:port pair.
         try:
             address = ipaddress.ip_address(item)
         except ValueError:
             address = None
         if address is not None:
-            host = f"[{address}]" if address.version == 6 else str(address)
-            patterns.append(f"all://{host}")
+            rules.append(_BypassRule(str(address)))
             continue
         try:
             url = urlsplit("//" + item)
             host, port = url.hostname, url.port
-            if not host or url.path or url.query or url.fragment or url.username:
+            if (
+                not host or url.path or url.query or url.fragment
+                or url.username is not None
+            ):
                 raise ValueError
         except ValueError as exc:
             raise ConfigError(
                 "Invalid no_proxy host or port", key="network.no_proxy"
             ) from exc
-        suffix = f":{port}" if port is not None else ""
         try:
             address = ipaddress.ip_address(host)
         except ValueError:
             address = None
         if address is not None:
-            host = f"[{address}]" if address.version == 6 else str(address)
+            rules.append(_BypassRule(str(address), port))
         else:
             host = host.removeprefix("*.").removeprefix(".")
             if not host or any(c.isspace() or c in "*/\\" for c in host):
                 raise ConfigError("Invalid no_proxy domain", key="network.no_proxy")
-            host = "*" + host
-        patterns.append(f"all://{host}{suffix}")
-    return tuple(patterns)
+            try:
+                host = _normalized_host(host)
+            except httpx.InvalidURL as exc:
+                raise ConfigError(
+                    "Invalid no_proxy domain", key="network.no_proxy"
+                ) from exc
+            if not host:
+                raise ConfigError("Invalid no_proxy domain", key="network.no_proxy")
+            rules.append(_BypassRule(host, port, subdomains=True))
+    return tuple(rules)
 
 
 @dataclass(frozen=True)
@@ -87,27 +125,35 @@ class ResolvedNetwork:
     http_proxy: str | None = None
     https_proxy: str | None = None
     no_proxy: str = _DEFAULT_NO_PROXY
+    _bypass: tuple[_BypassRule, ...] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         _proxy_url(self.http_proxy, "network.http_proxy")
         _proxy_url(self.https_proxy, "network.https_proxy")
         if not isinstance(self.no_proxy, str):
             raise ConfigError("no_proxy must be text", key="network.no_proxy")
-        _bypass_patterns(self.no_proxy)
+        object.__setattr__(self, "_bypass", _bypass_rules(self.no_proxy))
 
-    def routes(self) -> dict[str, str | None]:
-        """HTTPX public mount patterns, evaluated again on every redirect."""
-        patterns = _bypass_patterns(self.no_proxy)
-        if "all://" in patterns:
-            return {}
-        result: dict[str, str | None] = {}
-        if self.http_proxy:
-            result["http://"] = self.http_proxy
-        if self.https_proxy:
-            result["https://"] = self.https_proxy
-        if result:
-            result.update((pattern, None) for pattern in patterns)
-        return result
+    def proxy_for_url(self, value: str) -> str | None:
+        """Choose the configured route without DNS or client-specific matching."""
+        try:
+            url = urlsplit(value)
+            host = _normalized_host(url.hostname or "")
+            port = url.port
+        except (ValueError, httpx.InvalidURL) as exc:
+            raise NetworkTargetError("Invalid network target URL") from exc
+        if not url.scheme or not host:
+            raise NetworkTargetError("Expected an absolute network target URL")
+        if url.scheme == "http":
+            proxy, default_port = self.http_proxy, 80
+        elif url.scheme == "https":
+            proxy, default_port = self.https_proxy, 443
+        else:
+            return None
+        effective_port = default_port if port is None else port
+        if any(rule.matches(host, effective_port) for rule in self._bypass):
+            return None
+        return proxy or None
 
     def process_environment(self, base: Mapping[str, str]) -> dict[str, str]:
         """Return a complete environment for a process started without inheritance."""

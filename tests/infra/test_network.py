@@ -18,6 +18,7 @@ from tinysoul.infra.config import (
 from tinysoul.infra.http import (
     client_headers,
     httpx2_mounts,
+    httpx2_sync_mounts,
     httpx_mounts,
     httpx_sync_mounts,
 )
@@ -146,22 +147,120 @@ def test_sync_transport_and_no_proxy_all(http_routes):
     with httpx.Client(trust_env=False, mounts=httpx_sync_mounts(network)) as client:
         assert client.get("http://remote.invalid/page").text == "ok"
     assert seen == ["http://remote.invalid/page"]
-    assert replace(network, no_proxy="*").routes() == {}
+    assert replace(network, no_proxy="*").proxy_for_url("http://remote.invalid/") is None
     assert client_headers({"User-Agent": "Explicit/1"}) == {"user-agent": "Explicit/1"}
 
 
 @pytest.mark.parametrize(
-    ("bypass", "pattern"),
+    ("bypass", "url", "direct"),
     (
-        (".example.test", "all://*example.test"),
-        ("127.0.0.1", "all://127.0.0.1"),
-        ("example.test:8080", "all://*example.test:8080"),
-        ("::1", "all://[::1]"),
+        (".example.test", "https://example.test/", True),
+        ("*.example.test", "https://docs.example.test/", True),
+        ("example.test", "https://otherexample.test/", False),
+        ("Example.TEST.", "https://docs.example.test/", True),
+        ("127.0.0.1", "http://127.0.0.1:8080/", True),
+        ("127.0.0.1", "http://127.0.0.2/", False),
+        ("::1", "http://[0:0:0:0:0:0:0:1]/", True),
+        ("[::1]:8080", "http://[::1]:8080/", True),
+        ("[::1]:8080", "http://[::1]/", False),
+        ("*", "https://other.test/", True),
+        ("", "https://example.test/", False),
     ),
 )
-def test_bypass_domain_ip_and_port_routes(bypass: str, pattern: str) -> None:
-    network = ResolvedNetwork("http://proxy.test:8000", None, bypass)
-    assert network.routes() == {"http://": "http://proxy.test:8000", pattern: None}
+def test_bypass_domain_ip_and_port_routes(bypass: str, url: str, direct: bool) -> None:
+    proxy = "http://proxy.test:8000"
+    network = ResolvedNetwork(proxy, proxy, bypass)
+    assert network.proxy_for_url(url) == (None if direct else proxy)
+
+
+@pytest.mark.parametrize("implementation", ["httpx", "httpx2"])
+@pytest.mark.parametrize("asynchronous", [False, True])
+async def test_route_query_matches_transport_ports_redirects_and_cleanup(
+    monkeypatch, implementation, asynchronous
+):
+    library = httpx if implementation == "httpx" else httpx2
+    plain, secure = "http://plain.test:8000", "http://secure.test:8000"
+    network = ResolvedNetwork(plain, secure, "example.test:443,clear.test:80,faß.test:443")
+    created, closed, seen = [], [], []
+    limits = library.Limits(max_connections=7)
+
+    def factory(*, proxy, trust_env, verify, **options):
+        assert trust_env is False and verify.check_hostname
+        assert options["limits"] is limits
+        created.append(proxy)
+
+        def respond(request):
+            seen.append((str(request.url), proxy))
+            if request.url.path == "/redirect":
+                return library.Response(302, headers={"location": "https://example.test/"})
+            return library.Response(200, text=proxy or "direct")
+
+        transport = library.MockTransport(respond)
+
+        def close():
+            closed.append(proxy)
+
+        async def aclose():
+            close()
+
+        monkeypatch.setattr(transport, "close", close)
+        monkeypatch.setattr(transport, "aclose", aclose)
+        return transport
+
+    monkeypatch.setattr(
+        library, "AsyncHTTPTransport" if asynchronous else "HTTPTransport", factory
+    )
+    cases = (
+        ("https://example.test/", None),
+        ("https://example.test:443/", None),
+        ("https://example.test:8443/", secure),
+        ("http://example.test/", plain),
+        ("http://clear.test/", None),
+        ("http://clear.test:80/", None),
+        ("http://clear.test:8080/", plain),
+        ("https://faß.test/", None),
+        ("https://xn--fa-hia.test/", None),
+    )
+    if asynchronous:
+        async_client = (
+            httpx.AsyncClient(
+                trust_env=False, mounts=httpx_mounts(network, limits=limits),
+                follow_redirects=True,
+            )
+            if isinstance(limits, httpx.Limits)
+            else httpx2.AsyncClient(
+                trust_env=False, mounts=httpx2_mounts(network, limits=limits),
+                follow_redirects=True,
+            )
+        )
+        async with async_client as client:
+            for url, expected in cases:
+                assert network.proxy_for_url(url) == expected
+                assert (await client.get(url)).text == (expected or "direct")
+            response = await client.get("https://remote.test/redirect")
+    else:
+        sync_client = (
+            httpx.Client(
+                trust_env=False, mounts=httpx_sync_mounts(network, limits=limits),
+                follow_redirects=True,
+            )
+            if isinstance(limits, httpx.Limits)
+            else httpx2.Client(
+                trust_env=False, mounts=httpx2_sync_mounts(network, limits=limits),
+                follow_redirects=True,
+            )
+        )
+        with sync_client as client:
+            for url, expected in cases:
+                assert network.proxy_for_url(url) == expected
+                assert client.get(url).text == (expected or "direct")
+            response = client.get("https://remote.test/redirect")
+    assert response.text == "direct" and len(response.history) == 1
+    assert seen[-2:] == [
+        ("https://remote.test/redirect", secure), ("https://example.test/", None)
+    ]
+    assert set(created) == {None, plain, secure}
+    assert closed == created
 
 
 async def test_saved_network_object_replacement_and_environment_override(tmp_path):

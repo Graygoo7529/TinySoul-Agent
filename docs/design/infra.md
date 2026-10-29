@@ -16,7 +16,9 @@ Endpoint 复用各 owner 的配置解析和 Infra 的网络解析，向设置页
 
 Infra 统一解释根网络设置和常规代理环境快照，产出不可变的 `ResolvedNetwork`。各连接 owner 使用同一 `NetworkPolicy` 选择继承、直连或完整覆盖；覆盖中未填写的协议直接连接。根继承时进程环境优先于项目 dotenv，同一来源的小写变量优先；`ALL_PROXY` 只补未声明的协议。未声明绕过地址时默认绕过本机，显式空值则不绕过。字段与示例见 [配置 Endpoint](../endpoint/configuration.md#出站网络配置)。
 
-装配将解析结果显式传入 SDK/HTTP 客户端。公共 HTTP helper 通过公开 transport/mounts 按目标协议和 no_proxy 路由，重定向重新选择路径；客户端不再隐式读取环境代理。TLS 验证保持开启，timeout、连接限制、重试和关闭继续属于实际客户端 owner。HTTP/HTTPS 代理及域名、IP、端口和通配全部绕过可配置；不解释 PAC、CIDR 或 SOCKS。
+装配将解析结果显式传入 SDK/HTTP 客户端。`ResolvedNetwork` 解析一次 no_proxy，按目标协议、主机与有效端口返回代理或直连；该查询没有 DNS 副作用。公共 HTTP helper 通过公开 transport 接口使用同一判断发送请求，重定向重新选择路径，不再把绕过规则交给第三方 mount pattern 二次解释。HTTPX/httpx2 的同步、异步客户端各自拥有所需 transport，关闭时释放对应连接池；TLS、HTTP 和连接复用仍由第三方 transport 实现。客户端不隐式读取环境代理，TLS 验证保持开启，timeout、连接限制、重试和关闭继续属于实际客户端 owner。
+
+绕过规则支持精确 IP、域名及子域、可选端口和 `*` 全部绕过；未填端口匹配全部端口，指定端口则与实际有效端口比较，HTTPS 省略端口和显式 443 含义相同。主机匹配统一大小写、末尾点、IP 与 IDNA 表达，不预先解析 DNS；不解释 PAC、CIDR 或 SOCKS。Web 对公网目标的限制属于 Web，不能把这一业务政策施加到 LLM、本机 MCP 等通用连接。
 
 子进程 owner 从原有基础环境构造完整环境，清除遗留代理变量后写入解析结果，以 `inherit_env=False` 启动。受控进程设施仍只接受环境，不理解网络策略；完整项目 dotenv 不因此进入进程。该机制提供环境提示，不强制第三方程序遵循代理。网络变化沿配置 apply/reload 生效，不修改活动客户端、系统代理或全局 `os.environ`。
 

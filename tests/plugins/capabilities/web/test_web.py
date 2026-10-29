@@ -22,7 +22,7 @@ from tinysoul.infra import (
     to_json_object,
 )
 from tinysoul.infra.config import ConfigError
-from tinysoul.infra.network import NetworkMode, NetworkPolicy
+from tinysoul.infra.network import NetworkMode, NetworkPolicy, ResolvedNetwork
 from tinysoul.kernel.action import (
     ActionCall,
     ActionEngineBuilder,
@@ -396,7 +396,11 @@ def test_worker_failure_facts_keep_only_bounded_classification_data() -> None:
     }
 
 
-def test_public_https_validation_rejects_private_targets() -> None:
+@pytest.mark.parametrize("policy", [
+    ResolvedNetwork(),
+    ResolvedNetwork(https_proxy="http://proxy.test:8000", no_proxy="example.test:443"),
+])
+def test_public_https_validation_rejects_private_targets(policy) -> None:
     def private_resolver(*args, **kwargs):
         del args, kwargs
         return [(None, None, None, "", ("127.0.0.1", 443))]
@@ -404,6 +408,7 @@ def test_public_https_validation_rejects_private_targets() -> None:
     with pytest.raises(WebProcessingError) as error:
         validate_public_https_url(
             "https://example.test/page",
+            network=policy,
             resolver=private_resolver,
         )
 
@@ -421,6 +426,98 @@ def test_public_https_validation_canonicalizes_public_target() -> None:
     )
 
     assert result == "https://example.com/docs?q=1"
+
+
+def test_proxy_resolves_domains_and_public_ip_literals_need_no_dns() -> None:
+    def unexpected_dns(*args, **kwargs):
+        raise AssertionError("This target must not use local DNS")
+
+    policy = ResolvedNetwork(https_proxy="http://proxy.test:8000")
+    assert validate_public_https_url(
+        "https://Example.TEST:443/page#section", network=policy, resolver=unexpected_dns
+    ) == "https://example.test/page"
+    assert validate_public_https_url(
+        "https://8.8.8.8/", resolver=unexpected_dns
+    ) == "https://8.8.8.8/"
+
+
+@pytest.mark.parametrize("url,reason", [
+    ("http://example.test/", "unsupported_url_scheme"),
+    ("https://user:password@example.test/", "invalid_url"),
+    ("https://example.test:invalid/", "invalid_url"),
+    ("https://localhost/", "private_network_target"),
+    ("https://127.0.0.1/", "private_network_target"),
+    ("https://[::1]/", "private_network_target"),
+])
+def test_proxy_preserves_url_and_explicit_target_restrictions(url, reason) -> None:
+    def unexpected_dns(*args, **kwargs):
+        raise AssertionError("Invalid and literal targets need no DNS")
+
+    with pytest.raises(WebProcessingError) as failure:
+        validate_public_https_url(
+            url, network=ResolvedNetwork(https_proxy="http://proxy.test:8000"),
+            resolver=unexpected_dns,
+        )
+    assert failure.value.reason == reason
+
+
+@pytest.mark.parametrize("address", ["8.8.8.8", "127.0.0.1"])
+def test_fetch_redirect_rechecks_route_and_resolves_only_direct_target(monkeypatch, address):
+    policy = ResolvedNetwork(https_proxy="http://proxy.test:8000", no_proxy="direct.test:443")
+    requests, resolutions = [], []
+
+    def resolve(host, port, **kwargs):
+        resolutions.append((host, port))
+        return [(None, None, None, "", (address, port))]
+
+    def respond(request):
+        requests.append(str(request.url))
+        if request.url.host == "proxied.test":
+            return httpx.Response(302, headers={"location": "https://direct.test/page"})
+        return httpx.Response(200, headers={"content-type": "text/html"}, text="<title>Page</title>")
+
+    def mounts(actual):
+        assert actual is policy
+        return {"all://": httpx.MockTransport(respond)}
+
+    monkeypatch.setattr(network, "httpx_sync_mounts", mounts)
+
+    def fetch():
+        return fetch_public_page(
+            "https://proxied.test/start", network=policy, resolver=resolve,
+            max_bytes=4096, timeout_seconds=7, max_redirects=2, user_agent="test",
+        )
+
+    if address == "127.0.0.1":
+        with pytest.raises(WebProcessingError) as failure:
+            fetch()
+        assert failure.value.reason == "private_network_target"
+        assert requests == ["https://proxied.test/start"]
+    else:
+        assert fetch().final_url == "https://direct.test/page"
+        assert requests == ["https://proxied.test/start", "https://direct.test/page"]
+    assert resolutions == [("direct.test", 443)]
+
+
+def test_missing_robots_validates_once_and_returns_empty_text(monkeypatch):
+    resolutions = []
+
+    def resolve(host, port, **kwargs):
+        resolutions.append((host, port))
+        return [(None, None, None, "", ("8.8.8.8", port))]
+
+    def respond(request):
+        assert request.url.path == "/robots.txt"
+        return httpx.Response(404)
+
+    monkeypatch.setattr(
+        network, "httpx_sync_mounts", lambda policy: {"all://": httpx.MockTransport(respond)}
+    )
+    assert network.fetch_public_robots(
+        "https://example.test/page", resolver=resolve,
+        max_bytes=4096, timeout_seconds=7, max_redirects=2, user_agent="test",
+    ) == ""
+    assert resolutions == [("example.test", 443)]
 
 
 async def test_kimi_search_returns_answer_and_results_without_mode(
@@ -531,7 +628,8 @@ async def test_network_feedback_preserves_status_without_raw_error(
         return httpx.Response(status_code, text=raw_detail)
 
     client = httpx.Client
-    monkeypatch.setattr(network, "validate_public_https_url", lambda value: value)
+    monkeypatch.setattr(network, "validate_public_https_url", lambda value, **kwargs: value)
+    monkeypatch.setattr(network, "httpx_sync_mounts", lambda policy: {})
     monkeypatch.setattr(
         network.httpx,
         "Client",

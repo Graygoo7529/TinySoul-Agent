@@ -1,8 +1,8 @@
 # Web 与 Execution 轨迹失败分析
 
-日期：2026-10-29。HTML 规范化与相关异常分类已修复并验证；Execution 形态、编码与网络适配保留分析和待讨论建议，不表示已确认实施。根据维护者补充，最后一次停止由其手工发起。
+日期：2026-10-29。本文保留最初轨迹分析及当时的调查结果；HTML 规范化、Execution 启动/编码、Discovery 失败分类和网络路由的后续改进已完成，实施事实见下方归档计划。根据维护者补充，最后一次停止由其手工发起。
 
-后续提交复核与实施安排见 [Execution 与 Web 能力完善执行计划](20261029%20Execution与Web能力完善执行计划.md)。复核确认 HTML 修复合理，并发现 Discovery 的已知超时分类及 seed 失败事实传递还需补准；本文的 `done` 只表示上一轮列出的修复已完成，不表示整个 Web 失败协议已无需改进。
+后续提交复核与实施验收见 [Execution 与 Web 能力完善执行计划](done/20261029-done-Execution与Web能力完善执行计划.md)。维护者已确认并完成 P1–P4，包含 Discovery 已知超时与 seed 失败事实传递、运行中 Job 输出探查、明确编码和按实际路由处理 DNS。下文的待讨论建议作为历史分析保留；历史 generation 的网络原因、手工停止与 timeout 记录的具体时序仍缺少原始证据，不因后续修复而宣称已还原。
 
 依据：[AGENTS.md](../../AGENTS.md)、[Web 设计](../design/capabilities/web.md)、[Execution 设计](../design/execution.md)、当前实现与 [2026-10-28/2 原始轨迹](../../reference/traces/turn-trace-2026-10-28-2.zip)。
 

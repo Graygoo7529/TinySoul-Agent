@@ -49,6 +49,7 @@ def fetch_public_page(
     max_redirects: int,
     user_agent: str,
     network: ResolvedNetwork = ResolvedNetwork(),
+    resolver: AddressResolver = socket.getaddrinfo,
 ) -> FetchedPage:
     """Fetch one public HTTPS page with bounded body and explicit redirects."""
 
@@ -59,6 +60,7 @@ def fetch_public_page(
         max_redirects=max_redirects,
         user_agent=user_agent,
         network=network,
+        resolver=resolver,
         allowed_content_types=_ALLOWED_CONTENT_TYPES,
     )
     normalized = normalize_html_links(fetched.text, base_url=fetched.final_url)
@@ -77,10 +79,11 @@ def fetch_public_robots(
     max_redirects: int,
     user_agent: str,
     network: ResolvedNetwork = ResolvedNetwork(),
+    resolver: AddressResolver = socket.getaddrinfo,
 ) -> str:
     """Return one origin's robots.txt through the public HTTPS boundary."""
 
-    page = urlsplit(validate_public_https_url(page_url))
+    page = urlsplit(normalize_https_url(page_url))
     robots_url = urlunsplit(("https", page.netloc, "/robots.txt", "", ""))
     fetched = _fetch_public_text(
         robots_url,
@@ -89,6 +92,7 @@ def fetch_public_robots(
         max_redirects=max_redirects,
         user_agent=user_agent,
         network=network,
+        resolver=resolver,
         allowed_content_types=_ALLOWED_CONTENT_TYPES,
         empty_statuses=frozenset({404, 410}),
     )
@@ -103,10 +107,11 @@ def _fetch_public_text(
     max_redirects: int,
     user_agent: str,
     network: ResolvedNetwork = ResolvedNetwork(),
+    resolver: AddressResolver = socket.getaddrinfo,
     allowed_content_types: frozenset[str],
     empty_statuses: frozenset[int] = frozenset(),
 ) -> _FetchedText:
-    current = validate_public_https_url(url)
+    current = url
     headers = {
         "Accept": "text/html,application/xhtml+xml,text/plain;q=0.8",
         "User-Agent": user_agent,
@@ -120,7 +125,9 @@ def _fetch_public_text(
             headers=headers,
         ) as client:
             for redirect_count in range(max_redirects + 1):
-                validate_public_https_url(current)
+                current = validate_public_https_url(
+                    current, network=network, resolver=resolver
+                )
                 with client.stream("GET", current) as response:
                     if response.status_code in _REDIRECT_STATUSES:
                         location = response.headers.get("location", "")
@@ -134,13 +141,11 @@ def _fetch_public_text(
                                 prompt_text.redirect_limit(limit=max_redirects),
                                 reason="redirect_limit_exceeded",
                             )
-                        current = validate_public_https_url(
-                            urljoin(str(response.url), location)
-                        )
+                        current = urljoin(str(response.url), location)
                         continue
                     if response.status_code in empty_statuses:
                         return _FetchedText(
-                            final_url=validate_public_https_url(str(response.url)),
+                            final_url=normalize_https_url(str(response.url)),
                             text="",
                             content_type=_content_type(
                                 response.headers.get("content-type", "")
@@ -183,7 +188,7 @@ def _fetch_public_text(
                                 prompt_text.page_too_large(limit=max_bytes),
                                 reason="source_bytes_limit_exceeded",
                             )
-                    final_url = validate_public_https_url(str(response.url))
+                    final_url = normalize_https_url(str(response.url))
                     encoding = response.encoding or "utf-8"
                     text = bytes(body).decode(encoding, errors="replace")
                     return _FetchedText(
@@ -206,12 +211,8 @@ def _fetch_public_text(
     )
 
 
-def validate_public_https_url(
-    value: str,
-    *,
-    resolver: AddressResolver = socket.getaddrinfo,
-) -> str:
-    """Return a canonical URL only when every resolved address is public."""
+def normalize_https_url(value: str) -> str:
+    """Validate URL syntax and canonicalize it without resolving the target."""
 
     if not isinstance(value, str) or not value:
         raise WebProcessingError(
@@ -239,12 +240,52 @@ def validate_public_https_url(
             prompt_text.WEB_URL_AUTHORITY_IS_INVALID, reason="invalid_url"
         )
     host = parsed.hostname.rstrip(".").lower()
+    if not host:
+        raise WebProcessingError(
+            prompt_text.WEB_URL_AUTHORITY_IS_INVALID, reason="invalid_url"
+        )
+    netloc = f"[{host}]" if ":" in host else host
+    if port is not None and port != 443:
+        netloc = f"{netloc}:{port}"
+    try:
+        return str(httpx.URL(
+            urlunsplit(("https", netloc, parsed.path or "/", parsed.query, ""))
+        ))
+    except httpx.InvalidURL as exc:
+        raise WebProcessingError(
+            prompt_text.WEB_URL_IS_INVALID, reason="invalid_url"
+        ) from exc
+
+
+def validate_public_https_url(
+    value: str,
+    *,
+    network: ResolvedNetwork = ResolvedNetwork(),
+    resolver: AddressResolver = socket.getaddrinfo,
+) -> str:
+    """Validate a target using local DNS only for a direct domain connection."""
+    canonical = normalize_https_url(value)
+    parsed = urlsplit(canonical)
+    host = parsed.hostname or ""
     if host == "localhost" or host.endswith(".localhost"):
         raise WebProcessingError(
             prompt_text.WEB_URL_MUST_RESOLVE_TO_A_PUBLIC_HOST,
             reason="private_network_target",
         )
-    effective_port = port or 443
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+    if address is not None:
+        if not address.is_global:
+            raise WebProcessingError(
+                prompt_text.WEB_URL_MUST_RESOLVE_TO_A_PUBLIC_HOST,
+                reason="private_network_target",
+            )
+        return canonical
+    if network.proxy_for_url(canonical) is not None:
+        return canonical
+    effective_port = 443 if parsed.port is None else parsed.port
     try:
         resolved = resolver(host, effective_port, type=socket.SOCK_STREAM)
     except OSError as exc:
@@ -269,9 +310,9 @@ def validate_public_https_url(
                 prompt_text.WEB_HOST_RESOLUTION_RETURNED_AN_INVALID_ADDRESS,
                 reason="dns_resolution_failed",
             )
-        address = str(sockaddr[0]).split("%", 1)[0]
+        resolved_address = str(sockaddr[0]).split("%", 1)[0]
         try:
-            parsed_address = ipaddress.ip_address(address)
+            parsed_address = ipaddress.ip_address(resolved_address)
         except ValueError as exc:
             raise WebProcessingError(
                 prompt_text.WEB_HOST_RESOLUTION_RETURNED_AN_INVALID_ADDRESS,
@@ -282,12 +323,7 @@ def validate_public_https_url(
                 prompt_text.WEB_URL_MUST_RESOLVE_ONLY_TO_PUBLIC_ADDRESSES,
                 reason="private_network_target",
             )
-    netloc = host
-    if ":" in host:
-        netloc = f"[{host}]"
-    if port is not None and port != 443:
-        netloc = f"{netloc}:{port}"
-    return urlunsplit(("https", netloc, parsed.path or "/", parsed.query, ""))
+    return canonical
 
 
 def normalize_html_links(value: str, *, base_url: str) -> str:
