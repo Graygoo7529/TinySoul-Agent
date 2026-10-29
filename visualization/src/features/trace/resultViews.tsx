@@ -1088,11 +1088,12 @@ function JobControlView({ result, params, nav }: ResultViewProps) {
   );
 }
 
-function AcpView({ result, nav }: ResultViewProps) {
+function AcpView({ action, result, nav }: ResultViewProps) {
   if (result === null) return <EmptyResult />;
   const jobId = asString(result.job_id);
   const connectionId = asString(result.connection_id);
   const agents = Array.isArray(result.agents) ? result.agents : null;
+  const outputText = action === "subagent.collect" ? asString(result.text) : null;
   return (
     <div className="space-y-2">
       <FactGrid>
@@ -1122,6 +1123,12 @@ function AcpView({ result, nav }: ResultViewProps) {
         <Collapsible title={`Configured agents (${agents.length})`}>
           <JsonTree value={agents} defaultExpanded={false} />
         </Collapsible>
+      )}
+      {outputText !== null && outputText.trim() !== "" && (
+        <div className="space-y-1">
+          <div className="text-[11px] font-medium text-fg-faint">输出内容</div>
+          <Excerpt text={outputText} max={4000} />
+        </div>
       )}
       <LinksBlock payload={result} onOpen={nav.openReference} title="Result resources" />
       {jobId === null && connectionId === null && agents === null && (

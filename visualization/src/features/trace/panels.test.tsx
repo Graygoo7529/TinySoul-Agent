@@ -688,6 +688,35 @@ describe("ActionDetailPanel", () => {
     expect(container.textContent).toContain("− Context 容量压力由 provider 重试");
     expect(container.textContent).toContain("+ Context 容量压力由 owner 回收并重建");
   });
+
+  it("shows the collected subagent output before its result resources", async () => {
+    serveEvents([
+      event("action.call", 10, {
+        call_id: "c1", action: "subagent.collect", domain: "subagent", sequence: 1,
+        params: { job_id: "job_9", cursor: 0 },
+      }, [TURN, CYCLE, PHASE2]),
+      event("action.result", 20, {
+        result_id: "r1", call_id: "c1", action: "subagent.collect",
+        status: "success", stage: "execution", sequence: 1, domain: "subagent",
+        invoke_id: "invoke_c1", batch_id: "b1", failure: null,
+        payload: {
+          job_id: "job_9",
+          text: "已定位到失败原因：模型输出协议缺少 text 字段。\n建议先检查 core.answer 的生成结果，再决定是否重试。",
+          next_cursor: 82,
+          truncated: false,
+          result_ref: "workspace:jobs/job_9/output.txt",
+        },
+      }, [TURN, CYCLE, PHASE3]),
+    ]);
+    render(
+      <ActionDetailPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29"
+        selector={{ callId: "c1", action: "subagent.collect", ordinal: 0 }} />,
+    );
+    await flush();
+    expect(container.textContent).toContain("输出内容");
+    expect(container.textContent).toContain("已定位到失败原因：模型输出协议缺少 text 字段。\n建议先检查 core.answer 的生成结果，再决定是否重试。");
+    expect(container.textContent).toContain("workspace:jobs/job_9/output.txt");
+  });
 });
 
 // ---------------------------------------------------------------------------
