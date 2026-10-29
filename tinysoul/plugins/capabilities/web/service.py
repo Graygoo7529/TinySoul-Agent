@@ -457,6 +457,12 @@ class WebCapabilityService:
                 reason="process_start_failed",
                 payload={"error_type": outcome.error_type},
             )
+        if outcome.status is ProcessStatus.OUTPUT_FAILED:
+            raise WebProcessingError(
+                prompt_text.WEB_WORKER_OUTPUT_COULD_NOT_BE_COLLECTED,
+                reason="worker_failed",
+                payload={"error_type": outcome.error_type},
+            )
         _require_active(control)
         response = _worker_response(outcome.stdout)
         if outcome.exit_code != 0 or response.get("ok") is not True:

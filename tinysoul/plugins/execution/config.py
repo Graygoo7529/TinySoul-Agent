@@ -6,6 +6,7 @@ from enum import StrEnum
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
 from tinysoul.infra.network import NetworkPolicy, parse_network
+from tinysoul.infra.process import OutputEncoding, ProcessEncodingError, text_encoding
 
 
 class Interpreter(StrEnum):
@@ -21,6 +22,7 @@ class InterpreterSpec:
     executable: str
     enabled: bool = True
     network: NetworkPolicy = field(default_factory=NetworkPolicy)
+    output_encoding: str | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -32,6 +34,25 @@ class InterpreterSpec:
             raise ConfigError(
                 "Execution interpreter is invalid", key="execution.interpreters"
             )
+        encoding = self.output_encoding
+        if encoding is None:
+            encoding = (
+                OutputEncoding.PLATFORM
+                if self.name in {Interpreter.CMD, Interpreter.POWERSHELL}
+                else "utf-8"
+            )
+        try:
+            normalized = (
+                OutputEncoding.PLATFORM
+                if encoding == OutputEncoding.PLATFORM
+                else text_encoding(encoding)
+            )
+        except ProcessEncodingError as exc:
+            raise ConfigError(
+                "Invalid output text encoding",
+                key=f"execution.interpreters.{self.name}.output_encoding",
+            ) from exc
+        object.__setattr__(self, "output_encoding", normalized)
 
 
 @dataclass(frozen=True)
@@ -117,6 +138,7 @@ def parse_execution_settings(tree: Mapping[str, object]) -> ExecutionSettings:
             "enabled",
             "executable",
             "network",
+            "output_encoding",
         }:
             raise ConfigError("Invalid interpreter configuration", key=key)
         executable, selected = (
@@ -125,12 +147,16 @@ def parse_execution_settings(tree: Mapping[str, object]) -> ExecutionSettings:
         )
         if not isinstance(executable, str) or not isinstance(selected, bool):
             raise ConfigError("Invalid interpreter fields", key=key)
+        encoding = raw.get("output_encoding", default.output_encoding)
+        if not isinstance(encoding, str):
+            raise ConfigError("Output encoding must be text", key=f"{key}.output_encoding")
         parsed.append(
             InterpreterSpec(
                 default.name,
                 executable,
                 selected,
                 parse_network(raw.get("network", {}), key=f"{key}.network"),
+                encoding,
             )
         )
     return ExecutionSettings(

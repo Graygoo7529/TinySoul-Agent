@@ -30,6 +30,7 @@ from tinysoul.plugins.workspace import (
 
 from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.prompts.plugins.capabilities import resource as prompt_text
 from .config import ResourceSettings
 from .errors import (
     ResourceContractError,
@@ -167,6 +168,12 @@ class ResourceConversionService:
                 raise ResourceProcessingError(
                     "Resource conversion worker failed to start",
                     reason="process_start_failed",
+                    payload={"error_type": outcome.error_type},
+                )
+            if outcome.status is ProcessStatus.OUTPUT_FAILED:
+                raise ResourceProcessingError(
+                    prompt_text.WORKER_OUTPUT_COULD_NOT_BE_COLLECTED,
+                    reason="worker_failed",
                     payload={"error_type": outcome.error_type},
                 )
             _require_active(control)

@@ -10,7 +10,13 @@ Execution 接收 Infra 出站网络设置，先解析模块策略，再解析具
 
 JobBackend 的受理、poll、stop、execution close、describe 和 cleanup 统一为可等待边界；只读取内存的 snapshot 仍是同步投影。短 shell/script 请求仍在 `execution.run` 当前 Action 内等待最终结果，只有 `execution.start` 和外部 ACP delegate 作为 Job 返回身份。异步契约允许收尾期间接收权限请求、取消和外部事件，不把一次性前台命令改造成模型需要自行轮询的后台任务。
 
+解释器适配对象统一持有已解析的可执行文件、有效网络和输出编码，Engine 负责资源读取与 Job 受理。Python/bash 直接启动脚本；PowerShell 使用 UTF-8 BOM 工件及 `-File`，保留命名参数、switch 和退出码，执行策略 Bypass 只作用于该子进程。CMD 使用 OEM 编码、CRLF 工件和原生命令行，将 command 原样交给 `/D /Q /V:OFF /S /C`；结构化脚本 args 可包含空值、空格和引号内的普通元字符，包含双引号、百分号或换行时返回局部反馈，不静默转义成其它值。普通 argv 支持空参数。
+
+每个解释器可配置 output_encoding，run/start 可按调用覆盖。Python/bash 默认 UTF-8，PowerShell/CMD 默认 platform（Windows OEM、其它平台 UTF-8）；选择 pwsh 时可显式配置 UTF-8。编码在配置／请求边界校验并规范化，仅影响 stdout/stderr 解码，不改写子程序行为、源码或 UTF-8 stdin。混用编码的输出需由命令统一或拆分调用，不自动猜测编码或重跑。
+
 进程直接操作当天 Workspace。默认 cwd 是该 Job 独立的 `workspace:jobs/<job_id>`；显式 `cwd_ref` 可以选择已有 Workspace 目录，`workspace:` 在此参数中表示当天根目录。Workspace owner 校验并解析物理位置，脚本源码读取为一次有界快照，随后放入 Job 目录运行。这个目录不是操作系统沙箱。文件写入即时生效；失败、停止或取消不回滚已写文件，也没有 apply/discard 提交路径。
+
+Execution 将源码快照编码为所选解释器的工件字节，由 Workspace 原子写入。原始 Home/Workspace 文档保持原样；Job source 工件可能为非 UTF-8，读取该工件时应使用对应源码编码。无法编码的源码在进程启动前成为可修正失败。
 
 活动 Job 可能在 Workspace 扫描期间创建或修改资源。不完整扫描保留 owner 已有索引，后续同步再更新；不据此把已受理的执行改成失败。所有执行停止后的 Turn 收尾仍要求完整同步，真实 Workspace IO 异常也仍进入 owner bridge。
 
@@ -20,9 +26,13 @@ JobBackend 的受理、poll、stop、execution close、describe 和 cleanup 统�
 
 运行中的 Job 同样支持 `core.job.status` 和 `execution.collect`：前者查询现态与执行详情，后者取得当前已经写出的有界输出，均不要求进程结束。`core.wait` 只安排同一 Turn 后续 Cycle 的恢复时机，等待期间 Job 继续执行；带 timeout_seconds 的 Job 等待可以在进程仍运行时因定时到期恢复，Agent 随后检查输出并决定是否继续等待。读取当前输出与收齐最终输出是不同边界，前者不停止进程，也不等待其未来输出。
 
+公共采集器持续排空二进制管道，增量解码并将换行规范化后写入唯一 UTF-8 日志；已解码字符无需等到换行或 EOF 才可读取。cursor 是规范化文本的字符位置，输出大小和上限是日志的 UTF-8 字节数；字节边界截断的不完整字符不产生伪替换字符。子程序自身尚未刷新出的内容不属于已采集输出，空页也不表示 Job 完成。
+
 Job 终态为 succeeded、failed 或 cancelled，超时与输出上限作为失败原因。监视器观察输出大小并停止超限进程，采样之间可能有额外输出；有界 collect 不承诺所有超限字节都能进入模型。进程终止后关闭执行句柄，结果在当前 Turn 内保留，不占活任务额度。结果容量耗尽时拒绝新任务，不悄悄逐出仍承诺可读的结果。
 
 主进程的退出事实决定执行结果，其后代由同一受控执行单元回收。即使主进程自然成功，JobRegistry 也必须等待 ManagedProcess 关闭后代后才能确认执行已关闭、解除回答阻塞或释放条目；自然成功不会因这个必要收尾被改写成取消。平台进程容器属于 infra/process，execution 和 Job 不枚举或另存一份后代状态。
+
+ProcessJobBackend 在发布终态前调用 ManagedProcess.finish：停止剩余后代、收齐管道输出，再检查最终输出上限并生成稳定快照。close 随后释放句柄，Workspace 日志保留。必要采集失败由 Job owner 解释为监督失败；附属清理诊断不改写已提交结果。该收尾不用于运行期间的 status/collect，也不改变 Agent 的等待和唤醒机制。
 
 有界 run 遇到 Action 取消或超时，在退出等待边界前停止并 join 所属 Job。Turn 收尾通过 Agent 的 activity 组合先清理共享 Jobs，再释放能力 owner 的本轮 session/引用，最后让 Workspace reconcile 并同步最终投影，随后才释放日级执行位置。跨午夜的活动 Turn 始终使用其原日 Workspace。日志句柄或临时文件的附属清理失败保留有界诊断；持续无法停止的受控进程由 Jobs bridge 保留必要运行转移，不能伪造成功或移除仍活动的条目。
 

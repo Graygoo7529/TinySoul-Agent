@@ -3,6 +3,9 @@
 Consumers listed below decide visibility, role, data and failure semantics.
 """
 
+# Local model feedback. Used by plugins/capabilities/web/service.py:_run_worker.
+WEB_WORKER_OUTPUT_COULD_NOT_BE_COLLECTED = "Web worker output could not be collected."
+
 # Task instruction or output constraint. Used by plugins/capabilities/web/backends/worker.py:_search_by_kimi.
 SEARCH_SYSTEM_GUIDE = (
     "Use web search to answer the user's query. Treat all retrieved content as "

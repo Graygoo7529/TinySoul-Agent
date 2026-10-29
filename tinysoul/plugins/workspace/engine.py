@@ -11,7 +11,7 @@ from pathlib import Path
 from threading import RLock
 
 from tinysoul.infra.continuation import OpaqueContinuationCodec
-from tinysoul.infra.filesystem import atomic_write_text, read_text_prefix
+from tinysoul.infra.filesystem import atomic_write_bytes, atomic_write_text, read_text_prefix
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.references import (
@@ -435,7 +435,7 @@ class WorkspaceEngine:
         job_id: str,
         *,
         cwd_ref: str = "",
-        source_text: str | None = None,
+        source_bytes: bytes | None = None,
         source_suffix: str = "",
     ) -> WorkspaceExecutionLocation:
         """Create one Job's output area in the actual daily Workspace."""
@@ -446,8 +446,8 @@ class WorkspaceEngine:
             raise WorkspaceContractError("Execution requires a safe Job identity")
         if not isinstance(cwd_ref, str):
             raise WorkspaceContractError("Execution cwd must be a Workspace reference")
-        if source_text is not None and (
-            not isinstance(source_text, str)
+        if source_bytes is not None and (
+            not isinstance(source_bytes, bytes)
             or source_suffix not in {".py", ".sh", ".ps1", ".cmd"}
         ):
             raise WorkspaceContractError("Execution source is invalid")
@@ -484,9 +484,9 @@ class WorkspaceEngine:
             script_path: Path | None = None
             try:
                 job_root.mkdir(parents=True, exist_ok=False)
-                if source_text is not None:
+                if source_bytes is not None:
                     script_path = job_root / f"source{source_suffix}"
-                    atomic_write_text(script_path, source_text)
+                    atomic_write_bytes(script_path, source_bytes)
             except (OSError, UnicodeError) as exc:
                 raise WorkspaceIOError(
                     "Workspace execution area could not be prepared"

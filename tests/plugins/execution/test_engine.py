@@ -3,8 +3,11 @@
 import asyncio
 import socket
 import sys
+import json
+import shutil
 from dataclasses import replace
 from pathlib import Path
+from time import monotonic
 
 import pytest
 
@@ -12,6 +15,7 @@ from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.json import dumps_json
 from tinysoul.infra.network import NetworkMode, NetworkPolicy
 from tinysoul.kernel.jobs import JobRegistry, JobRequestError, JobState
+from tinysoul.kernel.loop.interaction.inbox import TurnInbox, WaitCondition, WaitReason, InboxKind, WakeReason
 from tinysoul.kernel.action import ActionEngineBuilder, ActionCall, ActionFailureDisposition
 from tests.support.actions import sample_catalog
 from tinysoul.kernel.action.catalog.catalog import ActionCatalog
@@ -25,7 +29,11 @@ from tinysoul.plugins.execution import (
     InterpreterSpec,
 )
 from tinysoul.plugins.execution.engine import ExecutionEngine
+from tinysoul.plugins.execution.backend import ProcessJobBackend
+from tinysoul.infra.process import ManagedProcessRequest, ManagedProcessRunner
 from tinysoul.plugins.execution.failures import ExecutionRequestError
+from tinysoul.infra.config import ConfigError
+from tinysoul.plugins.execution.config import parse_execution_settings
 from tinysoul.plugins.home import AgentHomeEngineBuilder, AgentHomeSettings
 from tinysoul.plugins.home.errors import AgentHomeContractError
 from tinysoul.plugins.home.services import HomeService
@@ -77,6 +85,136 @@ async def _start(
         home=home,
         operations=JoinedOperations(),
     )
+
+
+@pytest.mark.parametrize("encoding", ["not-a-codec", "base64_codec", "hex_codec"])
+def test_output_encoding_rejects_non_text_codecs(encoding):
+    with pytest.raises(ConfigError):
+        parse_execution_settings({"interpreters": {"python": {"output_encoding": encoding}}})
+
+
+@pytest.mark.integration
+async def test_final_output_limit_uses_normalized_log_bytes_after_root_exit(tmp_path):
+    process = ManagedProcessRunner().start(
+        ManagedProcessRequest((sys.executable, "-c", "import os; os.write(1, bytes.fromhex('d6d0cec4'))"), output_encoding="gbk"),
+        capture_root=tmp_path / "logs",
+    )
+    backend = ProcessJobBackend("job", process, settings=ExecutionSettings(max_output_bytes=5), workspace_refs=(), result_refs=())
+    try:
+        assert await asyncio.to_thread(process.wait, 5) == 0
+        snapshot = await backend.poll()
+        assert snapshot.state is JobState.FAILED and snapshot.reason == "output_limit"
+        assert backend.collect()["stdout"] == "中"
+        assert (await backend.describe())["stdout_bytes"] == 6
+    finally:
+        await backend.close_execution()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="CMD source encoding")
+async def test_unrepresentable_source_fails_before_job_start(tmp_path, monkeypatch):
+    from tinysoul.plugins.execution import interpreters
+
+    monkeypatch.setattr(interpreters, "text_encoding", lambda value: "ascii")
+    engine, jobs, workspace, home = _owners(tmp_path, settings=ExecutionSettings(
+        enabled=True, interpreters=(InterpreterSpec(Interpreter.CMD, "cmd"),)))
+    workspace.write_text("workspace:source.cmd", "echo 中文")
+    with pytest.raises(ExecutionRequestError):
+        await engine.start(turn_id="2026-10-06/1000", interpreter="cmd", command=None,
+            source_ref="workspace:source.cmd", args=(), cwd_ref="", interactive=False,
+            home=home, operations=JoinedOperations())
+    assert not jobs.ids("2026-10-06/1000")
+    assert not (workspace.settings.root / "jobs").exists()
+
+
+@pytest.mark.integration
+async def test_running_job_output_is_readable_before_stdin_release(tmp_path):
+    engine, jobs, workspace, home = _owners(tmp_path)
+    inbox = TurnInbox()
+    jobs.bind_inbox("2026-10-06/1000", inbox)
+    backend = await _start(engine, workspace, home,
+        "import os,sys\nos.write(1, '进行中'.encode('utf-8'))\n"
+        "sys.stdin.buffer.read(1)\nos.write(1, '完成'.encode('utf-8'))\n", interactive=True)
+    try:
+        async with asyncio.timeout(5):
+            while (first := backend.collect())["stdout"] != "进行中":
+                await asyncio.sleep(0.01)
+        assert jobs.snapshot("2026-10-06/1000", backend.job_id).state is JobState.RUNNING
+        wake = await asyncio.wait_for(inbox.wait_for_cycle(
+            WaitCondition(WaitReason.EVENT, 0, event_kind=InboxKind.JOB, deadline=monotonic() + 0.01)
+        ), 2)
+        assert wake.reason is WakeReason.TIMER
+        assert (await backend.describe())["exit_code"] is None
+        assert backend.collect() == first
+        assert backend.write_stdin("x", close=True) == 1
+        async with asyncio.timeout(5):
+            await engine.wait("2026-10-06/1000", backend.job_id)
+        assert backend.collect(stdout_cursor=first["stdout_cursor"])["stdout"] == "完成"
+        ref = f"workspace:jobs/{backend.job_id}/logs/stdout.log"
+        assert workspace.read_text(ref).text == "进行中完成"
+    finally:
+        await jobs.cleanup_turn("2026-10-06/1000")
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("interpreter", [Interpreter.PYTHON, Interpreter.POWERSHELL, Interpreter.CMD])
+async def test_native_script_source_arguments_and_exit_status(tmp_path, interpreter):
+    if interpreter is not Interpreter.PYTHON and sys.platform != "win32":
+        pytest.skip("Windows interpreter")
+    executable = sys.executable if interpreter is Interpreter.PYTHON else shutil.which(interpreter.value)
+    if executable is None:
+        pytest.skip("Interpreter unavailable")
+    settings = ExecutionSettings(enabled=True, interpreters=(InterpreterSpec(interpreter, executable),))
+    engine, jobs, workspace, home = _owners(tmp_path, settings=settings)
+    if interpreter is Interpreter.PYTHON:
+        source = "import sys,json\nprint(json.dumps(sys.argv[1:],ensure_ascii=False))\nsys.exit(7)"
+        args = ("two words", "", 'a"b', "中文")
+        expected = json.dumps(list(args), ensure_ascii=False)
+    elif interpreter is Interpreter.POWERSHELL:
+        source = 'param([string]$Name, [switch]$Flag)\n[Console]::WriteLine("中文|$Name|$Flag")\nexit 7'
+        args = ("-Name", "two words", "-Flag")
+        expected = "中文|two words|True"
+    else:
+        source = '@echo off\necho 中文^|%~1^|[%~2]^|%~3\nexit /b 7'
+        args = ("two words", "", "plain")
+        expected = "中文|two words|[]|plain"
+    suffix = {Interpreter.PYTHON: ".py", Interpreter.POWERSHELL: ".ps1", Interpreter.CMD: ".cmd"}[interpreter]
+    ref = f"workspace:source{suffix}"
+    workspace.write_text(ref, source)
+    backend = await engine.start(turn_id="2026-10-06/1000", interpreter=interpreter.value,
+        command=None, source_ref=ref, args=args, cwd_ref="", interactive=False,
+        home=home, operations=JoinedOperations())
+    try:
+        async with asyncio.timeout(10):
+            await engine.wait("2026-10-06/1000", backend.job_id)
+        output = backend.collect()
+        assert output["exit_code"] == 7
+        assert output["stdout"].strip() == expected
+        assert workspace.read_text(ref).text == source
+    finally:
+        await jobs.cleanup_turn("2026-10-06/1000")
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(sys.platform != "win32", reason="Native Windows command line")
+async def test_cmd_command_preserves_quoted_paths_and_explicit_output_encoding(tmp_path):
+    executable = shutil.which("cmd")
+    assert executable is not None
+    engine, jobs, workspace, home = _owners(tmp_path, settings=ExecutionSettings(
+        enabled=True, interpreters=(InterpreterSpec(Interpreter.CMD, executable),)))
+    source = tmp_path / "script with spaces.py"
+    source.write_text("import sys,json\nprint(json.dumps(sys.argv[1:],ensure_ascii=False))\nsys.exit(7)", encoding="utf-8")
+    command = f'"{sys.executable}" "{source}" "two words" "" "a&b" "中文"'
+    backend = await engine.start(turn_id="2026-10-06/1000", interpreter="cmd", command=command,
+        source_ref=None, args=(), cwd_ref="", interactive=False,
+        home=home, operations=JoinedOperations(), output_encoding="utf-8")
+    try:
+        async with asyncio.timeout(10):
+            await engine.wait("2026-10-06/1000", backend.job_id)
+        output = backend.collect()
+        assert output["exit_code"] == 7
+        assert json.loads(output["stdout"]) == ["two words", "", "a&b", "中文"]
+    finally:
+        await jobs.cleanup_turn("2026-10-06/1000")
 
 
 @pytest.mark.integration

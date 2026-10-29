@@ -13,6 +13,7 @@ from tinysoul.infra.process import (
     ManagedProcess,
     ManagedProcessCloseError,
     ProcessContractError,
+    ProcessOutputError,
 )
 from tinysoul.kernel.jobs import JobError, JobFailureKind, JobSnapshot, JobState
 from tinysoul.kernel.jobs.output import JobOutputPosition
@@ -61,7 +62,7 @@ class ProcessJobBackend:
             if self._process.running():
                 try:
                     stdout_size, stderr_size = self._process.output_sizes()
-                except OSError as exc:
+                except (OSError, ProcessOutputError) as exc:
                     raise JobError(
                         "Process output is unavailable",
                         kind=JobFailureKind.SUPERVISION_FAILED,
@@ -77,6 +78,21 @@ class ProcessJobBackend:
                         JobState.RUNNING,
                         result_refs=self._result_refs,
                     )
+            try:
+                self._process.finish()
+                sizes = self._process.output_sizes()
+            except (OSError, ProcessOutputError) as exc:
+                raise JobError(
+                    "Process output could not be collected",
+                    kind=JobFailureKind.SUPERVISION_FAILED,
+                ) from exc
+            except ManagedProcessCloseError as exc:
+                raise JobError(
+                    "Controlled process could not finish",
+                    kind=JobFailureKind.EXECUTION_CLOSE_FAILED,
+                ) from exc
+            if self._stop_reason is None and sum(sizes) > self._settings.max_output_bytes:
+                self._stop_reason = _StopReason.OUTPUT_LIMIT
             if self._stop_reason is _StopReason.CANCELLED:
                 state, reason, summary = (
                     JobState.CANCELLED,
@@ -147,6 +163,11 @@ class ProcessJobBackend:
                     "Controlled process could not close",
                     kind=JobFailureKind.EXECUTION_CLOSE_FAILED,
                 ) from exc
+            except ProcessOutputError as exc:
+                raise JobError(
+                    "Process output could not be collected",
+                    kind=JobFailureKind.SUPERVISION_FAILED,
+                ) from exc
 
     async def cleanup(self) -> tuple[CleanupDiagnostic, ...]:
         # Logs and generated files belong to Workspace and follow its daily lifecycle.
@@ -192,7 +213,7 @@ class ProcessJobBackend:
         with self._lock:
             try:
                 stdout_size, stderr_size = self._process.output_sizes()
-            except OSError as exc:
+            except (OSError, ProcessOutputError) as exc:
                 raise JobError(
                     "Process output is unavailable",
                     kind=JobFailureKind.SUPERVISION_FAILED,
@@ -253,7 +274,7 @@ class ProcessJobBackend:
                     max_chars=limit,
                     max_bytes=self._settings.max_output_bytes,
                 )
-            except OSError as exc:
+            except (OSError, ProcessOutputError) as exc:
                 raise JobError(
                     "Process output could not be read",
                     kind=JobFailureKind.SUPERVISION_FAILED,

@@ -68,6 +68,31 @@ _PNG = base64.b64decode(
 )
 
 
+async def test_worker_output_failure_becomes_local_resource_failure(tmp_path):
+    class FailedOutput(ControlledProcessRunner):
+        def run(self, request, control):
+            return ProcessOutcome(
+                ProcessStatus.OUTPUT_FAILED, error_type="ProcessOutputError",
+                error_message="Output collection failed",
+            )
+
+    workspace = _workspace(tmp_path)
+    _write_docx(workspace.root / "input.docx")
+    workspace.reconcile()
+    service = ResourceConversionService(
+        workspace=WorkspaceService(workspace), settings=ResourceSettings(),
+        staging=_staging(tmp_path), process_runner=FailedOutput(),
+    )
+    with pytest.raises(ResourceProcessingError) as error:
+        await service.convert(
+            converter=ResourceConverter.MARKITDOWN, source_ref="workspace:input.docx",
+            target_ref="workspace:result.md", overwrite=False,
+            control=ActionExecutionControl(deadline=monotonic() + 5),
+        )
+    assert error.value.reason == "worker_failed"
+    assert not (workspace.root / "result.md").exists()
+
+
 def test_resource_config_parses_split_action_settings() -> None:
     settings = parse_capabilities_settings(
         {

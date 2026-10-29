@@ -15,6 +15,18 @@ def available_interpreters_hint(*, names: tuple[str, ...]) -> str:
     return available + f"Inline commands use {choices}" + suffix
 
 
+# Local feedback. Used by plugins/execution/interpreters.py.
+INVALID_OUTPUT_ENCODING = "Use a text encoding such as utf-8, gbk, or platform."
+CMD_SCRIPT_ARGUMENTS_UNSUPPORTED = (
+    "CMD script paths and args cannot contain quotes, percent signs or newlines; "
+    "use a shell command or another interpreter for these values."
+)
+
+
+def source_encoding_unavailable(*, interpreter: str, encoding: str) -> str:
+    return f"This script contains text that {interpreter} cannot read using {encoding}."
+
+
 # Local feedback. Used by plugins/execution/engine.py:start.
 def interpreter_unavailable(*, interpreter: str, available: tuple[str, ...]) -> str:
     return (

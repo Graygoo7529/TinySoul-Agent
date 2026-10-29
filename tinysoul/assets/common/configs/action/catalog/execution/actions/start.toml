@@ -7,8 +7,8 @@ type = "object"
 required = ["interpreter"]
 additionalProperties = false
 oneOf = [
-  { type = "object", required = ["interpreter", "command"], additionalProperties = false, properties = { interpreter = { type = "string", enum = ["bash", "powershell", "cmd"] }, command = { type = "string" }, cwd_ref = { type = "string" }, interactive = { type = "boolean" } } },
-  { type = "object", required = ["interpreter", "source_ref"], additionalProperties = false, properties = { interpreter = { type = "string", enum = ["python", "bash", "powershell", "cmd"] }, source_ref = { type = "string" }, args = { type = "array", items = { type = "string" } }, cwd_ref = { type = "string" }, interactive = { type = "boolean" } } }
+  { type = "object", required = ["interpreter", "command"], additionalProperties = false, properties = { interpreter = { type = "string", enum = ["bash", "powershell", "cmd"] }, command = { type = "string" }, cwd_ref = { type = "string" }, output_encoding = { type = "string" }, interactive = { type = "boolean" } } },
+  { type = "object", required = ["interpreter", "source_ref"], additionalProperties = false, properties = { interpreter = { type = "string", enum = ["python", "bash", "powershell", "cmd"] }, source_ref = { type = "string" }, args = { type = "array", items = { type = "string" } }, cwd_ref = { type = "string" }, output_encoding = { type = "string" }, interactive = { type = "boolean" } } }
 ]
 [tool.schema.properties.interpreter]
 type = "string"
@@ -30,6 +30,10 @@ description = "Optional existing Workspace directory; omit to use the Job's defa
 [tool.schema.properties.interactive]
 type = "boolean"
 description = "Keep stdin available for execution.stdin while this Job runs."
+[tool.schema.properties.output_encoding]
+type = "string"
+description = "Optional child output encoding, such as utf-8 or gbk; omit to use the configured interpreter default."
+
 [semantic]
 use_when = [
     "Command or script needs supervision across multiple Cycles",

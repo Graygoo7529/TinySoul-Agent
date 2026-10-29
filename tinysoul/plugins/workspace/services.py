@@ -27,7 +27,7 @@ class WorkspaceExecutionPort(Protocol):
         job_id: str,
         *,
         cwd_ref: str = "",
-        source_text: str | None = None,
+        source_bytes: bytes | None = None,
         source_suffix: str = "",
     ) -> WorkspaceExecutionLocation: ...
 
@@ -58,13 +58,13 @@ class WorkspaceExecutionService:
         job_id: str,
         *,
         cwd_ref: str = "",
-        source_text: str | None = None,
+        source_bytes: bytes | None = None,
         source_suffix: str = "",
     ) -> WorkspaceExecutionLocation:
         return self._owner.prepare_execution(
             job_id,
             cwd_ref=cwd_ref,
-            source_text=source_text,
+            source_bytes=source_bytes,
             source_suffix=source_suffix,
         )
 

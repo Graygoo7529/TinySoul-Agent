@@ -11,15 +11,19 @@ max_arg_chars = 4096
 [execution.interpreters.python]
 enabled = true
 executable = "python"
+output_encoding = "utf-8"
 
 [execution.interpreters.bash]
 enabled = false
 executable = "bash"
+output_encoding = "utf-8"
 
 [execution.interpreters.powershell]
 enabled = true
 executable = "powershell"
+output_encoding = "platform"
 
 [execution.interpreters.cmd]
 enabled = true
 executable = "cmd"
+output_encoding = "platform"

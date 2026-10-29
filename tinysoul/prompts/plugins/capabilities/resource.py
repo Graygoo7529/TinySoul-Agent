@@ -6,6 +6,9 @@ Consumers listed below decide visibility, role, data and failure semantics.
 # Local model feedback. Used by plugins/capabilities/resource/actions.py:execute.
 INVALID_CONVERSION_RESULT = "Resource conversion returned an invalid staged result."
 
+# Local model feedback. Used by plugins/capabilities/resource/service.py.
+WORKER_OUTPUT_COULD_NOT_BE_COLLECTED = "Resource conversion output could not be collected."
+
 # Local model feedback. Used by plugins/capabilities/resource/actions.py:execute.
 CONVERSION_STAGING_FAILED = "Resource conversion staging could not be completed."
 

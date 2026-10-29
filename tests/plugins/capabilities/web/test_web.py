@@ -497,6 +497,26 @@ async def test_query_failure_preserves_current_limit_and_actual_length(
     )
 
 
+async def test_worker_output_failure_becomes_local_web_failure(tmp_path):
+    class FailedOutput(ControlledProcessRunner):
+        def run(self, request, control):
+            return ProcessOutcome(
+                ProcessStatus.OUTPUT_FAILED, error_type="ProcessOutputError",
+                error_message="Output collection failed",
+            )
+
+    service = WebCapabilityService(
+        workspace=WorkspaceService(_workspace(tmp_path)), settings=WebSettings(),
+        runtime_env={}, staging=_staging(tmp_path), process_runner=FailedOutput(),
+    )
+    result = await WebFetchExecutor(service=service, extractor=WebExtractor.TRAFILATURA).execute(
+        _fetch_execution(), ActionExecutionContext()
+    )
+    assert result.failure is not None
+    assert result.failure.reason == "worker_failed"
+    assert result.failure.disposition is ActionFailureDisposition.STOP
+
+
 @pytest.mark.parametrize("status_code", [429, None])
 async def test_network_feedback_preserves_status_without_raw_error(
     tmp_path: Path,

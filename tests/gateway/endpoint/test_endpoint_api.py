@@ -644,6 +644,35 @@ async def test_endpoint_asgi_server_uses_prebound_random_port(tmp_path: Path) ->
         await server.stop()
 
 
+def test_execution_output_encoding_uses_existing_config_routes(tmp_path: Path) -> None:
+    from tinysoul.plugins.execution.config import parse_execution_settings
+
+    (tmp_path / "tinysoul.toml").write_text(
+        '[execution.interpreters.python]\noutput_encoding = "utf-8"\n', encoding="utf-8"
+    )
+
+    def validate(candidate: ConfigEnvironment) -> None:
+        parse_execution_settings(candidate.section_tree("execution"))
+
+    controller = ConfigController(root=tmp_path,
+        environment=ConfigEnvironment.from_project_root(tmp_path, env={}), validator=validate)
+    engine, _, _ = _engine(tmp_path, config=controller)
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+    path = "execution.interpreters.python.output_encoding"
+    status = client.get("/v2/config", headers=_auth()).json()
+    assert status["fields"][path]["writable"]
+    catalog = client.get("/v2/config/catalog", headers=_auth()).json()
+    assert any(field["path"] == path for field in catalog["fields"])
+    operation = {"source_id": "project:tinysoul.toml", "path": path, "op": "set", "value": "gbk"}
+    response = client.patch("/v2/config", headers=_auth(), json={"operations": [operation]})
+    assert response.status_code == 200 and response.json()["state"] == "saved"
+    invalid = client.patch("/v2/config", headers=_auth(), json={"operations": [{**operation, "value": "hex_codec"}]})
+    assert invalid.status_code == 422
+    assert invalid.json()["error"]["code"] == "config.invalid"
+    saved = parse_execution_settings(ConfigEnvironment.from_project_root(tmp_path, env={}).section_tree("execution"))
+    assert saved.interpreters[0].output_encoding == "gbk"
+
+
 def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:
     config_dir = tmp_path / "configs"
     config_dir.mkdir()

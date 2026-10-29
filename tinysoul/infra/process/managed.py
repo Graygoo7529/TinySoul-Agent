@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from contextlib import ExitStack
+import codecs
 from dataclasses import dataclass
 from math import isfinite
 import os
@@ -12,33 +13,51 @@ import signal
 import subprocess
 from tempfile import TemporaryDirectory
 from threading import RLock
+from time import monotonic
 from typing import BinaryIO, Protocol
 
 from tinysoul.infra.concurrency import CleanupDiagnostic
-
-
-class ProcessContractError(Exception):
-    """The caller supplied an invalid process or stream contract."""
+from .capture import OutputCapture, text_encoding
+from .command import WindowsCommandLine
+from .errors import (
+    ManagedProcessCloseError,
+    ManagedProcessStartError,
+    ProcessContractError,
+    ProcessEncodingError,
+    ProcessOutputError,
+)
 
 
 @dataclass(frozen=True)
 class ManagedProcessRequest:
     """One host-owned process invocation with captured output."""
 
-    argv: tuple[str, ...]
+    command: tuple[str, ...] | WindowsCommandLine
     cwd: str | None = None
     env: Mapping[str, str] | None = None
     inherit_env: bool = True
     stdin_text: str | None = None
     interactive: bool = False
+    output_encoding: str = "utf-8"
 
     def __post_init__(self) -> None:
-        if not self.argv or any(
-            not isinstance(item, str) or not item for item in self.argv
+        if not isinstance(self.command, WindowsCommandLine) and (
+            not isinstance(self.command, tuple)
+            or not self.command
+            or not self.command[0]
+            or any(not isinstance(item, str) or "\x00" in item for item in self.command)
         ):
             raise ProcessContractError(
-                "Managed process argv must contain non-empty strings"
+                "Managed process command requires an executable and string arguments"
             )
+        try:
+            object.__setattr__(
+                self, "output_encoding", text_encoding(self.output_encoding)
+            )
+        except ProcessEncodingError as exc:
+            raise ProcessContractError(
+                "Managed process output encoding is invalid"
+            ) from exc
         if self.cwd is not None and (not isinstance(self.cwd, str) or not self.cwd):
             raise ProcessContractError("Managed process cwd must be text or None")
         if self.env is not None and any(
@@ -68,14 +87,6 @@ class ProcessTextSlice:
     truncated: bool
 
 
-class ManagedProcessStartError(Exception):
-    """A managed child process could not be started."""
-
-
-class ManagedProcessCloseError(Exception):
-    """Owned process resources did not all close within the bounded lifecycle."""
-
-
 @dataclass(frozen=True)
 class ManagedProcessOptions:
     """Host process lifecycle options shared by process-backed actions."""
@@ -98,6 +109,8 @@ class CapturedOutput(Protocol):
     def close(self) -> None: ...
 
     def flush(self) -> None: ...
+
+    def finish(self, timeout_seconds: float) -> None: ...
 
 
 class ProcessScope(Protocol):
@@ -129,7 +142,7 @@ class ManagedProcess:
 
     def __init__(
         self,
-        process: subprocess.Popen[str],
+        process: subprocess.Popen[bytes],
         *,
         stdout_capture: CapturedOutput,
         stderr_capture: CapturedOutput,
@@ -150,6 +163,7 @@ class ManagedProcess:
         self._lock = RLock()
         self._closed = False
         self._terminated = False
+        self._finished = False
         self._diagnostics: tuple[CleanupDiagnostic, ...] = ()
 
     @property
@@ -164,10 +178,38 @@ class ManagedProcess:
         return self._process.poll() is None
 
     def wait(self, timeout_seconds: float | None = None) -> int | None:
-        try:
-            return self._process.wait(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
-            return None
+        deadline = None if timeout_seconds is None else monotonic() + timeout_seconds
+        while True:
+            try:
+                self._stdout.flush()
+                self._stderr.flush()
+            except ProcessOutputError:
+                self.terminate()
+                raise
+            remaining = None if deadline is None else max(0.0, deadline - monotonic())
+            try:
+                return self._process.wait(
+                    timeout=min(0.05, remaining) if remaining is not None else 0.05
+                )
+            except subprocess.TimeoutExpired:
+                if deadline is not None and monotonic() >= deadline:
+                    return None
+
+    def finish(self) -> None:
+        """Stop the owned scope and join output readers, keeping logs readable."""
+        with self._lock:
+            if self._finished:
+                return
+            self.terminate()
+            failure: ProcessOutputError | None = None
+            for stream in (self._stdout, self._stderr):
+                try:
+                    stream.finish(self._options.termination_wait_seconds)
+                except ProcessOutputError as exc:
+                    failure = exc
+            self._finished = True
+            if failure is not None:
+                raise failure
 
     def terminate(self) -> None:
         with self._lock:
@@ -251,7 +293,11 @@ class ManagedProcess:
                 return self._diagnostics
             # A failed stop keeps the handle open and retryable. Ancillary failures
             # cannot make a running process look closed.
-            self.terminate()
+            output_error: ProcessOutputError | None = None
+            try:
+                self.finish()
+            except ProcessOutputError as exc:
+                output_error = exc
             failures: list[CleanupDiagnostic] = []
             try:
                 self._scope.close()
@@ -279,6 +325,8 @@ class ManagedProcess:
                     )
             self._closed = True
             self._diagnostics = tuple(failures)
+            if output_error is not None:
+                raise output_error
             return self._diagnostics
 
     def _read_stream(
@@ -336,7 +384,7 @@ class ManagedProcessRunner:
         process_stdin: int | BinaryIO = (
             subprocess.PIPE if request.interactive else subprocess.DEVNULL
         )
-        process: subprocess.Popen[str] | None = None
+        process: subprocess.Popen[bytes] | None = None
         scope: ProcessScope | None = None
         try:
             if capture_root is None:
@@ -360,23 +408,28 @@ class ManagedProcessRunner:
                 input_document.write(request.stdin_text.encode("utf-8"))
                 input_document.seek(0)
                 process_stdin = input_document
-            stdout_capture = stdout_path.open("w+b")
-            stderr_capture = stderr_path.open("w+b")
+            command = request.command
+            if isinstance(command, WindowsCommandLine) and os.name != "nt":
+                raise ProcessContractError("Native Windows command lines require Windows")
+            popen_command = (
+                command.text if isinstance(command, WindowsCommandLine) else command
+            )
+            executable = (
+                command.executable if isinstance(command, WindowsCommandLine) else None
+            )
             if os.name == "nt":
                 from .windows import WindowsProcessJob
 
                 windows_scope = WindowsProcessJob()
                 scope = windows_scope
                 process = subprocess.Popen(
-                    list(request.argv),
+                    popen_command,
+                    executable=executable,
                     cwd=request.cwd,
                     env=process_env,
                     stdin=process_stdin,
-                    stdout=stdout_capture,
-                    stderr=stderr_capture,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                     shell=False,
                     creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
                     | subprocess.CREATE_NO_WINDOW
@@ -385,19 +438,23 @@ class ManagedProcessRunner:
                 windows_scope.attach(process.pid)
             else:
                 process = subprocess.Popen(
-                    list(request.argv),
+                    popen_command,
                     cwd=request.cwd,
                     env=process_env,
                     stdin=process_stdin,
-                    stdout=stdout_capture,
-                    stderr=stderr_capture,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                     shell=False,
                     start_new_session=True,
                 )
                 scope = PosixProcessGroup(process.pid)
+            assert process.stdout is not None and process.stderr is not None
+            stdout_capture = OutputCapture(
+                process.stdout, stdout_path, request.output_encoding
+            )
+            stderr_capture = OutputCapture(
+                process.stderr, stderr_path, request.output_encoding
+            )
             if request.interactive and process.stdin is not None:
                 os.set_blocking(process.stdin.fileno(), False)
         except Exception as exc:
@@ -406,10 +463,20 @@ class ManagedProcessRunner:
                 with ExitStack() as cleanup:
                     if capture_directory is not None:
                         cleanup.callback(capture_directory.cleanup)
+                    if process is not None:
+                        for pipe in (process.stdin, process.stdout, process.stderr):
+                            if pipe is not None:
+                                cleanup.callback(pipe.close)
                     if stderr_capture is not None:
                         cleanup.callback(stderr_capture.close)
+                        cleanup.callback(
+                            stderr_capture.finish, self._options.termination_wait_seconds
+                        )
                     if stdout_capture is not None:
                         cleanup.callback(stdout_capture.close)
+                        cleanup.callback(
+                            stdout_capture.finish, self._options.termination_wait_seconds
+                        )
                     if scope is not None:
                         cleanup.callback(scope.close)
                     if process is not None:
@@ -454,9 +521,10 @@ def _path_size(path: Path) -> int:
 
 
 def _read_text(path: Path, *, max_bytes: int) -> tuple[str, bool]:
-    size = path.stat().st_size
     with path.open("rb") as stream:
         data = stream.read(max_bytes + 1)
-    has_more = size > max_bytes
-    text = data[:max_bytes].decode("utf-8", errors="replace")
-    return text.replace("\r\n", "\n").replace("\r", "\n"), has_more
+    has_more = len(data) > max_bytes
+    text = codecs.getincrementaldecoder("utf-8")(errors="replace").decode(
+        data[:max_bytes], final=not has_more
+    )
+    return text, has_more

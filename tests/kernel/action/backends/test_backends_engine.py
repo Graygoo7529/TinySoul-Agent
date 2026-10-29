@@ -4,6 +4,7 @@ from tests.support.actions import sample_catalog
 
 import asyncio
 import sys
+import json
 from dataclasses import replace
 from pathlib import Path
 from time import monotonic, sleep
@@ -49,6 +50,7 @@ from tests.support.actions import (
     load_action_catalog,
 )
 from tests.support.process import PYTHON_WAIT_FOREVER
+from tinysoul.infra.process import ProcessOutputError
 
 
 async def test_native_cooperative_timeout_does_not_block_later_group() -> None:
@@ -187,6 +189,33 @@ def test_controlled_process_runner_returns_success_output() -> None:
     assert outcome.status is ProcessStatus.COMPLETED
     assert outcome.exit_code == 0
     assert outcome.stdout == "hello\n"
+
+
+@pytest.mark.integration
+def test_controlled_worker_finishes_large_json_before_reading():
+    outcome = ControlledProcessRunner().run(
+        ProcessRequest((sys.executable, "-c", "import json; print(json.dumps({'value':'x'*200000}))"), stdout_limit=250000),
+        ActionExecutionControl(deadline=monotonic() + 5),
+    )
+    assert outcome.status is ProcessStatus.COMPLETED
+    assert json.loads(outcome.stdout) == {"value": "x" * 200000}
+
+
+@pytest.mark.integration
+def test_controlled_worker_output_failure_is_a_process_outcome(monkeypatch):
+    from tinysoul.infra.process.capture import OutputCapture
+
+    def failed(self):
+        raise ProcessOutputError("private capture failure")
+
+    monkeypatch.setattr(OutputCapture, "flush", failed)
+    outcome = ControlledProcessRunner().run(
+        ProcessRequest((sys.executable, "-c", PYTHON_WAIT_FOREVER)),
+        ActionExecutionControl(deadline=monotonic() + 5),
+    )
+    assert outcome.status is ProcessStatus.OUTPUT_FAILED
+    assert outcome.exit_code is not None
+    assert "private" not in outcome.error_message
 
 
 def test_controlled_process_runner_returns_bounded_output() -> None:

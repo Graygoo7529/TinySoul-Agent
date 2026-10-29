@@ -5,8 +5,6 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
-from base64 import b64encode
-from pathlib import Path
 
 from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.config import ConfigError
@@ -15,6 +13,7 @@ from tinysoul.infra.process import (
     ManagedProcessRequest,
     ManagedProcessRunner,
     ManagedProcessStartError,
+    text_encoding,
 )
 from tinysoul.kernel.jobs import JobRegistry
 from tinysoul.plugins.home.services import HomeService
@@ -24,6 +23,7 @@ from tinysoul.prompts.plugins import execution as prompt_text
 from .backend import ProcessJobBackend
 from .config import ExecutionSettings, Interpreter
 from .failures import ExecutionRequestError, ExecutionStartError
+from .interpreters import InterpreterAdapter
 
 
 class ExecutionEngine:
@@ -39,14 +39,10 @@ class ExecutionEngine:
         network: ResolvedNetwork = ResolvedNetwork(),
     ) -> None:
         self.settings = settings
-        self._networks = {
-            item.name: item.network.resolve(settings.network.resolve(network))
-            for item in settings.interpreters
-        }
         self.jobs = jobs
         self._workspace = workspace
         self._runner = runner or ManagedProcessRunner()
-        self._executables: dict[Interpreter, str] = {}
+        self._adapters: dict[Interpreter, InterpreterAdapter] = {}
         if settings.enabled:
             for adapter in settings.interpreters:
                 if adapter.enabled:
@@ -56,19 +52,24 @@ class ExecutionEngine:
                             "Enabled execution interpreter is unavailable",
                             key=f"execution.interpreters.{adapter.name}.executable",
                         )
-                    self._executables[adapter.name] = executable
+                    assert adapter.output_encoding is not None
+                    self._adapters[adapter.name] = InterpreterAdapter(
+                        adapter.name, executable,
+                        adapter.network.resolve(settings.network.resolve(network)),
+                        text_encoding(adapter.output_encoding),
+                    )
 
     @property
     def available_interpreters(self) -> tuple[Interpreter, ...]:
-        return tuple(self._executables)
+        return tuple(self._adapters)
 
     @property
     def script_available(self) -> bool:
-        return bool(self._executables)
+        return bool(self._adapters)
 
     @property
     def shell_available(self) -> bool:
-        return bool(set(self._executables) - {Interpreter.PYTHON})
+        return bool(set(self._adapters) - {Interpreter.PYTHON})
 
     async def start(
         self,
@@ -82,6 +83,7 @@ class ExecutionEngine:
         interactive: bool,
         home: HomeService,
         operations: JoinedOperations,
+        output_encoding: str | None = None,
     ) -> ProcessJobBackend:
         try:
             selected = Interpreter(interpreter)
@@ -89,8 +91,8 @@ class ExecutionEngine:
             raise ExecutionRequestError(
                 "Use one of the declared interpreter names: python, bash, powershell, or cmd."
             ) from exc
-        executable = self._executables.get(selected)
-        if executable is None:
+        adapter = self._adapters.get(selected)
+        if adapter is None:
             raise ExecutionRequestError(
                 prompt_text.interpreter_unavailable(
                     interpreter=selected.value,
@@ -137,26 +139,23 @@ class ExecutionEngine:
                 raise ExecutionRequestError(
                     "For a shell command, use bash, powershell, or cmd with a non-empty command and no script args."
                 )
+        encoding = adapter.resolve_output_encoding(output_encoding)
+        source_bytes = adapter.encode_source(source) if source is not None else None
         operations.check_cancelled()
 
         def factory(job_id: str) -> ProcessJobBackend:
-            suffix = {
-                Interpreter.PYTHON: ".py",
-                Interpreter.BASH: ".sh",
-                Interpreter.POWERSHELL: ".ps1",
-                Interpreter.CMD: ".cmd",
-            }[selected]
             location = self._workspace.prepare_execution(
-                job_id, cwd_ref=cwd_ref, source_text=source, source_suffix=suffix
+                job_id, cwd_ref=cwd_ref, source_bytes=source_bytes, source_suffix=adapter.suffix
             )
-            argv = self._argv(selected, executable, command, location.script_path, args)
+            launch_command = adapter.command(command, location.script_path, args)
             try:
                 process = self._runner.start(
                     ManagedProcessRequest(
-                        argv=argv,
+                        command=launch_command,
+                        output_encoding=encoding,
                         cwd=str(location.cwd),
                         interactive=interactive,
-                        env=self._networks[selected].process_environment(
+                        env=adapter.network.process_environment(
                             {
                                 **os.environ,
                                 "PYTHONIOENCODING": "utf-8",
@@ -182,43 +181,6 @@ class ExecutionEngine:
             return await JoinedOperations().run(lambda: factory(job_id))
 
         return await self.jobs.start(turn_id, ProcessJobBackend.kind, launch)
-
-    @staticmethod
-    def _argv(
-        interpreter: Interpreter,
-        executable: str,
-        command: str | None,
-        source: Path | None,
-        args: tuple[str, ...],
-    ) -> tuple[str, ...]:
-        if source is not None:
-            if interpreter is Interpreter.POWERSHELL:
-                return (
-                    executable,
-                    "-NoLogo",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-File",
-                    str(source),
-                    *args,
-                )
-            if interpreter is Interpreter.CMD:
-                return executable, "/D", "/S", "/C", str(source), *args
-            return executable, str(source), *args
-        assert command is not None
-        if interpreter is Interpreter.POWERSHELL:
-            encoded = b64encode(command.encode("utf-16-le")).decode("ascii")
-            return (
-                executable,
-                "-NoLogo",
-                "-NoProfile",
-                "-NonInteractive",
-                "-EncodedCommand",
-                encoded,
-            )
-        if interpreter is Interpreter.CMD:
-            return executable, "/D", "/Q", "/S", "/C", command
-        return executable, "--noprofile", "--norc", "-c", command
 
     async def wait(self, turn_id: str, job_id: str) -> None:
         """Cancellation joins the owned process before the Action can unwind."""

@@ -169,3 +169,35 @@ group = "jobs.capacity"
 title = "Live Jobs per Turn"
 description = "Live Jobs per Turn."
 value_kind = "integer"
+
+[[field]]
+path = "execution.interpreters.python.output_encoding"
+surface = "execution"
+group = "execution.adapters"
+title = "python output encoding"
+description = "Child output text encoding; platform uses Windows OEM or UTF-8 on other systems."
+value_kind = "string"
+
+[[field]]
+path = "execution.interpreters.bash.output_encoding"
+surface = "execution"
+group = "execution.adapters"
+title = "bash output encoding"
+description = "Child output text encoding; platform uses Windows OEM or UTF-8 on other systems."
+value_kind = "string"
+
+[[field]]
+path = "execution.interpreters.powershell.output_encoding"
+surface = "execution"
+group = "execution.adapters"
+title = "powershell output encoding"
+description = "Child output text encoding; platform uses Windows OEM or UTF-8 on other systems."
+value_kind = "string"
+
+[[field]]
+path = "execution.interpreters.cmd.output_encoding"
+surface = "execution"
+group = "execution.adapters"
+title = "cmd output encoding"
+description = "Child output text encoding; platform uses Windows OEM or UTF-8 on other systems."
+value_kind = "string"

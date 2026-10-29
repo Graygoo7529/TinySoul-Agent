@@ -9,8 +9,8 @@ type = "object"
 required = ["interpreter"]
 additionalProperties = false
 oneOf = [
-  { type = "object", required = ["interpreter", "command"], additionalProperties = false, properties = { interpreter = { type = "string", enum = ["bash", "powershell", "cmd"] }, command = { type = "string" }, cwd_ref = { type = "string" } } },
-  { type = "object", required = ["interpreter", "source_ref"], additionalProperties = false, properties = { interpreter = { type = "string", enum = ["python", "bash", "powershell", "cmd"] }, source_ref = { type = "string" }, args = { type = "array", items = { type = "string" } }, cwd_ref = { type = "string" } } }
+  { type = "object", required = ["interpreter", "command"], additionalProperties = false, properties = { interpreter = { type = "string", enum = ["bash", "powershell", "cmd"] }, command = { type = "string" }, cwd_ref = { type = "string" }, output_encoding = { type = "string" } } },
+  { type = "object", required = ["interpreter", "source_ref"], additionalProperties = false, properties = { interpreter = { type = "string", enum = ["python", "bash", "powershell", "cmd"] }, source_ref = { type = "string" }, args = { type = "array", items = { type = "string" } }, cwd_ref = { type = "string" }, output_encoding = { type = "string" } } }
 ]
 
 [tool.schema.properties.interpreter]
@@ -31,6 +31,10 @@ description = "Arguments passed to the script interpreter; only use with source_
 type = "string"
 description = "Optional existing Workspace directory; omit to use the Job's default directory."
 
+[tool.schema.properties.output_encoding]
+type = "string"
+description = "Optional child output encoding, such as utf-8 or gbk; omit to use the configured interpreter default."
+
 [semantic]
 use_when = [
     "A bounded shell command or script should finish within the action timeout",
@@ -44,9 +48,9 @@ avoid_when = [
 ]
 effects = ["modifying"]
 examples = [
-    "Run ls command to list workspace files",
+    "Run a short command using an available shell",
     "Execute python script with known quick completion",
-    "Run bash command 'grep pattern file.txt'"
+    "Run a Workspace Python script with arguments"
 ]
 
 [runtime]

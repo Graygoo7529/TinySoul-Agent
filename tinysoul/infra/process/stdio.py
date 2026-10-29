@@ -33,12 +33,17 @@ class StdioProcess:
     async def start(
         cls, request: ManagedProcessRequest, *, max_message_bytes: int = 8_000_000
     ) -> StdioProcess:
-        if request.stdin_text is not None or max_message_bytes <= 0:
+        if (
+            not isinstance(request.command, tuple)
+            or request.stdin_text is not None
+            or max_message_bytes <= 0
+        ):
             raise ProcessContractError(
                 "Protocol process requires bounded asynchronous pipes"
             )
         environment = dict(os.environ) if request.inherit_env else {}
         environment.update(request.env or {})
+        argv = request.command
 
         async def launch() -> StdioProcess:
             scope: ProcessScope | None = None
@@ -49,7 +54,7 @@ class StdioProcess:
 
                     scope = WindowsProcessJob()
                     process = await asyncio.create_subprocess_exec(
-                        *request.argv,
+                        *argv,
                         cwd=request.cwd,
                         env=environment,
                         stdin=subprocess.PIPE,
@@ -65,7 +70,7 @@ class StdioProcess:
                     from .managed import PosixProcessGroup
 
                     process = await asyncio.create_subprocess_exec(
-                        *request.argv,
+                        *argv,
                         cwd=request.cwd,
                         env=environment,
                         stdin=subprocess.PIPE,

@@ -2,7 +2,7 @@
 
 日期：2026-10-29。
 
-状态：`in_progress`，设计与实施准备已完成，业务代码尚未开始修改。P1–P3 可按本计划实施；P4 的代理解析语义有一项维护者决策 D1 待确认。不能将准备完成视为实现完成或归档依据。
+状态：`in_progress`。维护者已确认按计划实施，D1 采用按实际路由处理。P1–P3 已实施，完成文档、规约核对和 Full/ty 门禁。P4 发现 HTTPX 默认端口 mount 与原设计冲突，已提出新决策 D2，待确认后继续相关修改。尚不满足整体 done/归档条件。
 
 复核基线：`e2564cf7`（修复共用 HTML 规范化与异常分类）。依据：[AGENTS.md](../../AGENTS.md)、[原始轨迹分析](20261029%20Web与Execution轨迹失败分析.md)、[Execution 设计](../design/execution.md)、[Infra 设计](../design/infra.md)、[Web 设计](../design/capabilities/web.md)。
 
@@ -203,7 +203,7 @@ StdioProcess 的 MCP/ACP 协议管道保持原始字节和协议已有编码，�
 
 ### 7.1 决策 D1
 
-状态：`pending`，已向维护者提出选项。推荐“按实际路由处理”：
+状态：`confirmed`。维护者已确认按计划实施，采用“按实际路由处理”：
 
 | 路由/目标 | 推荐行为 |
 | --- | --- |
@@ -213,11 +213,11 @@ StdioProcess 的 MCP/ACP 协议管道保持原始字节和协议已有编码，�
 | 域名实际通过代理 | 代理负责目标解析，不用本机 DNS 结果提前否决 |
 | redirect 改变目标或命中 no_proxy | 对新 URL 重新选择路由和校验 |
 
-这明确改变当前“所有请求均要求本机 DNS 为公网地址”的策略。TinySoul 无法验证代理最终连接的目标 IP；代理模式信任已配置代理的解析和路由能力，不声称仍提供同等的目标地址验证。若维护者选择维持当前要求，P4 标为 dropped，P1–P3 仍可独立完成。
+这明确改变当前“所有请求均要求本机 DNS 为公网地址”的策略。TinySoul 无法验证代理最终连接的目标 IP；代理模式信任已配置代理的解析和路由能力，不声称仍提供同等的目标地址验证。D1 已确认，实际网络实施仍需处理下述 D2。
 
 ### 7.2 路由与校验的 owner
 
-Infra ResolvedNetwork 增加针对 URL 的有效代理查询，返回实际 proxy 或 None，沿现有 HTTP/HTTPS 与 no_proxy 语义计算。将现有 no_proxy 有限声明解析为内部规则，同一规则同时生成 HTTPX mount pattern 和执行匹配；不在 Web 再写一套 no_proxy，不调用 HTTPX 私有 URLPattern。
+Infra ResolvedNetwork 增加针对 URL 的有效代理查询，返回实际 proxy 或 None，沿现有 HTTP/HTTPS 与 no_proxy 语义计算。原设计是将 no_proxy 解析为内部规则，同时生成 HTTPX mount pattern 和执行匹配；实施核查发现默认端口不能由该 mount 方案准确表达，调整提案见 D2。不在 Web 再写一套 no_proxy，不调用 HTTPX 私有 URLPattern。
 
 规则保留当前能力：精确 IP、域名及子域、可选端口、全局绕过；不顺带增加 CIDR、PAC、SOCKS 或系统代理读取。规则匹配、默认端口和公开 mount 的行为要有一致性测试，确保查询结果就是实际传输路由。
 
@@ -226,6 +226,16 @@ Web 的 URL 语法规范化与连接前目标校验明确分工：前者无网�
 Fetch、robots、Discovery seed 和递归访问都显式传递同一 ResolvedNetwork；Discovery 的注入 fetcher/resolver 继续服务测试，不把 network 放进模型业务请求。worker 局部组装负责把有效配置传至这些入口。公共边界仍归 Web，不下沉为 Infra 的“禁止私网”通用政策。
 
 诊断保持有限事实；不把代理凭据、全部环境变量或完整 DNS 地址清单写入模型。已有 HTTP error_type/status_code 足够时不新增通用诊断框架。
+
+### 7.3 实施中发现的决策 D2
+
+状态：`pending`，已向维护者发出异步确认，相关网络代码尚未修改；P1–P3 独立完成。
+
+安装版本的 HTTPX/httpx2 会把请求 URL 的默认端口规范化为 None，但 `all://*example.com:443` 的 mount pattern 仍保留 443。使用两套库的公开 Client/MockTransport 复现：`https://example.com/` 和显式 `:443` 均走代理，未命中 no_proxy；这并非网络连通性或 DNS 故障。将 pattern 改成不带端口又会误将非默认端口一并绕过。因此原计划“仅生成 mount，同时正确处理默认端口并保证查询与实际传输一致”无法直接实现。
+
+推荐在 Infra HTTP 适配层增加实际路由 transport：每次请求从同一个 ResolvedNetwork 查询选择代理或直连，复用对应 HTTPX/httpx2 的公开 sync/async transport 与客户端生命周期。沿用已有 helper 入口，调用 owner 不变；不复制 no_proxy 匹配，不增加自动代理切换。改动范围增加 `infra/http.py` 及其路由一致性测试，默认端口、非默认端口、redirect 均按统一规则处理。备选是保留现有 mount 行为并明确记录默认端口限制，不宣称默认端口绕过已修复。
+
+依据 AGENTS.md 工作方式：“如果发现实际代码、外部接口或新需求与之前讨论规划产生冲突，应立即澄清问题并重新讨论清楚。”D2 待答期间继续其余实现、文档和验证，不根据等待时长视为同意。
 
 ## 8. 改动范围预览
 
@@ -240,7 +250,7 @@ Fetch、robots、Discovery seed 和递归访问都显式传递同一 ResolvedNet
 | Workspace | engine.py、services.py | 执行源码工件改为明确 bytes，由 owner 写入 |
 | 协议调用者 | infra/process/stdio.py、MCP/ACP 构造处及相关测试 | 仅统一进程请求类型；不改变协议 I/O |
 | 配置与文案 | config/catalog/execution.toml，standard/development execution.toml，run/start catalog、execution prompts/Skill | 输出编码字段、能力说明、配置投影 |
-| 网络，D1 确认后 | infra/network.py，Web network/discovery/worker | 单一路由匹配、代理与直连分别校验 |
+| 网络，待 D2 | infra/network.py，Web network/discovery/worker；D2 推荐项还涉及 infra/http.py | 单一路由匹配、代理与直连分别校验 |
 | 文档 | design/execution.md、infra.md、capabilities/web.md，endpoint/configuration.md | 只在实施后同步当前事实 |
 | 测试 | 对应 Infra、Execution、Web、Workspace 与固定 worker 测试 | 保护真实参数、编码、结束和路由契约 |
 
@@ -271,20 +281,20 @@ output_encoding = "platform"
 
 改用 pwsh 时可明确设置 executable 与 utf-8，项目不自动安装或猜测版本。输出编码不改变脚本 stdin 或 source_ref 所指资源。
 
-Web 行为变化：Discovery 429 保留 status_code；已知页面超时不再是 worker_failed；真正未知错误仍为 worker_failed。若 D1 采用推荐项，代理访问的域名不因本机 DNS 非 global 而提前失败，实际连接失败仍如实返回局部结果。
+Web 行为变化：Discovery 429 保留 status_code；已知页面超时不再是 worker_failed；真正未知错误仍为 worker_failed。D1 已确认，P4 完成后代理访问的域名不因本机 DNS 非 global 而提前失败，实际连接失败仍如实返回局部结果。
 
 ## 10. 实施顺序、验收与提交边界
 
 | 步骤 | 状态 | 实施内容 | 完成条件 |
 | --- | --- | --- | --- |
 | P0 复核与计划 | done（仅本步骤） | 重新阅读规约、审查提交、核对消费者、临时复现 | 本文与原分析互链，真实发现和假设分开 |
-| P1 Web 失败与能力表达 | pending，准备实施 | 超时/facts，Execution 文案与示例 | 正确 disposition；当前能力信息保留；无 Phase/Trace 改动 |
-| P2 启动适配与源码工件 | pending，准备实施 | 解释器内部适配、CMD 原生命令行、源码 bytes、PowerShell 参数语义 | 真实参数与退出码正确；固定 worker 的 CMD 入口同步 |
-| P3 编码与采集生命周期 | pending，准备实施 | 编码配置/覆盖、UTF-8 日志、finish、调用者和 Endpoint 同步 | 输出完整；分页一致；取消与自然结束都完成资源回收 |
-| P4 网络路由 | pending，待 D1 | Infra 查询与 Web 校验协作 | 实际传输与查询一致，redirect/no_proxy 均正确 |
-| P5 总体验证与归档 | pending | 聚焦、Fast、Full、ty；文档及改动复核 | 所有已纳入项目完成，排除项明确，才能归档 |
+| P1 Web 失败与能力表达 | done | 超时/facts，Execution 文案与示例 | 正确 disposition；当前能力信息保留；无 Phase/Trace 改动 |
+| P2 启动适配与源码工件 | done | 解释器内部适配、CMD 原生命令行、源码 bytes、PowerShell 参数语义 | 真实参数与退出码正确；固定 worker 的 CMD 入口同步 |
+| P3 编码与采集生命周期 | done | 编码配置/覆盖、UTF-8 日志、finish、调用者和 Endpoint 同步 | 输出完整；分页一致；取消与自然结束都完成资源回收 |
+| P4 网络路由 | pending，待 D2 | Infra 查询与 Web 校验协作 | 实际传输与查询一致，redirect/no_proxy 均正确 |
+| P5 总体验证与归档 | in_progress | 聚焦、Fast、Full、ty；文档及改动复核 | 所有已纳入项目完成，排除项明确，才能归档 |
 
-按 P1 → P2 → P3 推进。P4 可在 D1 确认后独立实施，最终与前述改动共同验收。每个步骤同步设计及必要 Endpoint 说明，不在未实现时先改 design 文档宣称生效。
+按 P1 → P2 → P3 推进。P4 在 D2 确认后继续实施，最终与前述改动共同验收。每个步骤同步设计及必要 Endpoint 说明，不在未实现时先改 design 文档宣称生效。
 
 预计提交可按三个行为边界组织：Web 失败修正；Execution 启动及文本采集（P2/P3 一起验收）；Web 代理路由（如采用）。不以拆提交为理由保留错误兼容别名或不完整消费者迁移。
 
@@ -304,7 +314,7 @@ Web 行为变化：Discovery 429 保留 status_code；已知页面超时不再�
 | Execution + Workspace | run/start 共用能力；多页/重复 collect；日志与 Workspace.inspect 内容一致；最终输出限额 |
 | Wait 协作 | Job 继续 running 时定时恢复同一 Turn；恢复后能查询已有输出并再次等待；Job 终态/待答仍可提前恢复，普通输出不强制新增 Cycle |
 | 配置及 Endpoint | output_encoding 可读写、校验和 reload；有效 schema 有可选覆盖；不写个人路径 |
-| 网络，D1 确认后 | 直连/代理/no_proxy/端口/redirect；代理域名不调用本地 resolver；字面私网仍拒绝；路由查询与真实 mount 一致 |
+| 网络，待 D2 | 直连/代理/no_proxy/端口/redirect；代理域名不调用本地 resolver；字面私网仍拒绝；路由查询与真实传输一致 |
 
 编码和启动机制由 Infra/Execution owner 覆盖一次，跨模块只保留代表性协作路径。参数/字节/退出码属于稳定机器语义可精确断言；提示文案和可编辑示例不做完整快照。Windows 专属行为在本机真实验证，其他平台验证共用采集及 argv；不可用 shell 不伪造测试通过。
 
@@ -328,9 +338,21 @@ git diff --check
 - [x] 复现 CMD 引号、PowerShell 参数/编码，以及 Discovery facts/timeout 问题。
 - [x] 核对固定 worker 与协议进程消费者，避免只修 Execution。
 - [x] 明确配置、模型参数、Endpoint、文档与测试范围。
-- [ ] 记录 D1 选择；未回答前不实施依赖该选择的网络策略。
-- [ ] 完成 P1–P3 与已纳入的 P4。
-- [ ] 完成必要验证、最终 diff 审查与文档同步。
+- [x] 记录 D1：按实际代理／直连路由处理域名解析。
+- [x] 完成 P1–P3。
+- [ ] D2 确认后完成 P4。
+- [x] 完成当前 P1–P3 的必要验证、diff 审查与文档同步；P4 后仍需总体核对。
 - [ ] 逐项确认后标记 done，在文件名加入 -done- 并移至 analysis/done。
 
-本轮只交付复核与执行计划。上述接口名称是明确的实施设计，可按代码组织做等价命名调整，但不能改变所有权、参数/结束语义或绕过尚待确认的网络决策。
+上述接口名称可按代码组织做等价命名调整，但不能改变所有权、参数/结束语义或绕过尚待确认的网络决策。
+
+## 13. 实施与复核记录
+
+- P1：Discovery 保存 seed 的 reason/facts，识别 TimeoutError/UserHandlerTimeoutError 为既有 page_visit_failed/use_fallback；429 保留 retry_same，未知错误继续 worker_failed/stop。正式工具说明和域 Skill 补充可用解释器、直接 Python、运行中 collect、定时探查及 Windows curl.exe/PowerShell 代理差异。
+- P2：ExecutionEngine 使用单一 InterpreterAdapter 字典；共享进程请求统一为 command（argv 或 WindowsCommandLine），Stdio 保持协议字节。CMD 的原生命令行构造供 Execution 和 Defuddle 共用，PowerShell 保留 -File 参数和子进程 Bypass。Workspace 准备接口接收 source_bytes，补全 .cmd/.bat 文本分类。
+- P2 真实验证追加：CMD 工件使用 CRLF，避免 LF 使部分命令丢失字符；原始源码仍保持原样。CMD 结构化 args 对双引号、百分号和换行明确拒绝，普通 argv 保留空参数。
+- P3：公共采集器增量解码、规范换行并写入唯一 UTF-8 日志；运行中已完成字符无需换行/EOF 即可读取。finish 与 close 分工明确，固定 worker 先收齐再读取，Job 在终态快照前检查最终输出上限。采集失败与未完成资源释放分别使用 ProcessOutputError、ManagedProcessCloseError，Infra 无 Runtime bridge。
+- 配置：新增解释器 output_encoding、run/start 可选覆盖、标准/开发配置及配置 catalog；Endpoint 复用现有查询和 PATCH/apply/reload。公开 schema 未删除未启用解释器枚举，动态 hint 沿既有实现。
+- 文档：同步 Execution、Infra、Web、Workspace 和配置 Endpoint；P4 未实施前不提前修改网络行为说明。
+- 聚焦验证：实际 Windows Python/PowerShell/CMD 参数、非零退出、中文源码与诊断；跨块 UTF-8/GBK、双流采集、无换行实时输出、timer 恢复后探查、stdin 继续执行、最终限额和采集失败回收均已覆盖。配置接口校验、固定 worker 完整 JSON 与 Web/Resource 局部失败同步覆盖。Fast 1326 passed；当前最终 Full 1469 passed、3 deselected（run：847a432d1af7400d89aaffdd4976feba），ty 与 git diff --check 通过。新增 Resource 测试的输入类型在首轮 Full 中暴露错误，修正为真实 DOCX 后单独及完整门禁通过，不改变业务断言。
+- AGENTS 核对：没有新增调度器、Job 状态机、Runtime 原因、源码语言猜测、代理自动切换或逐块模型唤醒；新固定模型文案归 prompts，配置/工具/Skill 文案归原 owner；frontend 未修改。采集线程的异常捕获是将线程失败交回所属生命周期，不形成业务恢复链。

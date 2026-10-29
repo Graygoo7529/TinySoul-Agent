@@ -21,6 +21,7 @@ from lxml import etree, html
 from tinysoul.infra import JsonObject, dumps_json, to_json_object
 from tinysoul.infra.http import client_headers, httpx2_sync_mounts
 from tinysoul.infra.network import network_from_environment
+from tinysoul.infra.process import cmd_script
 from tinysoul.prompts.plugins.capabilities import web as prompt_text
 
 from ..errors import WebProcessingError
@@ -477,11 +478,14 @@ def _extract_with_defuddle(
         "--output",
         str(result),
     ]
-    if os.name == "nt" and Path(executable).suffix.lower() in {".cmd", ".bat"}:
-        command = subprocess.list2cmdline(argv)
-        argv = [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/s", "/c", command]
+    native = (
+        cmd_script(os.environ.get("COMSPEC", "cmd.exe"), executable, tuple(argv[1:]))
+        if os.name == "nt" and Path(executable).suffix.lower() in {".cmd", ".bat"}
+        else None
+    )
     completed = subprocess.run(
-        argv,
+        native.text if native is not None else argv,
+        executable=native.executable if native is not None else None,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

@@ -189,6 +189,12 @@ ServiceScope 封装完整的 async 准入作用域；ScopedService 只将 owner 
 
 ManagedProcessRunner 显式接收请求，拥有进程组、标准流捕获和有界硬停止。执行关闭与附属资源清理分开：已停止后日志/临时文件失败形成有限 CleanupDiagnostic；有界复查后仍无法停止则保留可再次关闭的句柄并抛出 Process 层错误。Action 与 Jobs 的适配器分别解释其失败，Infra 不产生 Runtime 转移，也不复制业务终态。输出读取有界，完整输出由调用方选择的捕获目录承载。
 
+进程请求的 command 是普通 argv 或带显式 executable 的 WindowsCommandLine，二者互斥。普通 argv 允许空参数；CMD 的 shell 文本使用专属构造，不经过 C runtime 的参数转义。Execution 和 Defuddle 的 Windows 批处理入口复用同一构造。协议进程只接受 argv，MCP/ACP 的二进制管道保持其协议原有编码。
+
+文本进程使用明确 codec 的增量采集器，持续把 stdout/stderr 写为唯一 UTF-8 日志；platform 在调用边界解析为 Windows OEM 或其它平台 UTF-8。每次读取当前已有数据，不等待换行或填满块；日志页使用字符 cursor，字节边界不暴露半个 UTF-8 字符。采集器不拥有业务终态和输出配额，二者仍由调用 owner 决定。
+
+finish 在主进程退出或停止后回收进程范围并 join 两个采集流，保留日志可读；close 复用 finish 后才释放资源和清理临时目录。运行中读取不调用 finish。采集失败使用 ProcessOutputError，未完成资源收尾使用 ManagedProcessCloseError。固定 Action worker 在 finish 后读取完整 JSON，输出失败通过 output_failed 结果交给 Web/Resource owner 分类；Infra 不吞成成功或创建 Runtime bridge。
+
 受控执行包含主进程及其后代，不能用主进程退出替代整个执行单元的关闭。Windows 挂起创建主进程，在加入系统 Job Object 后恢复初始线程，后代自动留在同一集合；停止集合并确认无活进程后才关闭执行。POSIX 使用启动时建立的独立进程组，主进程已退出仍对该组发出硬停止。平台细节封装在 infra/process，业务侧共用同一 ManagedProcess，不维护父 PID 列表或另一套监督器。系统容器不是安全沙箱；POSIX 主动另建 session/group 的脱离行为不在进程组所有权保证内。
 
 启动失败先回收已获取的进程和句柄；挂起进程未能加入集合时不会执行用户代码。模块失败保留原始异常链用于调试，只以 Process 层异常跨出边界。Windows API 所有权依据见 [Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects) 与 [TerminateJobObject](https://learn.microsoft.com/en-us/windows/win32/api/jobapi2/nf-jobapi2-terminatejobobject)。

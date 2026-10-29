@@ -8,6 +8,12 @@
 
 `llm.models.<id>.context_window_tokens` 是模型标称窗口。后端对每个候选模型取标称窗口与全局上限的较小值作为有效窗口，输入、工具、回放和预留输出共同占用；压缩触发与恢复目标使用此窗口。配置视图提供两种原始值，不增加持久化的有效窗口字段。
 
+## Execution 输出编码
+
+`execution.interpreters.<python|bash|powershell|cmd>.output_encoding` 是配置 catalog 中的字符串字段，使用现有配置读取、PATCH/apply/reload。Python/bash 默认 `utf-8`，PowerShell/CMD 默认 `platform`；platform 在 Windows 使用 OEM 代码页，其它平台使用 UTF-8。更换为 pwsh 时可显式设为 `utf-8`。未知或非文本 codec 通过既有 `config.invalid` 返回，保存不会立即改变活动世代。
+
+`GET /v2/config/actions` 中 execution.run/start 的有效 schema 含可选 `output_encoding`，省略时沿用解释器配置；该参数仅指定如何解码本次 stdout/stderr。模型无需每次填写编码。Job 日志和 collect 返回的文本统一为 UTF-8，stdin 继续使用既有 UTF-8 契约。没有新增配置路由或外部执行 API。
+
 ## 出站网络配置
 
 网络设置复用配置 catalog、草稿、PATCH/apply/reload，并由 `GET /v2/config/network` 提供只读的脱敏路由概览。`network` 是一个原子 object；选择另一模式时整体替换，避免 direct/inherit 残留旧地址。支持 `mode = inherit | direct | override`；仅 override 接受 `http_proxy`、`https_proxy`、`no_proxy`，至少填写一个代理地址。override 完整替换父配置，未填协议直连；no_proxy 未填写默认绕过 localhost/127.0.0.1/::1，空字符串不绕过。

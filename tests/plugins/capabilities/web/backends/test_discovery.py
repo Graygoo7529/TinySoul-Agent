@@ -6,6 +6,8 @@ import socket
 from pathlib import Path
 from time import monotonic
 from typing import cast
+import pytest
+from crawlee.errors import UserHandlerTimeoutError
 
 from tinysoul.kernel.action import (
     ActionCall,
@@ -36,6 +38,8 @@ from tinysoul.plugins.capabilities.web.backends.discovery import (
 )
 from tinysoul.plugins.capabilities.web.backends.network import FetchedPage
 from tinysoul.plugins.capabilities.web.service import WebCapabilityService
+from tinysoul.plugins.capabilities.web.errors import WebProcessingError, web_failure_disposition
+from tinysoul.kernel.action import ActionFailureDisposition
 from tinysoul.infra import JsonValue, StagingDirectoryManager, dumps_json
 from tinysoul.runtime import RunScope
 from tinysoul.plugins.workspace.services import WorkspaceService
@@ -44,6 +48,31 @@ from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 
 def _public_resolver(*args: object, **kwargs: object) -> object:
     return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
+
+
+@pytest.mark.parametrize("error,reason,disposition", [
+    (WebProcessingError("Rate limited", reason="http_status_error", payload={"status_code": 429}), "http_status_error", ActionFailureDisposition.RETRY_SAME),
+    (TimeoutError("private timeout"), "page_visit_failed", ActionFailureDisposition.USE_FALLBACK),
+    (UserHandlerTimeoutError("private timeout"), "page_visit_failed", ActionFailureDisposition.USE_FALLBACK),
+    (AttributeError("private bug"), "worker_failed", ActionFailureDisposition.STOP),
+])
+async def test_seed_failure_retains_classification_facts(error, reason, disposition):
+    def fetch(*args, **kwargs):
+        raise error
+
+    with pytest.raises(WebProcessingError) as raised:
+        await discover_pages(
+            _discovery_request(depth=0), page_fetcher=fetch,
+            robots_fetcher=lambda *args, **kwargs: "", resolver=_public_resolver,
+        )
+    failure = raised.value
+    assert failure.reason == reason
+    assert web_failure_disposition(failure.reason, failure.payload) is disposition
+    if isinstance(error, WebProcessingError):
+        assert failure.payload == {"status_code": 429}
+    else:
+        assert failure.payload["error_type"] in {type(error).__name__, "UserHandlerTimeoutError"}
+    assert "private" not in failure.feedback
 
 
 def test_discovery_config_and_dependency_are_independent() -> None:

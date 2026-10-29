@@ -4,6 +4,8 @@ from pathlib import Path
 import socket
 import subprocess
 import sys
+import io
+from time import monotonic, sleep
 from typing import cast
 
 import pytest
@@ -16,6 +18,7 @@ from tinysoul.infra.process import (
     ManagedProcessRunner,
     ManagedProcessStartError,
     ProcessContractError,
+    ProcessOutputError,
 )
 
 
@@ -26,7 +29,7 @@ def test_managed_process_preserves_caller_owned_capture_directory(
     capture_root = tmp_path / "job-logs"
     process = ManagedProcessRunner().start(
         ManagedProcessRequest(
-            argv=(sys.executable, "-c", "print('captured')"),
+            command=(sys.executable, "-c", "print('captured')"),
         ),
         capture_root=capture_root,
     )
@@ -53,7 +56,7 @@ def test_managed_process_terminate_uses_configured_wait(
     stdout_path.write_text("", encoding="utf-8")
     stderr_path.write_text("", encoding="utf-8")
     managed = ManagedProcess(
-        cast(subprocess.Popen[str], process),
+        cast(subprocess.Popen[bytes], process),
         stdout_capture=_FakeCapture(),
         stderr_capture=_FakeCapture(),
         stdout_path=stdout_path,
@@ -69,11 +72,87 @@ def test_managed_process_terminate_uses_configured_wait(
 
 
 class _FakeCapture:
+    def finish(self, timeout_seconds: float) -> None:
+        pass
+
     def close(self) -> None:
         pass
 
     def flush(self) -> None:
         pass
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("encoding", ["utf-8", "gbk"])
+def test_incremental_capture_decodes_live_chunks_and_preserves_utf8_log(tmp_path, encoding):
+    first, second = "已有", "输出"
+    data = (first + second).encode(encoding)
+    split = len(first.encode(encoding)) + 1
+    script = (
+        "import os,sys\n"
+        f"os.write(1, {data[:split]!r})\n"
+        "sys.stdin.buffer.read(1)\n"
+        f"os.write(1, {data[split:]!r})\n"
+        f"os.write(2, {('诊断' * 20000).encode(encoding)!r})\n"
+    )
+    source = tmp_path / "emit.py"
+    source.write_text(script, encoding="utf-8")
+    root = tmp_path / "logs"
+    with ManagedProcessRunner().start(
+        ManagedProcessRequest((sys.executable, str(source), ""), interactive=True, output_encoding=encoding),
+        capture_root=root,
+    ) as process:
+        deadline = monotonic() + 5
+        while True:
+            page = process.read_stdout(cursor=0, max_chars=10, max_bytes=100)
+            if page.text == first:
+                break
+            assert monotonic() < deadline
+            sleep(0.01)
+        assert process.running()
+        assert process.write_stdin(b"x", close=True) == 1
+        assert process.wait(5) == 0
+        process.finish()
+        assert process.read_stdout(cursor=page.next_cursor, max_chars=10, max_bytes=100).text == second
+        bounded = process.read_stdout(cursor=0, max_chars=10, max_bytes=4)
+        assert bounded.text == first[0] and bounded.truncated
+    assert (root / "stdout.log").read_text(encoding="utf-8") == first + second
+    assert (root / "stderr.log").read_text(encoding="utf-8") == "诊断" * 20000
+
+
+@pytest.mark.integration
+def test_output_failure_stops_process_and_joins_capture(tmp_path, monkeypatch):
+    from tinysoul.infra.process.capture import OutputCapture
+
+    class FailedLog(io.BytesIO):
+        def write(self, data):
+            raise OSError("private disk error")
+
+    captures = []
+    original = OutputCapture.__init__
+
+    def capture(self, source, path, encoding):
+        original(self, source, path, encoding)
+        if path.name == "stdout.log":
+            self._target.close()
+            self._target = FailedLog()
+        captures.append(self)
+
+    monkeypatch.setattr(OutputCapture, "__init__", capture)
+    process = ManagedProcessRunner().start(
+        ManagedProcessRequest((sys.executable, "-u", "-c", "import sys; sys.stdin.buffer.read(1); print('output'); sys.stdin.buffer.read()"), interactive=True),
+        capture_root=tmp_path / "logs",
+    )
+    try:
+        process.write_stdin(b"x")
+        with pytest.raises(ProcessOutputError):
+            process.wait(5)
+        assert not process.running()
+        with pytest.raises(ProcessOutputError):
+            process.finish()
+        assert all(not capture._thread.is_alive() for capture in captures)
+    finally:
+        process.close()
 
 
 class _FakeProcess:
@@ -133,7 +212,7 @@ def test_failed_stop_keeps_execution_retryable_and_ancillary_failure_is_diagnost
         child.exit_code = 0
     scope = ResistantScope(child)
     managed = ManagedProcess(
-        cast(subprocess.Popen[str], child),
+        cast(subprocess.Popen[bytes], child),
         stdout_capture=capture,
         stderr_capture=_FakeCapture(),
         stdout_path=tmp_path / "out",
@@ -205,11 +284,11 @@ def test_failed_assignment_reaps_root_without_running_user_code(
 ) -> None:
     from tinysoul.infra.process.windows import WindowsProcessJob
 
-    children: list[subprocess.Popen[str]] = []
+    children: list[subprocess.Popen[bytes]] = []
     start = subprocess.Popen
 
     def capture(*args, **kwargs):
-        process = start(*args, **kwargs)
+        process = cast("subprocess.Popen[bytes]", start(*args, **kwargs))
         children.append(process)
         return process
 

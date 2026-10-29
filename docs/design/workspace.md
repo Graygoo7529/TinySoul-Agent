@@ -64,6 +64,8 @@ compose、describe、analyze 以各自的 generate consumer 绑定普通 LLM tas
 
 Turn preparation、必要查询以及受控进程结束后进行 reconcile。execution 经窄内部接口取得真实当天 cwd 和输出位置，默认每个 Job 独立目录；文件即时存在，collect 只读取输出。停止或取消不回滚已写文件，详见 [Execution 与 Job](execution.md)。
 
+执行源码由 Execution 按解释器编码，Workspace 的执行准备接口接收明确 bytes 并原子写入 Job 工件，不判断语言或输出编码。原始源码资源不被改写；stdout/stderr 日志由公共进程采集器统一保存为 UTF-8，运行中的已有日志也可通过 Workspace 读取。
+
 活动 Turn 从准备到全部收尾持有同一日 lease；跨午夜 Job 仍使用旧日根。下一根请求前，Archive 协调各 owner 归档 Session、Workspace 和 active Trash，再建立新日。Home overlay 与持久 Memory 不随 Workspace 归档。
 
 Workspace 段接收刷新意图，在 prepare 中读取 owner 已提交的最新快照，在 install 中替换本轮投影。Action、SDK、Endpoint 和 execution 不再各自传递整份快照；事件适配进入同一 Context 批次。Context 压力只收缩模型投影，不移动或删除文件。

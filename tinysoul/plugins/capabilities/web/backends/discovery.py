@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from crawlee import ConcurrencySettings, Request
 from crawlee.crawlers import BasicCrawler, BasicCrawlingContext
+from crawlee.errors import UserHandlerTimeoutError
 from crawlee.storage_clients import MemoryStorageClient
 from crawlee.storages import RequestQueue
 from lxml import etree, html
@@ -130,6 +131,7 @@ class _PageState:
     h1: str = ""
     canonical_url: str = ""
     failure_reason: str = ""
+    failure_facts: JsonObject = field(default_factory=dict)
 
 
 @dataclass
@@ -302,6 +304,10 @@ async def discover_pages(
             )
             page_state.state = "failed"
             page_state.failure_reason = _failure_reason(error)
+            page_state.failure_facts = (
+                dict(error.payload) if isinstance(error, WebProcessingError)
+                else {"error_type": type(error).__name__}
+            )
 
     run_task = asyncio.create_task(
         crawler.run(
@@ -323,6 +329,7 @@ async def discover_pages(
         raise WebProcessingError(
             prompt_text.DISCOVERY_SEED_COULD_NOT_BE_VISITED,
             reason=source.failure_reason or "seed_fetch_failed",
+            payload=source.failure_facts,
         )
     pages = [
         _page_payload(item)
@@ -554,6 +561,8 @@ def _reference_key(reference: _Reference) -> tuple[str, str, str, str]:
 def _failure_reason(error: Exception) -> str:
     if isinstance(error, WebProcessingError):
         return error.reason
+    if isinstance(error, (TimeoutError, UserHandlerTimeoutError)):
+        return "page_visit_failed"
     return "worker_failed"
 
 

@@ -13,6 +13,7 @@ from tinysoul.infra.process import (
     ManagedProcessRequest,
     ManagedProcessRunner,
     ManagedProcessStartError,
+    ProcessOutputError,
 )
 
 
@@ -23,6 +24,7 @@ class ProcessStatus(StrEnum):
     TIMED_OUT = "timed_out"
     CANCELLED = "cancelled"
     START_FAILED = "start_failed"
+    OUTPUT_FAILED = "output_failed"
 
 
 @dataclass(frozen=True)
@@ -38,10 +40,10 @@ class ProcessRequest:
     stderr_limit: int = 4000
 
     def __post_init__(self) -> None:
-        if not self.argv or any(
-            not isinstance(item, str) or not item for item in self.argv
+        if not self.argv or not self.argv[0] or any(
+            not isinstance(item, str) or "\x00" in item for item in self.argv
         ):
-            raise ActionContractError("Process argv must contain non-empty strings")
+            raise ActionContractError("Process argv requires an executable and string arguments")
         if self.cwd is not None and (not isinstance(self.cwd, str) or not self.cwd):
             raise ActionContractError("Process cwd must be a non-empty string or None")
         if self.env is not None and any(
@@ -75,14 +77,14 @@ class ProcessOutcome:
     def __post_init__(self) -> None:
         if not isinstance(self.status, ProcessStatus):
             raise ActionContractError("Process outcome status is invalid")
-        if self.status is ProcessStatus.START_FAILED:
+        if self.status in {ProcessStatus.START_FAILED, ProcessStatus.OUTPUT_FAILED}:
             if not self.error_type or not self.error_message:
                 raise ActionContractError(
-                    "Failed process start requires error type and message"
+                    "Process failure requires error type and message"
                 )
         elif self.error_type or self.error_message:
             raise ActionContractError(
-                "Completed process outcome cannot carry a start error"
+                "Completed process outcome cannot carry a process error"
             )
 
 
@@ -104,7 +106,7 @@ class ControlledProcessRunner:
         try:
             handle = self._process_runner.start(
                 ManagedProcessRequest(
-                    argv=request.argv,
+                    command=request.argv,
                     cwd=request.cwd,
                     env=request.env,
                     inherit_env=request.inherit_env,
@@ -129,30 +131,40 @@ class ControlledProcessRunner:
             control.add_cancel_callback(terminate_on_cancel)
             status = ProcessStatus.COMPLETED
             try:
-                completed = handle.wait(control.remaining_seconds())
-                if completed is None:
-                    control.request_cancel("timeout")
-                    handle.terminate()
-                    status = ProcessStatus.TIMED_OUT
+                try:
+                    completed = handle.wait(control.remaining_seconds())
+                    if completed is None:
+                        control.request_cancel("timeout")
+                        handle.terminate()
+                        status = ProcessStatus.TIMED_OUT
+                finally:
+                    handle.finish()
+                if status is ProcessStatus.COMPLETED and control.is_cancelled():
+                    status = ProcessStatus.CANCELLED
+                stdout = handle.read_stdout(
+                    cursor=0,
+                    max_chars=request.stdout_limit,
+                    max_bytes=(request.stdout_limit + 1) * 4,
+                )
+                stderr = handle.read_stderr(
+                    cursor=0,
+                    max_chars=request.stderr_limit,
+                    max_bytes=(request.stderr_limit + 1) * 4,
+                )
+                return ProcessOutcome(
+                    status=status,
+                    exit_code=handle.exit_code,
+                    stdout=stdout.text,
+                    stderr=stderr.text,
+                    stdout_truncated=stdout.truncated,
+                    stderr_truncated=stderr.truncated,
+                )
+            except (ProcessOutputError, OSError) as exc:
+                return ProcessOutcome(
+                    status=ProcessStatus.OUTPUT_FAILED,
+                    exit_code=handle.exit_code,
+                    error_type=type(exc).__name__,
+                    error_message="Process output could not be collected",
+                )
             finally:
                 control.remove_cancel_callback(terminate_on_cancel)
-            if status is ProcessStatus.COMPLETED and control.is_cancelled():
-                status = ProcessStatus.CANCELLED
-            stdout = handle.read_stdout(
-                cursor=0,
-                max_chars=request.stdout_limit,
-                max_bytes=(request.stdout_limit + 1) * 4,
-            )
-            stderr = handle.read_stderr(
-                cursor=0,
-                max_chars=request.stderr_limit,
-                max_bytes=(request.stderr_limit + 1) * 4,
-            )
-            return ProcessOutcome(
-                status=status,
-                exit_code=handle.exit_code,
-                stdout=stdout.text,
-                stderr=stderr.text,
-                stdout_truncated=stdout.truncated,
-                stderr_truncated=stderr.truncated,
-            )

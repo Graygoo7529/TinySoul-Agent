@@ -149,12 +149,14 @@ class ExecutionActionExecutor:
                 params.get("cwd_ref", ""),
                 params.get("interactive", False),
             )
+            output_encoding = params.get("output_encoding")
             if (
                 not isinstance(interpreter, str)
                 or (command is not None and not isinstance(command, str))
                 or (source is not None and not isinstance(source, str))
                 or not isinstance(cwd, str)
                 or not isinstance(interactive, bool)
+                or (output_encoding is not None and not isinstance(output_encoding, str))
                 or not isinstance(args, list)
                 or any(not isinstance(item, str) for item in args)
             ):
@@ -179,6 +181,7 @@ class ExecutionActionExecutor:
                 interactive=interactive,
                 home=self._home,
                 operations=context.owner_operations,
+                output_encoding=output_encoding,
             )
             if operation is not ExecutionOperation.START:
                 await self._engine.wait(turn_id, backend.job_id)
