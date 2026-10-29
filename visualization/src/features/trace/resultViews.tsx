@@ -200,6 +200,40 @@ function SearchFamilyView({ result, params, nav }: ResultViewProps) {
   );
 }
 
+function ReadTextWithLines({
+  text,
+  requested,
+  actual,
+}: {
+  text: string;
+  requested: JsonObject | null;
+  actual: JsonObject | null;
+}) {
+  const actualStart = actual !== null ? asObject(actual.start) : null;
+  const actualLine = actualStart !== null ? asNumber(actualStart.line) : null;
+  const requestedLine = requested !== null ? asNumber(requested.start_line) : null;
+  const startLine = actualLine ?? requestedLine;
+  if (startLine === null) return <Excerpt text={text} max={4000} />;
+  const boundedText = text.length > 4000 ? `${text.slice(0, 4000)}…` : text;
+  return (
+    <div className="overflow-hidden rounded-md border border-line/60 bg-bg-sunken">
+      {boundedText.split("\n").map((line, index) => (
+        <div key={index} className="grid grid-cols-[2.75rem_1fr]">
+          <span
+            data-line-number={startLine + index}
+            className="select-none border-r border-line/60 px-1.5 py-0.5 text-right font-mono text-[10px] leading-5 text-fg-faint"
+          >
+            {startLine + index}
+          </span>
+          <span className="whitespace-pre-wrap break-words px-2 py-0.5 font-mono text-[12px] leading-5 text-fg-muted">
+            {line === "" ? "\u00a0" : line}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /**
  * Inspect/read: DisclosurePage-style {ref, items}, workspace.read text
  * ranges, directory listings. Shows what was read; "open" goes to the
@@ -250,7 +284,7 @@ function InspectView({ result, nav }: ResultViewProps) {
       )}
       {text !== null && (
         <Collapsible title={`Read text (${text.length} chars)`} defaultOpen={text.length <= 1200}>
-          <Excerpt text={text} max={4000} />
+          <ReadTextWithLines text={text} requested={requested} actual={actual} />
         </Collapsible>
       )}
       {truncated && (

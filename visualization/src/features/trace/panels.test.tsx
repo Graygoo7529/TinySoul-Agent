@@ -552,6 +552,76 @@ describe("ActionDetailPanel", () => {
     expect(container.textContent).toContain("request timeout");
     expect(container.textContent).toContain("API reference");
   });
+
+  it("renders workspace.read line numbers only when an actual or requested start exists", async () => {
+    serveEvents([
+      event("action.call", 10, {
+        call_id: "c1", action: "workspace.read", domain: "workspace", sequence: 1,
+        params: { ref: "workspace:src/context.ts", start_line: 120, end_line: 140 },
+      }, [TURN, CYCLE, PHASE2]),
+      event("action.result", 20, {
+        result_id: "r1", call_id: "c1", action: "workspace.read",
+        status: "success", stage: "execution", sequence: 1, domain: "workspace",
+        invoke_id: "invoke_c1", batch_id: "b1", failure: null,
+        payload: {
+          ref: "workspace:src/context.ts",
+          requested: { start_line: 120, end_line: 140, cursor: 0, max_chars: 4000 },
+          actual: { start: { line: 120, column: 1 }, end: { line: 126, column: 48 } },
+          text: "alpha\nbeta", truncated: true,
+        },
+      }, [TURN, CYCLE, PHASE3]),
+    ]);
+    render(
+      <ActionDetailPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29"
+        selector={{ callId: "c1", action: "workspace.read", ordinal: 0 }} />,
+    );
+    await flush();
+    expect([...container.querySelectorAll("[data-line-number]")].map((node) => node.textContent))
+      .toEqual(["120", "121"]);
+
+    serveEvents([
+      event("action.call", 30, {
+        call_id: "c2", action: "workspace.read", domain: "workspace", sequence: 1,
+        params: { ref: "workspace:src/context.ts", start_line: 42 },
+      }, [TURN, CYCLE, PHASE2]),
+      event("action.result", 40, {
+        result_id: "r2", call_id: "c2", action: "workspace.read",
+        status: "success", stage: "execution", sequence: 1, domain: "workspace",
+        invoke_id: "invoke_c2", batch_id: "b1", failure: null,
+        payload: {
+          ref: "workspace:src/context.ts", requested: { start_line: 42 },
+          actual: null, text: "first\nsecond",
+        },
+      }, [TURN, CYCLE, PHASE3]),
+    ]);
+    render(
+      <ActionDetailPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29"
+        selector={{ callId: "c2", action: "workspace.read", ordinal: 0 }} />,
+    );
+    await flush();
+    expect([...container.querySelectorAll("[data-line-number]")].map((node) => node.textContent))
+      .toEqual(["42", "43"]);
+
+    serveEvents([
+      event("action.call", 50, {
+        call_id: "c3", action: "workspace.read", domain: "workspace", sequence: 1,
+        params: { ref: "workspace:src/context.ts" },
+      }, [TURN, CYCLE, PHASE2]),
+      event("action.result", 60, {
+        result_id: "r3", call_id: "c3", action: "workspace.read",
+        status: "success", stage: "execution", sequence: 1, domain: "workspace",
+        invoke_id: "invoke_c3", batch_id: "b1", failure: null,
+        payload: { ref: "workspace:src/context.ts", text: "plain text" },
+      }, [TURN, CYCLE, PHASE3]),
+    ]);
+    render(
+      <ActionDetailPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29"
+        selector={{ callId: "c3", action: "workspace.read", ordinal: 0 }} />,
+    );
+    await flush();
+    expect(container.querySelectorAll("[data-line-number]")).toHaveLength(0);
+    expect(container.textContent).toContain("plain text");
+  });
 });
 
 // ---------------------------------------------------------------------------
