@@ -316,6 +316,33 @@ describe("MemoryPage knowledge catalog", () => {
     expect(title?.parentElement?.querySelector("span.rounded.border")?.textContent).toBe("memory:concept/tinysoul");
   });
 
+  it("presents non-active statuses and redirects in Chinese without adding active badges", async () => {
+    endpoint.get("/v2/memory/active", () => jsonResponse(activePage(ACTIVE, [])));
+    endpoint.get("/v2/memory/catalog", () => jsonResponse({
+      items: [
+        catalogItem("memory:entity/project", "entity"),
+        catalogItem("memory:entity/old-project", "entity", { status: "merged", redirect_to: "memory:entity/project" }),
+        catalogItem("memory:concept/old-context", "concept", { status: "superseded", redirect_to: "memory:concept/context" }),
+        catalogItem("memory:note/old-note", "note", { status: "retracted" }),
+        catalogItem("memory:fact/legacy", "fact", { status: "legacy" }),
+      ],
+      next_continuation: null,
+    }));
+    await renderPage();
+    await act(async () => {
+      buttonByText("Knowledge").click();
+    });
+    const row = (ref: string) => container.querySelector(`button[title="${ref}"]`);
+    expect(row("memory:entity/project")?.textContent).not.toContain("active");
+    expect(row("memory:entity/old-project")?.textContent).toContain("已合并");
+    expect(row("memory:entity/old-project")?.textContent).toContain("重定向");
+    expect(row("memory:entity/old-project")?.textContent).not.toContain("merged");
+    expect(row("memory:entity/old-project")?.textContent).not.toContain("redirect");
+    expect(row("memory:concept/old-context")?.textContent).toContain("已被取代");
+    expect(row("memory:note/old-note")?.textContent).toContain("已撤回");
+    expect(row("memory:fact/legacy")?.textContent).toContain("legacy");
+  });
+
   it("offers conversation or organize when the knowledge base is empty", async () => {
     endpoint.get("/v2/memory/active", () => jsonResponse(activePage(ACTIVE, [])));
     endpoint.get("/v2/memory/catalog", () =>
@@ -373,6 +400,7 @@ describe("MemoryPage documents", () => {
 
     // The original document stays on screen; the redirect is an entry, not
     // a silent swap.
+    expect(container.textContent).toContain("已合并");
     expect(container.textContent).toContain("This document redirects to");
     expect(container.textContent).toContain("memory:entity/project");
     expect(container.textContent).toContain("Document body.");

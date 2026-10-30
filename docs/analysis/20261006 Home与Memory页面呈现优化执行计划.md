@@ -39,12 +39,16 @@ daily/entity/concept/fact/note 在目录和文档头部都使用粉色徽标，�
 
 ## 改进点 2：Memory catalog 状态语义化
 
+状态：done（2026-10-30）
+
 ### 修改范围与内容
 
 - 保留当前“active 不额外显示徽标”的克制列表，不给每行增加绿色噪声；
 - redirect 与非 active 状态显示中文语义和适宜色调，未知枚举保留原值；
 - 不添加更新时间、大小或首段摘录：catalog 没有这些字段，本计划不新增请求或端点；
 - display 继续作为主标题，完整 ref 留在 title/复制入口。
+
+实施映射：merged 为已合并、superseded 为已被取代、retracted 为已撤回，redirect_to 独立显示为重定向；active 目录不显示状态徽标，文档头部复用同一 memoryStatusMeta，未知状态使用灰色原值。完整验证为 98 个测试文件、854 个用例，TypeScript 检查与生产构建通过。
 
 ### 预期效果
 

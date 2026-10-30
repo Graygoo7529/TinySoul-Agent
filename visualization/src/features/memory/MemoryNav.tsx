@@ -23,7 +23,7 @@ import { Tabs } from "../../components/ui/Tabs";
 import { useAppStore } from "../../store/appStore";
 import { useConnectionStore } from "../../store/connectionStore";
 import { usePagedSequence } from "../history/usePagedSequence";
-import { decodeMemoryCatalogItem, type MemoryCatalogItem } from "./catalogModel";
+import { decodeMemoryCatalogItem, memoryStatusMeta, type MemoryCatalogItem } from "./catalogModel";
 import { memoryKindMeta } from "./kindMeta";
 import { useMemoryPage } from "./store";
 
@@ -221,6 +221,7 @@ function KnowledgeNav({
           <div className="space-y-0.5">
             {items.map((item) => {
               const meta = memoryKindMeta(item.kind);
+              const status = memoryStatusMeta(item.status);
               const KindIcon = meta.icon;
               return <button
                 key={item.ref}
@@ -237,11 +238,11 @@ function KnowledgeNav({
                 <span className="min-w-0 flex-1 truncate">{item.display}</span>
                 {item.redirectTo !== null && (
                   <Badge tone="orange" title={`Redirects to ${item.redirectTo}`}>
-                    redirect
+                    重定向
                   </Badge>
                 )}
                 {item.status !== "" && item.status !== "active" && (
-                  <Badge tone="gray">{item.status}</Badge>
+                  <Badge tone={status.tone}>{status.label}</Badge>
                 )}
                 <Badge tone={meta.tone}><KindIcon size={10} />{meta.label}</Badge>
               </button>;

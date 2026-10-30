@@ -35,6 +35,7 @@ import { useConnectionStore } from "../../store/connectionStore";
 import { ChunkedMarkdown, directReferences, isReferenceItem } from "../resources/ChunkedMarkdown";
 import { copyReference, quoteReference } from "../resources/router";
 import { useOwnerPage } from "../resources/useOwnerPage";
+import { memoryStatusMeta } from "./catalogModel";
 import { memoryKindMeta } from "./kindMeta";
 import { useMemoryPage } from "./store";
 
@@ -100,6 +101,7 @@ export function MemoryDocumentView({
   // presence is decided by text, not by the chunk count.
   const hasContent = page.items.some((item) => item.text.trim() !== "");
   const kind = metadata === null ? null : memoryKindMeta(metadata.kind);
+  const status = metadata === null ? null : memoryStatusMeta(metadata.status);
   const KindIcon = kind?.icon;
 
   return (
@@ -113,10 +115,8 @@ export function MemoryDocumentView({
             {kind !== null && KindIcon !== undefined && metadata?.kind !== "" && (
               <Badge tone={kind.tone}><KindIcon size={11} />{kind.label}</Badge>
             )}
-            {metadata !== null && metadata.status !== "" && (
-              <Badge tone={metadata.status === "active" ? "gray" : "orange"}>
-                {metadata.status}
-              </Badge>
+            {status !== null && metadata?.status !== "" && (
+              <Badge tone={status.tone}>{status.label}</Badge>
             )}
             <span className="max-w-full truncate rounded border border-line/60 bg-bg-sunken px-1 py-px font-mono" title={ref}>{ref}</span>
           </div>

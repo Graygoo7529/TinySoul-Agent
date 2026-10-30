@@ -8,6 +8,7 @@
  */
 
 import type { JsonValue } from "../../api/v2/json";
+import type { BadgeTone } from "../../components/ui/Badge";
 
 export interface MemoryCatalogItem {
   ref: string;
@@ -37,4 +38,22 @@ export function decodeMemoryCatalogItem(value: JsonValue): MemoryCatalogItem | n
     status: typeof record.status === "string" ? record.status : "",
     redirectTo: typeof record.redirect_to === "string" ? record.redirect_to : null,
   };
+}
+
+export interface MemoryStatusMeta {
+  label: string;
+  tone: BadgeTone;
+}
+
+export function memoryStatusMeta(status: string): MemoryStatusMeta {
+  switch (status) {
+    case "merged":
+      return { label: "已合并", tone: "gray" };
+    case "superseded":
+      return { label: "已被取代", tone: "gray" };
+    case "retracted":
+      return { label: "已撤回", tone: "orange" };
+    default:
+      return { label: status, tone: "gray" };
+  }
 }
