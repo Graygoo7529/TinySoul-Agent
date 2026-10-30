@@ -4,7 +4,7 @@ Only model outputs are scripted; every owner, the SDK dispatch, the HTTP API
 and the WebSocket event stream run the real implementation — the same approach
 as the backend contract tests (tests/gateway/endpoint/test_contracts.py).
 
-Run from anywhere with the project Python (conda env `TinySoul`):
+Run from anywhere with the project uv environment:
 
     python visualization/test/e2e/backend_server.py \
         --port 0 --token <at least 32 chars> --project-dir <dir> \
@@ -65,7 +65,7 @@ from tinysoul.llm.execution.observation_payloads import (
 )
 from tinysoul.llm.protocol.reasoning import Reasoning
 from tinysoul.llm.protocol.requests import TaskCall, TaskProfile
-from tinysoul.llm.protocol.responses import JsonAnswer, RawResponse, TaskResult
+from tinysoul.llm.protocol.responses import JsonAnswer, RawResponse, TaskResult, TextAnswer
 from tinysoul.llm.protocol.tools import ToolCallRecord, ToolKind
 from tinysoul.runtime import ObservationEvent, ObservationLevel, RunLevel
 from tinysoul.plugins.home.services import HomeService
@@ -139,6 +139,8 @@ class ScriptedLLM:
     def __init__(self, events: EndpointEventBuffer) -> None:
         self._events = events
         self._scripted_read: set[str] = set()
+        self._scripted_questions: set[str] = set()
+        self._reflection_questions: set[str] = set()
 
     def _emit(
         self, call: TaskCall, name: str, level: ObservationLevel, payload: JsonObject
@@ -185,8 +187,11 @@ class ScriptedLLM:
             prepared = re.findall(
                 rf"{_ANSWER_BEGIN}\n(.*?)\n{_ANSWER_END}", text, re.DOTALL
             )
-            return _json_result(
-                to_json_object({"text": prepared[-1] if prepared else "Done."})
+            prepared_text = prepared[-1] if prepared else "Done."
+            return TaskResult.success(
+                raw_response=RawResponse(prepared_text, "scripted", "scripted"),
+                answer=TextAnswer(prepared_text),
+                tool_calls=(),
             )
         profile = (
             call.profile.value
@@ -199,7 +204,7 @@ class ScriptedLLM:
             if ASK_TRIGGER in text:
                 controls = (
                     ToolCallRecord("select", "select_action_domains", {"domains": ["core", "workspace"], "intent": "Inspect the working copy before asking for a choice."}, ToolKind.CONTROL),
-                    ToolCallRecord("load", "load_background", {"links": ["home:top/skills/review"]}, ToolKind.CONTROL),
+                    ToolCallRecord("load", "load_background", {"refs": ["home:top/skills/review"]}, ToolKind.CONTROL),
                     ToolCallRecord("todo", "set_todo", {"key": "review", "content": "Verify the working copy", "status": "pending"}, ToolKind.CONTROL),
                     ToolCallRecord("milestone", "set_milestone", {"key": "baseline", "content": "The baseline review is in progress"}, ToolKind.CONTROL),
                 )
@@ -221,33 +226,35 @@ class ScriptedLLM:
 
     def _stage2(self, text: str, turn_id: str) -> TaskResult:
         if REFLECTION_TRIGGER in text:
-            if REPLY_MARKER not in text:
-                return _tool_result("core.ask", to_json_object({"text": "Continue this reflection?", "options": list(QUESTION_OPTIONS), "allow_other": True}), ToolKind.ACTION)
+            if turn_id not in self._reflection_questions:
+                self._reflection_questions.add(turn_id)
+                return _tool_result("core.ask", to_json_object({"question": "Continue this reflection?", "options": list(QUESTION_OPTIONS), "allow_other": True}), ToolKind.ACTION)
             return _answer_action("Reflection reviewed with your reply.")
         if ASK_TRIGGER in text:
             if turn_id not in self._scripted_read:
                 self._scripted_read.add(turn_id)
                 return _tool_result(
                     "workspace.read",
-                    {"link": "workspace:baseline.md"},
+                    {"ref": "workspace:baseline.md"},
                     ToolKind.ACTION,
                 )
-            if REPLY_MARKER not in text:
+            if turn_id not in self._scripted_questions:
+                self._scripted_questions.add(turn_id)
                 return _tool_result(
                     "core.ask",
                     to_json_object(
                         {
-                            "text": QUESTION_TEXT,
+                            "question": QUESTION_TEXT,
                             "options": list(QUESTION_OPTIONS),
                             "allow_other": True,
                         }
                     ),
                     ToolKind.ACTION,
                 )
-            option = re.search(r"Option [AB] \(opt_[ab]\)", text)
-            comment = re.search(rf"{REPLY_MARKER}[^\n\"]*", text)
-            picked = option.group(0) if option else "an option"
-            noted = comment.group(0) if comment else ""
+            options = re.findall(r"Option [AB] \(opt_[ab]\)", text)
+            comments = re.findall(rf"{REPLY_MARKER}[^\n\"]*", text)
+            picked = options[-1] if options else "an option"
+            noted = comments[-1] if comments else ""
             return _answer_action(
                 f"You picked {picked}. Comment noted: {noted}."
             )

@@ -1,24 +1,14 @@
 import { mkdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, test, type Page } from "playwright/test";
+import { expect, test, type Locator, type Page } from "playwright/test";
 
-/**
- * F7-B visual review (plan §24.1): representative pages against the real
- * backend harness (real Agent/owners/HTTP/WS, scripted model — nothing in the
- * frontend or the transport is mocked). Every screenshot lands in
- * .local-test/visual-review/; screenshots support a human visual check.
- *
- * Runs under visual-review.config.ts only; the guarded chat-flow/codeblocks
- * config ignores this spec.
- */
-
+/** Representative screenshots for human review against the real backend harness. */
 const here = path.dirname(fileURLToPath(import.meta.url));
-const connectionFile = path.resolve(
-  here,
-  "../../../.local-test/e2e-backend/connection.json",
-);
+const connectionFile = path.resolve(here, "../../../.local-test/e2e-backend/connection.json");
 const shotsDir = path.resolve(here, "../../.local-test/visual-review");
+const BACKEND_WAIT = 30_000;
+const MIN_PNG_BYTES = 15_000;
 
 interface BackendConnection {
   address: string;
@@ -29,17 +19,25 @@ function backendConnection(): BackendConnection {
   return JSON.parse(readFileSync(process.env.TINYSOUL_E2E_CONNECTION ?? connectionFile, "utf-8")) as BackendConnection;
 }
 
-const BACKEND_WAIT = 30_000;
-/** Real 1440×900 UI pages are well above this; a blank capture is not. */
-const MIN_PNG_BYTES = 15_000;
-
-async function shot(page: Page, name: string): Promise<void> {
-  const file = path.join(shotsDir, `${name}.png`);
-  await page.screenshot({ path: file });
-  const size = statSync(file).size;
-  expect(size, `${name}.png looks blank (${size} bytes)`).toBeGreaterThan(
-    MIN_PNG_BYTES,
-  );
+async function shot(page: Page, name: string, ready: Locator, waitForIdle = true): Promise<void> {
+  await test.step(name, async () => {
+    await expect(ready).toBeVisible({ timeout: BACKEND_WAIT });
+    if (waitForIdle) await expect(page.locator("main .animate-spin-slow:visible")).toHaveCount(0, { timeout: BACKEND_WAIT });
+    if (await ready.evaluate((element) => element.classList.contains("answer-card"))) {
+      await expect.poll(() => ready.evaluate((element) => ({
+        card: getComputedStyle(element).opacity,
+        terminal: getComputedStyle(element, "::after").opacity,
+      }))).toEqual({ card: "1", terminal: "0" });
+    }
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    });
+    const file = path.join(shotsDir, `${name}.png`);
+    await page.screenshot({ path: file });
+    const size = statSync(file).size;
+    expect(size, `${name}.png looks blank (${size} bytes)`).toBeGreaterThan(MIN_PNG_BYTES);
+  });
 }
 
 async function connect(page: Page): Promise<void> {
@@ -48,13 +46,11 @@ async function connect(page: Page): Promise<void> {
   await page.getByPlaceholder("127.0.0.1:1430").fill(address);
   await page.locator('input[type="password"]').fill(token);
   await page.getByRole("button", { name: "Connect" }).click();
-  await expect(page.getByText("Start a conversation")).toBeVisible({
-    timeout: BACKEND_WAIT,
-  });
+  await expect(page.getByText("Start a conversation")).toBeVisible({ timeout: BACKEND_WAIT });
   await expect(page.getByTitle("Workspace", { exact: true })).toBeEnabled();
 }
 
-test("F7-B 代表性页面视觉核对截图", async ({ page }) => {
+test("representative page visual review", async ({ page }) => {
   test.setTimeout(300_000);
   mkdirSync(shotsDir, { recursive: true });
   const runId = Date.now().toString(36);
@@ -62,191 +58,105 @@ test("F7-B 代表性页面视觉核对截图", async ({ page }) => {
   const askText = `e2e-ask visual review ${runId}`;
   const commentText = `e2e-reply-comment visual ${runId}`;
   const pageErrors: string[] = [];
-  page.on("pageerror", (err) => pageErrors.push(String(err)));
+  page.on("pageerror", (error) => pageErrors.push(error.message));
 
-  // --- Chat, light theme -------------------------------------------------
   await connect(page);
-  await shot(page, "01-chat-empty-light");
+  await shot(page, "01-chat-empty-light", page.getByText("Start a conversation"));
 
   const composer = page.getByPlaceholder("Message TinySoul…");
   await composer.fill(plainText);
   await composer.press("Enter");
-  await expect(
-    page.locator(".answer-card", { hasText: `You said: ${plainText}.` }),
-  ).toHaveCount(1, { timeout: BACKEND_WAIT });
-  // Let the typewriter + settle wipe reach the document state.
-  await page.waitForTimeout(2600);
-  await shot(page, "02-chat-answer-light");
+  const firstAnswer = page.locator(".answer-card", { hasText: `You said: ${plainText}.` });
+  await expect(firstAnswer).toHaveCount(1, { timeout: BACKEND_WAIT });
+  await expect(page.locator(".answer-streaming, .answer-settling")).toHaveCount(0, { timeout: BACKEND_WAIT });
+  await shot(page, "02-chat-answer-light", firstAnswer);
 
   await composer.fill(askText);
   await composer.press("Enter");
-  await expect(page.getByText("Which option do you pick?")).toBeVisible({
-    timeout: BACKEND_WAIT,
-  });
-  await page.waitForTimeout(600);
-  await shot(page, "03-chat-question-light");
+  const dock = page.getByRole("dialog", { name: "Waiting for your reply" });
+  const question = dock.getByText("Which option do you pick?", { exact: true });
+  await expect(question).toBeVisible({ timeout: BACKEND_WAIT });
+  await shot(page, "03-chat-question-light", question, false);
 
-  // --- Context drawer (the waiting turn is still active) ------------------
   await page.getByRole("button", { name: "Context", exact: true }).click();
-  const drawer = page.getByRole("dialog");
-  await expect(drawer.locator("section button").first()).toBeVisible({
-    timeout: BACKEND_WAIT,
-  });
-  await page.waitForTimeout(500);
-  await shot(page, "04-context-overview-light");
-
+  const drawer = page.locator('aside[role="dialog"]').first();
+  await shot(page, "04-context-overview-light", drawer.locator("section").first(), false);
   await drawer.locator("section button").first().click();
-  await expect(
-    page.getByRole("button", { name: "Back", exact: true }),
-  ).toBeVisible();
-  await page.waitForTimeout(900);
-  await shot(page, "05-context-segment-light");
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await shot(page, "05-context-segment-light", page.getByRole("button", { name: "Back", exact: true }), false);
+  await drawer.getByRole("button", { name: "Close", exact: true }).click();
   await expect(drawer).toHaveCount(0);
 
-  // --- Answer the question, then dark theme -------------------------------
-  await page.locator("label", { hasText: "Option B" }).click();
-  await page.getByPlaceholder("Comment (optional)…").fill(commentText);
-  await page.getByRole("button", { name: "Reply" }).click();
-  await expect(
-    page.locator(".answer-card", {
-      hasText: "You picked Option B (opt_b).",
-    }),
-  ).toHaveCount(1, { timeout: BACKEND_WAIT });
-  await page.waitForTimeout(2600);
-
+  await dock.locator("label", { hasText: "Option B" }).click();
+  await dock.getByPlaceholder("Additional thoughts (optional)…").fill(commentText);
+  await dock.getByRole("button", { name: "Reply" }).click();
+  const finalAnswer = page.locator(".answer-card", { hasText: "You picked Option B (opt_b)." });
+  await expect(finalAnswer).toHaveCount(1, { timeout: BACKEND_WAIT });
+  await expect(page.locator('[data-question-form="readonly"]')).toContainText(commentText);
+  await expect(page.locator(".answer-streaming, .answer-settling")).toHaveCount(0, { timeout: BACKEND_WAIT });
   await page.getByTitle("Switch to dark theme", { exact: true }).click();
-  await page.waitForTimeout(400);
-  await shot(page, "06-chat-conversation-dark");
-
   await page.reload();
-  await expect(page.locator(".answer-card")).toHaveCount(2, {
-    timeout: BACKEND_WAIT,
-  });
-  await page.waitForTimeout(400);
-  await shot(page, "07-chat-continuous-dark");
+  await expect(page.locator(".answer-card")).toHaveCount(2, { timeout: BACKEND_WAIT });
+  await shot(page, "06-chat-conversation-dark", finalAnswer);
   await page.getByTitle("Switch to light theme", { exact: true }).click();
-  await page.waitForTimeout(300);
 
-  // --- History: day directory + Session map -------------------------------
   await page.getByRole("button", { name: "History", exact: true }).click();
-  await expect(
-    page.getByRole("dialog").getByRole("heading", { name: "History" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Session map of this day" }).first(),
-  ).toBeVisible({ timeout: BACKEND_WAIT });
-  await page.waitForTimeout(400);
-  await shot(page, "08-history-days-light");
+  const history = page.getByRole("dialog", { name: "History", exact: true });
+  await shot(page, "08-history-days-light", history.getByRole("button", { name: "Session map of this day" }).first());
+  await history.getByRole("button", { name: "Session map of this day" }).first().click();
+  const sessionMap = page.getByRole("dialog", { name: "Session map", exact: true });
+  await shot(page, "09-history-session-map-light", sessionMap.getByRole("heading", { name: "Session map" }));
+  await sessionMap.getByRole("button", { name: "Close", exact: true }).click();
 
-  await page
-    .getByRole("button", { name: "Session map of this day" })
-    .first()
-    .click();
-  await expect(
-    page.getByRole("dialog").getByRole("heading", { name: "Session map" }),
-  ).toBeVisible();
-  await page.waitForTimeout(1000);
-  await shot(page, "09-history-session-map-light");
-  await page.getByRole("button", { name: "Close", exact: true }).click();
-
-  // --- Settings ------------------------------------------------------------
   await page.getByTitle("Settings", { exact: true }).click();
-  await expect(page.locator("h1", { hasText: "配置状态" })).toBeVisible();
-  await expect(
-    page.getByText("运行配置", { exact: true }),
-  ).toBeVisible({
-    timeout: BACKEND_WAIT,
-  });
-  await page.waitForTimeout(600);
-  await shot(page, "10-settings-overview-light");
-
+  await shot(page, "10-settings-overview-light", page.locator("h1", { hasText: "配置状态" }));
   await page.getByRole("button", { name: "LLM 模型", exact: true }).click();
-  await expect(page.locator("h1", { hasText: "LLM 模型" })).toBeVisible();
-  await page.waitForTimeout(900);
-  await shot(page, "11-settings-llm-models-light");
-
-  await page
-    .getByRole("button", { name: "Actions 与模型用途", exact: true })
-    .click();
-  await expect(
-    page.locator("h1", { hasText: "Actions 与模型用途" }),
-  ).toBeVisible();
-  await page.waitForTimeout(900);
-  await shot(page, "12-settings-actions-light");
-
+  await shot(page, "11-settings-llm-models-light", page.locator("h1", { hasText: "LLM 模型" }));
+  await page.getByRole("button", { name: "Actions 与模型用途", exact: true }).click();
+  await shot(page, "12-settings-actions-light", page.locator("h1", { hasText: "Actions 与模型用途" }));
   await page.getByRole("button", { name: "运行方案", exact: true }).click();
-  await expect(page.locator("h1", { hasText: "运行方案" })).toBeVisible();
-  await page.waitForTimeout(900);
-  await shot(page, "13-settings-plans-light");
+  await shot(page, "13-settings-plans-light", page.locator("h1", { hasText: "运行方案" }));
 
-  // --- Home ----------------------------------------------------------------
   await page.getByTitle("Home", { exact: true }).click();
   await expect(page.getByText("What the next run uses")).toBeVisible();
   await page.getByRole("button", { name: "Actual", exact: true }).click();
   const homeEntry = page.locator('main button[title^="home:"]').first();
   await expect(homeEntry).toBeVisible({ timeout: BACKEND_WAIT });
   await homeEntry.click();
-  await expect(page.getByText("The document could not be read")).toHaveCount(0);
-  await page.waitForTimeout(600);
-  await shot(page, "14-home-actual-light");
+  await shot(page, "14-home-actual-light", page.locator("main .md-body:visible").first());
 
-  // --- Memory ---------------------------------------------------------------
   await page.getByTitle("Memory", { exact: true }).click();
-  await expect(
-    page.getByText("What the agent is recording this day", { exact: true }),
-  ).toBeVisible();
-  await page.waitForTimeout(1200);
-  await shot(page, "15-memory-active-light");
-
+  await shot(page, "15-memory-active-light", page.getByText("What the agent is recording this day — read-only here.", { exact: true }));
   await page.getByRole("button", { name: "Knowledge", exact: true }).click();
-  await expect(page.getByLabel("Filter knowledge")).toBeVisible();
-  await page.waitForTimeout(1200);
+  const filter = page.getByLabel("Filter knowledge");
+  await expect(filter).toBeVisible({ timeout: BACKEND_WAIT });
   const memoryDoc = page.locator('main button[title^="memory:"]').first();
-  if ((await memoryDoc.count()) > 0) {
+  if (await memoryDoc.count()) {
     await memoryDoc.click();
-    await page.waitForTimeout(900);
+    await expect(page.locator("main .md-body:visible").first()).toBeVisible({ timeout: BACKEND_WAIT });
   }
-  await shot(page, "16-memory-knowledge-light");
+  await shot(page, "16-memory-knowledge-light", filter);
 
-  // --- Workspace -------------------------------------------------------------
   await page.getByTitle("Workspace", { exact: true }).click();
-  await page.waitForTimeout(1500);
-  await shot(page, "17-workspace-light");
+  const baseline = page.getByText("baseline.md", { exact: true }).first();
+  await expect(baseline).toBeVisible({ timeout: BACKEND_WAIT });
+  await baseline.click();
+  await shot(page, "17-workspace-light", page.getByRole("heading", { name: "Baseline read", exact: true }));
 
-  // --- Runtime observation -----------------------------------------------------
   await page.getByTitle("Runtime", { exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Execution", exact: true }),
-  ).toBeVisible();
-  await page.waitForTimeout(1200);
-  await shot(page, "18-runtime-execution-light");
-
+  await shot(page, "18-runtime-execution-light", page.getByRole("button", { name: "Execution", exact: true }));
   await page.getByRole("button", { name: "Jobs", exact: true }).click();
-  await page.waitForTimeout(1000);
-  await shot(page, "19-runtime-jobs-light");
-
+  await shot(page, "19-runtime-jobs-light", page.getByRole("button", { name: "Jobs", exact: true }));
   await page.getByRole("button", { name: "MCP", exact: true }).click();
-  await page.waitForTimeout(1000);
-  await shot(page, "20-runtime-mcp-light");
+  await shot(page, "20-runtime-mcp-light", page.getByRole("button", { name: "MCP", exact: true }));
 
-  // --- Narrow window (~800px) ----------------------------------------------------
   await page.setViewportSize({ width: 800, height: 900 });
   await page.getByTitle("Chat", { exact: true }).click();
   await expect(page.locator(".answer-card")).toHaveCount(2, { timeout: BACKEND_WAIT });
-  await page.waitForTimeout(600);
-  await shot(page, "21-chat-narrow-800-light");
-
+  await shot(page, "21-chat-narrow-800-light", finalAnswer);
   await page.getByTitle("Settings", { exact: true }).click();
-  await page
-    .getByRole("button", { name: "配置状态", exact: true })
-    .click();
-  await expect(
-    page.locator("h1", { hasText: "配置状态" }),
-  ).toBeVisible();
-  await page.waitForTimeout(800);
-  await shot(page, "22-settings-narrow-800-light");
+  await page.getByRole("button", { name: "设置页面", exact: true }).click();
+  await page.getByRole("button", { name: "配置状态", exact: true }).click();
+  await shot(page, "22-settings-narrow-800-light", page.locator("h1", { hasText: "配置状态" }));
 
-  // --- No uncaught page errors anywhere in the tour.
   expect(pageErrors, pageErrors.join("\n")).toEqual([]);
 });

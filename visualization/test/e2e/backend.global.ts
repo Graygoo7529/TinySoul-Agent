@@ -41,6 +41,10 @@ let backend: ChildProcess | null = null;
 function resolvePython(): string {
   const fromEnv = process.env.TINYSOUL_PYTHON?.trim();
   if (fromEnv) return fromEnv;
+  const localVenv = process.platform === "win32"
+    ? path.join(repoRoot, ".venv", "Scripts", "python.exe")
+    : path.join(repoRoot, ".venv", "bin", "python");
+  if (existsSync(localVenv)) return localVenv;
   const condaPrefix = process.env.CONDA_PREFIX?.trim();
   if (condaPrefix) {
     const candidate = path.join(condaPrefix, "python.exe");
@@ -78,7 +82,11 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       "--ready-file",
       readyFile,
     ],
-    { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
+    {
+      cwd: repoRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+    },
   );
   backend.stdout?.pipe(log);
   backend.stderr?.pipe(log);
@@ -131,7 +139,13 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 async function globalTeardown(): Promise<void> {
   const child = backend;
   backend = null;
-  if (child && child.exitCode === null && !child.killed) {
-    child.kill();
-  }
+  if (!child || child.exitCode !== null) return;
+  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  if (!child.killed) child.kill();
+  const timer = setTimeout(() => {
+    if (child.exitCode === null) child.kill("SIGKILL");
+  }, 5000);
+  timer.unref();
+  await exited;
+  clearTimeout(timer);
 }

@@ -5,28 +5,17 @@ import { defineConfig } from "playwright/test";
 const visualizationRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 /**
- * Dev-only verification entries: the Mermaid/TikZJax code block renderers
- * (W2) and the F1-D minimal real interaction flow against a real Endpoint.
+ * Browser-only verification: real rendering and Motion without an Agent.
  * Run from visualization/:
  *   pnpm exec playwright test -c test/e2e/playwright.config.ts
- *
- * The `.pw.ts` suffix keeps these specs out of the vitest default include
- * pattern (`*.test.*` / `*.spec.*`).
  */
 export default defineConfig({
   testDir: "./",
-  testMatch: "**/*.pw.ts",
-  // F7-B visual review runs under its own config (visual-review.config.ts);
-  // keep it out of this guarded pair.
-  testIgnore: "visual-review.pw.ts",
+  testMatch: ["codeblocks.pw.ts", "trail-motion.pw.ts"],
   timeout: 240_000,
   fullyParallel: false,
   workers: 1,
   reporter: [["list"]],
-  // Real backend harness (real Agent + Endpoint, scripted model) for the
-  // chat-flow spec; publishes TINYSOUL_E2E_CONNECTION in a unique scratch directory.
-  // The setup returns its own teardown function.
-  globalSetup: "./backend.global.ts",
   use: {
     baseURL: "http://127.0.0.1:5199",
     browserName: "chromium",

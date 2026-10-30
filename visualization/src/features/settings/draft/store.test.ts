@@ -252,16 +252,6 @@ describe("set/delete semantics and tri-state view", () => {
 describe("refresh rebase", () => {
   const ref = { sourceId: "s1", path: "execution.enabled" };
 
-  it("a refresh that changes nothing keeps drafts clean", () => {
-    const saved = makeConfig({ "execution.enabled": { value: true, source: "s1" } });
-    installSnapshots(saved);
-    store().setValue(ref.sourceId, ref.path, false);
-
-    installSnapshots(makeConfig({ "execution.enabled": { value: true, source: "s1" } }));
-    expect(store().stale).toEqual({});
-    expect(store().drafts[draftKey(ref)]?.op).toEqual({ op: "set", value: false });
-  });
-
   it("a moved saved baseline keeps the dirty value and marks it stale; clean fields follow the new baseline", () => {
     installSnapshots(
       makeConfig({

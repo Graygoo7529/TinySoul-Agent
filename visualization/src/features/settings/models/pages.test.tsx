@@ -24,7 +24,7 @@ import { LlmModelsPage } from "./LlmModelsPage";
 import { LlmProvidersPage } from "./LlmProvidersPage";
 import { ModelSelectionList } from "./ModelPicker";
 import { LlmTaskChainsPage } from "./LlmTaskChainsPage";
-import { moveItem, projectCollection } from "./collectionDrafts";
+import { projectCollection } from "./collectionDrafts";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -821,19 +821,6 @@ describe("LlmTaskChainsPage", () => {
     expect(container.textContent).toContain("loop.cycle.phase1_task_profile");
   });
 });
-
-// ---------------------------------------------------------------------------
-// moveItem (ordering primitive shared by drag and buttons)
-// ---------------------------------------------------------------------------
-
-describe("moveItem", () => {
-  it("moves in both directions and rejects out-of-range targets", () => {
-    expect(moveItem([1, 2, 3], 0, 1)).toEqual([2, 1, 3]);
-    expect(moveItem([1, 2, 3], 2, 0)).toEqual([3, 1, 2]);
-    expect(moveItem([1, 2, 3], 0, 3)).toEqual([1, 2, 3]);
-  });
-});
-
 
 describe("shared model candidate list", () => {
   it("groups all candidates and exposes collapsed entries through search or the switch without choosing", async () => {

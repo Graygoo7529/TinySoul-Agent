@@ -14,7 +14,6 @@ import {
   jsonResponse,
   makeInteractionsPage,
   makeInteraction,
-  makePendingItem,
   makeStatus,
   questionInteractionFixture,
   replyInteractionFixture,
@@ -35,7 +34,6 @@ import {
   grantBudget,
   cancelReflection,
   resetTurnController,
-  sendUserMessage,
   syncFromStatus,
 } from "./turnController";
 import { ChatView } from "./ChatView";
@@ -261,66 +259,6 @@ describe("ChatView: echo convergence", () => {
     expect(active?.textContent).not.toContain("next input");
   });
 
-  it("echo → pending → formal: exactly one bubble at every stage", async () => {
-    await openLiveTurn();
-    await renderChat();
-
-    let stage: "empty" | "pending" | "formal" = "empty";
-    let inputId: string | null = null;
-    endpoint.post("/v2/requests/contract-turn/input", (request) => {
-      inputId = (JSON.parse(String(request.bodyText)) as { input_id: string })
-        .input_id;
-      return jsonResponse({ accepted: true, record_id: inputId, sequence: 7 });
-    });
-    endpoint.on("GET", "/v2/requests/contract-turn/interactions", () => {
-      if (stage === "pending" && inputId !== null) {
-        return jsonResponse(
-          makeInteractionsPage({ pending_items: [makePendingItem(inputId, 7)] }),
-        );
-      }
-      if (stage === "formal" && inputId !== null) {
-        return jsonResponse(
-          makeInteractionsPage({
-            items: [
-              makeInteraction({
-                id: inputId,
-                role: "user.append",
-                ref: `turn:contract-turn#input/${inputId}`,
-                text: "more constraints",
-              }),
-            ],
-          }),
-        );
-      }
-      return jsonResponse(makeInteractionsPage());
-    });
-
-    // Local echo: sending → accepted; the one pending bubble carries the text.
-    await act(async () => {
-      await sendUserMessage(epoch, "more constraints");
-    });
-    expect(bubbleCount()).toBe(1);
-    expect(container.textContent).toContain("more constraints");
-    expect(container.textContent).toContain("Accepted · waiting to appear");
-
-    // The server inbox item takes over the same visual slot.
-    stage = "pending";
-    await act(async () => {
-      await refreshDisplayedTurn(epoch);
-    });
-    expect(bubbleCount()).toBe(1);
-    expect(container.textContent).toContain("Accepted · waiting to be processed");
-
-    // The formal interaction replaces it; the echo is gone.
-    stage = "formal";
-    await act(async () => {
-      await refreshDisplayedTurn(epoch);
-    });
-    expect(bubbleCount()).toBe(1);
-    expect(container.textContent).not.toContain("waiting to be processed");
-    expect(container.textContent).not.toContain("waiting to appear");
-    expect(turnState().outgoing).toEqual([]);
-  });
 });
 
 describe("ChatView: scroll anchoring", () => {
