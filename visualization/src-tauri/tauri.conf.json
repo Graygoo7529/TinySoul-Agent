@@ -5,7 +5,7 @@
   "identifier": "com.tinysoul.visualization",
   "build": {
     "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:1427",
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },

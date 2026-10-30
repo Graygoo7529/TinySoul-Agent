@@ -56,12 +56,16 @@ daily/entity/concept/fact/note 在目录和文档头部都使用粉色徽标，�
 
 ## 改进点 3：引用呈现语义化
 
+状态：done（2026-10-30）
+
 ### 修改范围与内容
 
 - direct refs 保留 owner 提供的 title 作为主文本、clue 作为辅助说明、完整 ref 作为精确定位，**不得用 ref 末段覆盖 title/clue**；
 - backlinks 保留 title/ref/evidence，增加与 Memory kind 或 Home/Workspace 命名空间一致的淡色图标；
 - copy/quote 和现有 ResourceRouter 导航保持；区标题与空态中文化；
 - LinkChip 若复用，按当前 `resourceRef` prop 签名，不恢复旧 link 字段。
+
+实施验证：ReferencesPanel 行首增加 refTypeIcon 淡色图标（memory 复用 kindMeta 并加 opacity-75，home 用 House/domain-home，workspace 用 FolderTree/domain-workspace，external/session/trace/相对引用灰色，未知 FileText）；direct refs 的 title 改为 12.5px 常规字体 accent（与 SearchPanel 结果行一致）、clue 常规字体淡色且为空不占位、完整 ref 降为 10px 淡色 mono，三行各自 truncate 修复硬裁切；backlinks 仅加行首图标，结构与显式查询时机不变；面板标题、区标题（引用了/被引用）、空态与 aria-label 中文化。memoryPage 断言同步为中文并补充 owner title/clue/ref 保留断言。同批将 vite/tauri 调试端口 1420 改为 1427。98 个测试文件、854 个用例，TypeScript 检查与生产构建通过。
 
 ### 预期效果
 

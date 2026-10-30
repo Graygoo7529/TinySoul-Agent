@@ -18,14 +18,22 @@ import {
   type ReactElement,
 } from "react";
 import {
+  Activity,
   AlertTriangle,
   ArrowDownLeft,
   ArrowUpRight,
+  Brain,
   Copy,
+  FileText,
+  FolderTree,
+  Globe,
+  House,
   Link2,
   Loader2,
   MessageSquareQuote,
+  MessageSquareText,
   X,
+  type LucideIcon,
 } from "lucide-react";
 
 import type { SearchItem, SearchPage } from "../../api/v2/types";
@@ -43,7 +51,31 @@ import {
   describeSearchError,
   type SearchErrorView,
 } from "./searchModel";
-import type { ResourceOrigin } from "./reference";
+import { classifyReference, type ResourceOrigin } from "./reference";
+import { memoryKindFromRef, memoryKindMeta } from "../memory/kindMeta";
+
+/**
+ * The muted type icon for one reference: memory refs reuse the shared kindMeta
+ * language, other namespaces reuse the NavRail/Home vocabulary, and anything
+ * unknown stays a gray FileText — never a guessed type.
+ */
+function refTypeIcon(reference: string): { Icon: LucideIcon; className: string } {
+  const kind = classifyReference(reference);
+  if (kind === "memory" || kind === "memory-dynamic") {
+    const memoryKind = memoryKindFromRef(reference);
+    if (memoryKind !== null) {
+      const meta = memoryKindMeta(memoryKind);
+      return { Icon: meta.icon, className: `${meta.iconClass} opacity-75` };
+    }
+    return { Icon: Brain, className: "text-domain-memory opacity-75" };
+  }
+  if (kind === "home") return { Icon: House, className: "text-domain-home opacity-75" };
+  if (kind === "workspace") return { Icon: FolderTree, className: "text-domain-workspace opacity-75" };
+  if (kind === "external") return { Icon: Globe, className: "text-fg-faint" };
+  if (kind === "session") return { Icon: MessageSquareText, className: "text-fg-faint" };
+  if (kind === "trace") return { Icon: Activity, className: "text-fg-faint" };
+  return { Icon: FileText, className: "text-fg-faint" };
+}
 
 const BACKLINKS_PAGE_LIMIT = 20;
 
@@ -142,77 +174,89 @@ export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
   return (
     <aside
       className="glass-panel absolute inset-y-0 right-0 z-20 flex w-[min(360px,90%)] flex-col border-l border-line shadow-pop"
-      aria-label="References"
+      aria-label="引用"
     >
       <header className="flex items-center gap-2 border-b border-line bg-bg-elev px-3 py-2.5">
         <Link2 size={14} className="shrink-0 text-fg-faint" />
-        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">References</h2>
-        <IconButton label="Close references" onClick={onClose}>
+        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">引用</h2>
+        <IconButton label="关闭引用" onClick={onClose}>
           <X size={15} />
         </IconButton>
       </header>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3">
-        <section aria-label="Direct references">
+        <section aria-label="直接引用">
           <h3 className="flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-fg-faint">
             <ArrowUpRight size={11} />
-            It references
+            引用了
           </h3>
           {directRefs.length === 0 ? (
             <p className="px-1 pt-1.5 text-[12px] text-fg-faint">
-              No outgoing references.
+              没有引用其它资源。
             </p>
           ) : (
             <div className="mt-1.5 space-y-1">
-              {directRefs.map(({ref, title, clue}) => (
-                <div
-                  key={ref}
-                  className="flex items-center gap-1 rounded-lg border border-line bg-bg-elev px-2 py-1.5"
-                >
-                  <button
-                    type="button"
-                    onClick={() => onOpenRef(ref)}
-                    title={ref}
-                    className="min-w-0 flex-1 truncate text-left font-mono text-[11.5px] text-accent hover:underline"
+              {directRefs.map(({ref, title, clue}) => {
+                const { Icon, className: iconClass } = refTypeIcon(ref);
+                return (
+                  <div
+                    key={ref}
+                    className="flex items-center gap-2 rounded-lg border border-line bg-bg-elev px-2.5 py-1.5"
                   >
-                    <span className="block font-medium">{title}</span>
-                    <span className="block text-fg-muted">{clue}</span>
-                    {ref}
-                  </button>
-                  <IconButton
-                    label="Copy reference"
-                    className="h-6 w-6"
-                    onClick={() => copyReference(ref)}
-                  >
-                    <Copy size={12} />
-                  </IconButton>
-                  <IconButton
-                    label="Quote in conversation"
-                    className="h-6 w-6"
-                    onClick={() => quoteReference(ref, origin)}
-                  >
-                    <MessageSquareQuote size={12} />
-                  </IconButton>
-                </div>
-              ))}
+                    <Icon size={13} className={`shrink-0 ${iconClass}`} />
+                    <button
+                      type="button"
+                      onClick={() => onOpenRef(ref)}
+                      title={ref}
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <span className="block truncate text-[12.5px] font-medium text-accent hover:underline">
+                        {title}
+                      </span>
+                      {clue !== "" && (
+                        <span className="block truncate text-[11.5px] text-fg-muted">
+                          {clue}
+                        </span>
+                      )}
+                      <span className="block truncate font-mono text-[10px] text-fg-faint">
+                        {ref}
+                      </span>
+                    </button>
+                    <IconButton
+                      label="复制引用"
+                      className="h-6 w-6"
+                      onClick={() => copyReference(ref)}
+                    >
+                      <Copy size={12} />
+                    </IconButton>
+                    <IconButton
+                      label="引用到对话"
+                      className="h-6 w-6"
+                      onClick={() => quoteReference(ref, origin)}
+                    >
+                      <MessageSquareQuote size={12} />
+                    </IconButton>
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>
 
-        <section aria-label="Backlinks">
+        <section aria-label="反向引用">
           <h3 className="flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-fg-faint">
             <ArrowDownLeft size={11} />
-            Referenced by
+            被引用
           </h3>
           {caps === "loading" && (
             <p className="flex items-center gap-2 px-1 pt-1.5 text-[12px] text-fg-faint">
               <Loader2 size={12} className="animate-spin-slow" />
-              Reading search capabilities…
+              正在读取检索能力…
             </p>
           )}
           {caps === "error" && (
             <p className="px-1 pt-1.5 text-[12px] text-fg-faint">
-              Backlink search is not declared for this owner.
+              此资源所有者未声明反链检索。
             </p>
           )}
           {backlinksAvailable && results === null && (
@@ -228,7 +272,7 @@ export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
                 }
               >
                 <ArrowDownLeft size={11} />
-                Find documents that reference this one
+                查找引用本文档的文档
               </Button>
             </div>
           )}
@@ -242,30 +286,36 @@ export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
             <div className="mt-1.5 space-y-1.5">
               {results.length === 0 && (
                 <p className="px-1 text-[12px] text-fg-faint">
-                  Nothing references this document yet.
+                  还没有文档引用本文档。
                 </p>
               )}
-              {results.map((item, index) => (
-                <button
-                  key={`${item.ref}:${index}`}
-                  type="button"
-                  onClick={() => onOpenRef(item.ref)}
-                  title={item.ref}
-                  className="block w-full rounded-lg border border-line bg-bg-elev px-2.5 py-1.5 text-left hover:border-line-strong"
-                >
-                  <span className="block truncate text-[12.5px] font-medium text-accent">
-                    {item.title || item.ref}
-                  </span>
-                  <span className="block truncate font-mono text-[10px] text-fg-faint">
-                    {item.ref}
-                  </span>
-                  {item.evidence[0] !== undefined && (
-                    <span className="mt-1 line-clamp-2 block text-[11.5px] leading-4.5 text-fg-muted">
-                      {item.evidence[0].text}
+              {results.map((item, index) => {
+                const { Icon, className: iconClass } = refTypeIcon(item.ref);
+                return (
+                  <button
+                    key={`${item.ref}:${index}`}
+                    type="button"
+                    onClick={() => onOpenRef(item.ref)}
+                    title={item.ref}
+                    className="flex w-full items-start gap-2 rounded-lg border border-line bg-bg-elev px-2.5 py-1.5 text-left hover:border-line-strong"
+                  >
+                    <Icon size={13} className={`mt-0.5 shrink-0 ${iconClass}`} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[12.5px] font-medium text-accent">
+                        {item.title || item.ref}
+                      </span>
+                      <span className="block truncate font-mono text-[10px] text-fg-faint">
+                        {item.ref}
+                      </span>
+                      {item.evidence[0] !== undefined && (
+                        <span className="mt-1 line-clamp-2 block text-[11.5px] leading-4.5 text-fg-muted">
+                          {item.evidence[0].text}
+                        </span>
+                      )}
                     </span>
-                  )}
-                </button>
-              ))}
+                  </button>
+                );
+              })}
               {continuation !== null && (
                 <Button
                   variant="outline"
@@ -277,7 +327,7 @@ export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
                     runBacklinks({ continuation })
                   }
                 >
-                  Show more
+                  显示更多
                 </Button>
               )}
             </div>

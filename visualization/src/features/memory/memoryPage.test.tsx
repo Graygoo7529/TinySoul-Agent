@@ -496,12 +496,16 @@ describe("MemoryPage documents", () => {
       (container.querySelector('button[aria-label="References and backlinks"]') as HTMLButtonElement).click();
     });
     await flush();
-    // Direct refs are read with the document — no search call yet.
-    expect(container.textContent).toContain("It references");
+    // Direct refs are read with the document — no search call yet; the owner
+    // title/clue stay the primary text with the full ref as the locator.
+    expect(container.textContent).toContain("引用了");
+    expect(container.textContent).toContain("Project");
+    expect(container.textContent).toContain("Related project");
+    expect(container.textContent).toContain("memory:entity/project");
     expect(endpoint.calls("/v2/memory/search", "POST")).toHaveLength(0);
 
     await act(async () => {
-      buttonByText("Find documents that reference this one").click();
+      buttonByText("查找引用本文档的文档").click();
     });
     const searches = endpoint.calls("/v2/memory/search", "POST");
     expect(searches).toHaveLength(1);
