@@ -18,28 +18,23 @@ import {
   type ReactElement,
 } from "react";
 import {
-  Activity,
   AlertTriangle,
   ArrowDownLeft,
   ArrowUpRight,
-  Brain,
   Copy,
-  FileText,
-  FolderTree,
-  Globe,
-  House,
   Link2,
+  List,
   Loader2,
   MessageSquareQuote,
-  MessageSquareText,
+  Waypoints,
   X,
-  type LucideIcon,
 } from "lucide-react";
 
 import type { SearchItem, SearchPage } from "../../api/v2/types";
 import type { SearchRequestBody } from "../../api/v2/clients";
 import { useConnectionStore } from "../../store/connectionStore";
 import { Button, IconButton } from "../../components/ui/Button";
+import { Tabs } from "../../components/ui/Tabs";
 import { searchContinuation } from "../../api/v2/pagination";
 import { copyReference, quoteReference } from "./router";
 import {
@@ -51,31 +46,9 @@ import {
   describeSearchError,
   type SearchErrorView,
 } from "./searchModel";
-import { classifyReference, type ResourceOrigin } from "./reference";
-import { memoryKindFromRef, memoryKindMeta } from "../memory/kindMeta";
-
-/**
- * The muted type icon for one reference: memory refs reuse the shared kindMeta
- * language, other namespaces reuse the NavRail/Home vocabulary, and anything
- * unknown stays a gray FileText — never a guessed type.
- */
-function refTypeIcon(reference: string): { Icon: LucideIcon; className: string } {
-  const kind = classifyReference(reference);
-  if (kind === "memory" || kind === "memory-dynamic") {
-    const memoryKind = memoryKindFromRef(reference);
-    if (memoryKind !== null) {
-      const meta = memoryKindMeta(memoryKind);
-      return { Icon: meta.icon, className: `${meta.iconClass} opacity-75` };
-    }
-    return { Icon: Brain, className: "text-domain-memory opacity-75" };
-  }
-  if (kind === "home") return { Icon: House, className: "text-domain-home opacity-75" };
-  if (kind === "workspace") return { Icon: FolderTree, className: "text-domain-workspace opacity-75" };
-  if (kind === "external") return { Icon: Globe, className: "text-fg-faint" };
-  if (kind === "session") return { Icon: MessageSquareText, className: "text-fg-faint" };
-  if (kind === "trace") return { Icon: Activity, className: "text-fg-faint" };
-  return { Icon: FileText, className: "text-fg-faint" };
-}
+import { refTypeIcon } from "./refTypeIcon";
+import { MemoryGraph } from "./MemoryGraph";
+import type { ResourceOrigin } from "./reference";
 
 const BACKLINKS_PAGE_LIMIT = 20;
 
@@ -84,6 +57,8 @@ export interface ReferencesPanelProps {
   actionId: string;
   /** Current document ref — the backlinks anchor. */
   anchor: string;
+  /** Owner display of the current document (graph center label). */
+  anchorTitle?: string;
   /** Direct refs already read from paged child items. */
   directRefs: DirectReference[];
   /** Quote origin for copy/quote operations (view or day). */
@@ -96,7 +71,7 @@ export interface ReferencesPanelProps {
 }
 
 export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
-  const { actionId, anchor, directRefs, origin, run, onOpenRef, onClose } = props;
+  const { actionId, anchor, anchorTitle, directRefs, origin, run, onOpenRef, onClose } = props;
   const [caps, setCaps] = useState<SearchCapabilities | null | "loading" | "error">(
     "loading",
   );
@@ -104,6 +79,7 @@ export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
   const [continuation, setContinuation] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<SearchErrorView | null>(null);
+  const [viewMode, setViewMode] = useState<"list" | "graph">("list");
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -170,20 +146,80 @@ export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
   const capabilities = caps !== null && caps !== "loading" && caps !== "error" ? caps : null;
   const backlinksAvailable =
     capabilities !== null && capabilities.sources.includes("backlinks");
+  // The ego graph is a Memory-only view of the same reference facts; Home
+  // keeps the plain list.
+  const graphAvailable = actionId === "memory.search";
+  const graphMode = graphAvailable && viewMode === "graph";
+
+  // Switching to the graph is the explicit ask for backlinks: fire the same
+  // request the list CTA runs, once, and reuse its results across toggles.
+  useEffect(() => {
+    if (!graphMode || results !== null || !backlinksAvailable || busy) return;
+    runBacklinks(buildBacklinksRequest("all", anchor, BACKLINKS_PAGE_LIMIT));
+  }, [graphMode, results, backlinksAvailable, busy, anchor, runBacklinks]);
+
+  const backlinksState: "loading" | "error" | "undeclared" | "ready" =
+    caps === "loading" || (backlinksAvailable && results === null && error === null)
+      ? "loading"
+      : !backlinksAvailable
+        ? "undeclared"
+        : error !== null && results === null
+          ? "error"
+          : "ready";
 
   return (
     <aside
-      className="glass-panel absolute inset-y-0 right-0 z-20 flex w-[min(360px,90%)] flex-col border-l border-line shadow-pop"
+      className={`glass-panel absolute inset-y-0 right-0 z-20 flex flex-col border-l border-line shadow-pop transition-[width] ${
+        graphMode ? "w-[min(600px,94%)]" : "w-[min(360px,90%)]"
+      }`}
       aria-label="引用"
     >
       <header className="flex items-center gap-2 border-b border-line bg-bg-elev px-3 py-2.5">
         <Link2 size={14} className="shrink-0 text-fg-faint" />
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">引用</h2>
+        {graphAvailable && (
+          <Tabs<"list" | "graph">
+            items={[
+              {
+                value: "list",
+                label: (
+                  <span className="inline-flex items-center gap-1">
+                    <List size={11} />
+                    列表
+                  </span>
+                ),
+              },
+              {
+                value: "graph",
+                label: (
+                  <span className="inline-flex items-center gap-1">
+                    <Waypoints size={11} />
+                    图谱
+                  </span>
+                ),
+              },
+            ]}
+            value={viewMode}
+            onChange={setViewMode}
+          />
+        )}
         <IconButton label="关闭引用" onClick={onClose}>
           <X size={15} />
         </IconButton>
       </header>
 
+      {graphMode ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+          <MemoryGraph
+            anchor={anchor}
+            anchorTitle={anchorTitle ?? null}
+            directRefs={directRefs}
+            backlinks={results}
+            backlinksState={backlinksState}
+            onOpenRef={onOpenRef}
+          />
+        </div>
+      ) : (
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3">
         <section aria-label="直接引用">
           <h3 className="flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-fg-faint">
@@ -334,6 +370,7 @@ export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
           )}
         </section>
       </div>
+      )}
     </aside>
   );
 }

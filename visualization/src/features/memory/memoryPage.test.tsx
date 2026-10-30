@@ -516,6 +516,84 @@ describe("MemoryPage documents", () => {
     expect(container.textContent).toContain("2026-09-28");
   });
 
+  it("switches to the graph, fires backlinks once and re-anchors on roam", async () => {
+    endpoint.get("/v2/memory/active", () => jsonResponse(activePage(ACTIVE, [])));
+    endpoint.get("/v2/memory/catalog", () =>
+      jsonResponse({ items: [catalogItem("memory:entity/old-project", "entity")], next_continuation: null }),
+    );
+    endpoint.get("/v2/memory/document", (request) => {
+      const ref = new URL(request.url).searchParams.get("ref") ?? "memory:entity/old-project";
+      return jsonResponse(
+        documentPage(ref, {}, undefined, ref === "memory:entity/old-project" ? ["memory:entity/project"] : []),
+      );
+    });
+    endpoint.get("/v2/config/actions", () =>
+      jsonResponse({ scenario: "user", domains: ["memory"], actions: [memorySearchAction()] }),
+    );
+    endpoint.post("/v2/memory/search", () =>
+      jsonResponse({
+        result_handle: "sr:1",
+        scope: "all",
+        source: "backlinks",
+        items: [
+          {
+            ref: "memory:daily/2026-09-28",
+            title: "2026-09-28",
+            rank: 1,
+            evidence: [],
+            content_coverage: "full",
+            preview_coverage: "full",
+            attributes: {},
+          },
+        ],
+        coverage: { final_count: 1 },
+        page: { offset: 0, count: 1, total: 1, continuation: null },
+        continuation: null,
+      }),
+    );
+    useMemoryPage.setState({ section: "persistent", ref: "memory:entity/old-project" });
+    await renderPage();
+    await flush();
+    await act(async () => {
+      (container.querySelector('button[aria-label="References and backlinks"]') as HTMLButtonElement).click();
+    });
+    await flush();
+    expect(endpoint.calls("/v2/memory/search", "POST")).toHaveLength(0);
+
+    // Switching to the graph is the explicit ask: backlinks fire once.
+    await act(async () => {
+      buttonByText("图谱").click();
+    });
+    await flush();
+    expect(endpoint.calls("/v2/memory/search", "POST")).toHaveLength(1);
+    expect(container.textContent).toContain("old-project");
+    expect(container.textContent).toContain("2026-09-28");
+    expect(container.textContent).toContain("Project");
+
+    // Toggling back and forth reuses the loaded results.
+    await act(async () => {
+      buttonByText("列表").click();
+    });
+    await act(async () => {
+      buttonByText("图谱").click();
+    });
+    await flush();
+    expect(endpoint.calls("/v2/memory/search", "POST")).toHaveLength(1);
+
+    // Roaming re-anchors the panel at the neighbor and queries its backlinks.
+    await act(async () => {
+      (container.querySelector('g[role="button"][aria-label*="memory:daily/2026-09-28"]') as SVGGElement)
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+    expect(useMemoryPage.getState().ref).toBe("memory:daily/2026-09-28");
+    const searches = endpoint.calls("/v2/memory/search", "POST");
+    expect(searches).toHaveLength(2);
+    expect(bodyJson(searches[1])).toMatchObject({
+      source: { kind: "backlinks", scope: "all", anchor_ref: "memory:daily/2026-09-28" },
+    });
+  });
+
   it("shows the real memory kind in search results without replacing titles or refs", async () => {
     endpoint.get("/v2/memory/active", () => jsonResponse(activePage(ACTIVE, [])));
     endpoint.get("/v2/config/actions", () =>

@@ -451,6 +451,30 @@ describe("HomePage changes", () => {
 // ---------------------------------------------------------------------------
 
 describe("HomePage search and organize", () => {
+  it("keeps the Home references panel list-only (no graph switch)", async () => {
+    endpoint.get("/v2/config/actions", () =>
+      jsonResponse({ scenario: "user", domains: [], actions: [] }),
+    );
+    endpoint.get("/v2/home/content", () =>
+      jsonResponse(
+        contentPage("home:top/agent/identity", [
+          { ref: "home:top/agent/identity#L1-L3", text: IDENTITY_TEXT },
+        ]),
+      ),
+    );
+    await renderPage();
+    await act(async () => {
+      (container.querySelector('button[title="home:top/agent/identity"]') as HTMLButtonElement).click();
+    });
+    await flush();
+    await act(async () => {
+      (container.querySelector('button[aria-label="References and backlinks"]') as HTMLButtonElement).click();
+    });
+    await flush();
+    expect(container.textContent).toContain("引用了");
+    expect(container.textContent).not.toContain("图谱");
+  });
+
   it("switches explicitly to effective when search is opened from actual", async () => {
     endpoint.get("/v2/config/actions", () =>
       jsonResponse({ scenario: "user", domains: [], actions: [] }),

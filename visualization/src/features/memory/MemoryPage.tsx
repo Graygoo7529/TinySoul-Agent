@@ -200,6 +200,7 @@ export function MemoryPage(): ReactElement {
         <ReferencesPanel
           actionId="memory.search"
           anchor={ref}
+          anchorTitle={currentMeta?.display}
           directRefs={currentDirectRefs}
           origin={{ ref }}
           run={runSearch}

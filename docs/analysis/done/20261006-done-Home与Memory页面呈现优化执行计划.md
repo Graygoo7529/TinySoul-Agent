@@ -119,6 +119,8 @@ overlay 不再只藏在独立面板里；目录能定位有变化的资源，同
 
 ## 改进点 7：Memory 单文档关系图（ego graph）
 
+状态：done（2026-10-30）
+
 ### 数据与边界
 
 只使用文档 DisclosurePage items 中的 direct refs 与显式 memory.search backlinks；它们都是真实引用边。不做相似度猜边、不标注后端未提供的边类型、不建设全局 force 图谱。
@@ -131,6 +133,8 @@ overlay 不再只藏在独立面板里；目录能定位有变化的资源，同
 - 点击邻居沿 ResourceRouter 打开并以新文档为中心重建；hover 只高亮真实边与对端；
 - 每侧最多 12 个节点，超出为 `+N 更多` 并展开该侧列表；
 - Graph 首次需要 backlinks 时才发起查询，已查询结果可复用；空态直接说明无引用边，不画空图。
+
+实施验证：refTypeIcon 提取为 resources/refTypeIcon.ts 共享；MemoryGraph.tsx 三列确定性布局（左被引用→中心→右引用了，箭头落目标端），节点 kindMeta/命名空间淡色图标，title 按宽度截断、完整 ref 收悬浮提示，中心节点用 currentMeta.display 并 accent 描边淡晕；hover 只高亮真实边与对端；点击邻居沿既有 onOpenRef 漫游并重新锚定；每侧 ≤12，超出 +N 更多原地展开；两侧皆空显示文案不画空图，backlinks loading/error/undeclared 如实呈现。ReferencesPanel 头部 列表/图谱 切换仅 memory.search 出现，图谱模式面板加宽至 600px，切换即发起与列表 CTA 相同的 backlinks 查询并跨切换复用；HomePage 无切换（用例覆盖）。99 个测试文件、864 个用例（MemoryGraph 组件 7 例 + 页面集成 2 例），TypeScript 检查与生产构建通过。
 
 ### 预期效果
 
