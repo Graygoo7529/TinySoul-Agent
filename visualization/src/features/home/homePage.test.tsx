@@ -198,6 +198,47 @@ describe("HomePage reading", () => {
     expect(container.textContent).toContain("Not readable as text");
     expect(container.textContent).toContain("Copy reference");
   });
+  it("derives semantic titles and independent type badges from Home content", async () => {
+    const documents: Record<string, string> = {
+      "home:top/skills/review": "---\ntitle: Review baseline\ndescription: Inspect the baseline.\n---\n\n# Review baseline\n",
+      "home:top/agent/AGENT": "# TinySoul Agent\n",
+      "home:mount/action/workspace/edit": "Edit a bounded range.\n",
+      "home:mount/domain/workspace": "Workspace domain guidance.\n",
+    };
+    const cases = [
+      { ref: "home:top/skills/review", title: "Review baseline", badge: "Skill" },
+      { ref: "home:top/agent/AGENT", title: "TinySoul Agent", badge: "Agent" },
+      { ref: "home:mount/action/workspace/edit", title: "workspace/edit", badge: "动作指导" },
+      { ref: "home:mount/domain/workspace", title: "workspace", badge: "域指导" },
+    ];
+    endpoint.get("/v2/home/catalog", () => jsonResponse({
+      items: cases.map(({ ref }) => catalogItem(ref, ref.startsWith("home:mount/") ? "guidance" : "top")),
+      next_continuation: null,
+    }));
+    endpoint.get("/v2/home/content", (request) => {
+      const ref = queryOf(request, "ref") ?? "";
+      return jsonResponse(contentPage(ref, [{ ref: `${ref}#L1-L2`, text: documents[ref] ?? "" }]));
+    });
+    await renderPage();
+    for (const { ref, title, badge } of cases) {
+      if (ref.startsWith("home:top/skills/")) {
+        await act(async () => {
+          (container.querySelector(`button[title="${ref}"]`) as HTMLButtonElement).click();
+        });
+      }
+      await act(async () => {
+        const target = ref.startsWith("home:top/skills/")
+          ? Array.from(container.querySelectorAll(`button[title="${ref}"]`)).find((button) => button.textContent?.includes("top entry"))
+          : container.querySelector(`button[title="${ref}"]`);
+        (target as HTMLButtonElement).click();
+      });
+      await flush();
+      const heading = container.querySelector(`div[title="${ref}"]`);
+      expect(heading?.textContent).toBe(title);
+      expect(heading?.parentElement?.textContent).toContain(badge);
+      expect(heading?.parentElement?.querySelector("span.rounded.border")?.textContent).toBe(ref);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

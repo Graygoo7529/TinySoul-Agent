@@ -82,11 +82,16 @@ overlay 不再只藏在独立面板里；目录能定位有变化的资源，同
 
 ## 改进点 5：Home/Memory 内容头部去重
 
+状态：done（2026-10-30）
+
 ### 修改范围与内容
 
-- Home 标题按 top/resource/mount 转换为语义名，例如 `skills · review`、`域指导 · workspace`、`动作指导 · workspace/edit`；完整 ref 收为小 chip + 复制按钮，effective/actual 徽标保留；
+- Home 标题优先使用当前正文的 frontmatter title 或首个 H1；没有可读标题时，mount domain/action 使用对应路径，其它资源使用 ref 末段，未知 ref 保留原值，不新增请求；
+- `Skill`、`Agent`、`域指导`、`动作指导` 作为独立徽章放在标题旁，不再把 skills/agent 或指导类型拼成标题前缀；完整 ref 收为辅助 chip，effective/actual 徽标保留；
 - Memory 保留 owner display 为主标题，kind/status 使用改进点 1、2 的映射，完整 ref 降级为辅助 chip；
 - 文档正文与 redirect 提示不变。
+
+实施验证：frontmatter/H1、mount 回退、独立徽章和 ref chip 均有回归覆盖；98 个测试文件、853 个用例，TypeScript 检查与生产构建通过。
 
 ### 预期效果
 

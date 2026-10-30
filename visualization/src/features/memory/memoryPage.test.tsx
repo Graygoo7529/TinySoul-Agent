@@ -313,6 +313,7 @@ describe("MemoryPage knowledge catalog", () => {
     expect(title?.textContent).toBe("上下文容量治理");
     expect(title?.parentElement?.textContent).toContain("概念");
     expect(title?.parentElement?.querySelector("svg.lucide-lightbulb")).not.toBeNull();
+    expect(title?.parentElement?.querySelector("span.rounded.border")?.textContent).toBe("memory:concept/tinysoul");
   });
 
   it("offers conversation or organize when the knowledge base is empty", async () => {

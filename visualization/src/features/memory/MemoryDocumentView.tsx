@@ -118,7 +118,7 @@ export function MemoryDocumentView({
                 {metadata.status}
               </Badge>
             )}
-            <span className="truncate font-mono">{ref}</span>
+            <span className="max-w-full truncate rounded border border-line/60 bg-bg-sunken px-1 py-px font-mono" title={ref}>{ref}</span>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">

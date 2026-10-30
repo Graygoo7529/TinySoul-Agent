@@ -28,7 +28,7 @@ import type {
 } from "../../api/v2/types";
 import { apiErrorCode } from "../../api/v2/errors";
 import { nextContinuation } from "../../api/v2/pagination";
-import { Badge } from "../../components/ui/Badge";
+import { Badge, type BadgeTone } from "../../components/ui/Badge";
 import { Button, IconButton } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { useConnectionStore } from "../../store/connectionStore";
@@ -36,6 +36,33 @@ import { ChunkedMarkdown, directReferences, isReferenceItem } from "../resources
 import { copyReference, quoteReference } from "../resources/router";
 import { useOwnerPage } from "../resources/useOwnerPage";
 import { useHomePage } from "./store";
+
+interface HomeTypeBadge {
+  label: "Skill" | "Agent" | "域指导" | "动作指导";
+  tone: BadgeTone;
+}
+
+function homeTypeBadge(ref: string): HomeTypeBadge | null {
+  if (ref.startsWith("home:top/skills/")) return { label: "Skill", tone: "purple" };
+  if (ref.startsWith("home:top/agent/")) return { label: "Agent", tone: "accent" };
+  if (ref.startsWith("home:mount/domain/")) return { label: "域指导", tone: "blue" };
+  if (ref.startsWith("home:mount/action/")) return { label: "动作指导", tone: "teal" };
+  return null;
+}
+
+function homeSemanticTitle(ref: string, items: HomeContentItem[]): string {
+  const text = items.filter((item) => !isReferenceItem(item)).map((item) => item.text).join("\n").replace(/\r\n/g, "\n");
+  const frontmatter = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(text)?.[1];
+  const title = frontmatter?.match(/^title:\s*(.+)\s*$/m)?.[1]?.trim();
+  if (title) return title.replace(/^(['"])(.*)\1$/, "$2");
+  const heading = text.match(/^#\s+(.+)$/m)?.[1]?.trim();
+  if (heading) return heading;
+  if (ref.startsWith("home:mount/action/")) return ref.slice("home:mount/action/".length) || ref;
+  if (ref.startsWith("home:mount/domain/")) return ref.slice("home:mount/domain/".length) || ref;
+  const parts = ref.split("/").filter(Boolean);
+  const fallback = parts[parts.length - 1];
+  return fallback && !fallback.includes(":") ? fallback : ref;
+}
 
 export function HomeContentView({
   epoch,
@@ -77,17 +104,20 @@ export function HomeContentView({
   const errorCode = apiErrorCode(page.error);
   const errorMessage =
     page.error instanceof Error ? page.error.message : String(page.error ?? "");
+  const semanticTitle = homeSemanticTitle(ref, page.items);
+  const typeBadge = homeTypeBadge(ref);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-start gap-2 border-b border-line px-4 py-2">
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-medium" title={ref}>
-            {ref.replace(/^home:/, "")}
+            {semanticTitle}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-fg-faint">
             <Badge tone={view === "effective" ? "accent" : "gray"}>{view}</Badge>
-            <span className="truncate font-mono">{ref}</span>
+            {typeBadge !== null && <Badge tone={typeBadge.tone}>{typeBadge.label}</Badge>}
+            <span className="max-w-full truncate rounded border border-line/60 bg-bg-sunken px-1 py-px font-mono" title={ref}>{ref}</span>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
