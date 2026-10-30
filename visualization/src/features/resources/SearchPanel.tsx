@@ -53,6 +53,7 @@ import {
   type SearchErrorView,
 } from "./searchModel";
 import { copyReference, quoteReference } from "./router";
+import { memoryKindFromRef, memoryKindMeta } from "../memory/kindMeta";
 
 export interface SearchScopeChoice {
   id: string;
@@ -487,6 +488,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                     key={`${item.ref}:${index}`}
                     item={item}
                     onOpenRef={onOpenRef}
+                    showKind={actionId === "memory.search"}
                   />
                 ))}
                 {results.continuation !== null && (
@@ -633,10 +635,15 @@ function RefineRow({
 function SearchResultRow({
   item,
   onOpenRef,
+  showKind,
 }: {
   item: SearchItem;
   onOpenRef: (ref: string) => void;
+  showKind: boolean;
 }) {
+  const kind = showKind ? memoryKindFromRef(item.ref) : null;
+  const meta = kind === null ? null : memoryKindMeta(kind);
+  const KindIcon = meta?.icon;
   return (
     <div className="rounded-lg border border-line bg-bg-elev px-3 py-2">
       <div className="flex items-center gap-1.5">
@@ -648,6 +655,9 @@ function SearchResultRow({
         >
           {item.title || item.ref}
         </button>
+        {meta !== null && KindIcon !== undefined && (
+          <Badge tone={meta.tone}><KindIcon size={10} />{meta.label}</Badge>
+        )}
         {item.content_coverage !== "full" && (
           <Badge tone="yellow" title={`Content coverage: ${item.content_coverage}`}>
             {item.content_coverage}

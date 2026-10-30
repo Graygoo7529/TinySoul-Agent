@@ -261,10 +261,14 @@ describe("MemoryPage knowledge catalog", () => {
     });
     expect(container.textContent).toContain("project");
     expect(container.textContent).toContain("tinysoul");
+    expect(container.textContent).toContain("实体");
+    expect(container.textContent).toContain("概念");
+    expect(container.querySelector("svg.lucide-user")).not.toBeNull();
+    expect(container.querySelector("svg.lucide-lightbulb")).not.toBeNull();
     expect(endpoint.calls("/v2/memory/catalog")).toHaveLength(1);
 
     await act(async () => {
-      buttonByText("Entities").click();
+      buttonByText("实体").click();
     });
     let reads = endpoint.calls("/v2/memory/catalog");
     expect(reads).toHaveLength(2);
@@ -287,6 +291,28 @@ describe("MemoryPage knowledge catalog", () => {
     expect(reads).toHaveLength(3);
     expect(queryOf(reads[2], "kind")).toBe("entity");
     expect(queryOf(reads[2], "query")).toBe("proj");
+  });
+
+  it("uses the same kind icon and Chinese label in the document header", async () => {
+    endpoint.get("/v2/memory/active", () => jsonResponse(activePage(ACTIVE, [])));
+    endpoint.get("/v2/memory/catalog", () =>
+      jsonResponse({ items: [catalogItem("memory:concept/tinysoul", "concept")], next_continuation: null }),
+    );
+    endpoint.get("/v2/memory/document", () =>
+      jsonResponse(documentPage("memory:concept/tinysoul", { kind: "concept", display: "上下文容量治理" })),
+    );
+    await renderPage();
+    await act(async () => {
+      buttonByText("Knowledge").click();
+    });
+    await act(async () => {
+      buttonByText("tinysoul").click();
+    });
+    await flush();
+    const title = container.querySelector('div[title="memory:concept/tinysoul"]');
+    expect(title?.textContent).toBe("上下文容量治理");
+    expect(title?.parentElement?.textContent).toContain("概念");
+    expect(title?.parentElement?.querySelector("svg.lucide-lightbulb")).not.toBeNull();
   });
 
   it("offers conversation or organize when the knowledge base is empty", async () => {
@@ -455,6 +481,52 @@ describe("MemoryPage documents", () => {
       page: { limit: 20 },
     });
     expect(container.textContent).toContain("2026-09-28");
+  });
+
+  it("shows the real memory kind in search results without replacing titles or refs", async () => {
+    endpoint.get("/v2/memory/active", () => jsonResponse(activePage(ACTIVE, [])));
+    endpoint.get("/v2/config/actions", () =>
+      jsonResponse({ scenario: "user", domains: ["memory"], actions: [memorySearchAction()] }),
+    );
+    endpoint.post("/v2/memory/search", () =>
+      jsonResponse({
+        result_handle: "sr:1",
+        scope: "all",
+        source: "query",
+        items: [{
+          ref: "memory:fact/context-owner",
+          title: "Context owner 负责回收",
+          rank: 1,
+          evidence: [],
+          content_coverage: "full",
+          preview_coverage: "full",
+          attributes: {},
+        }],
+        coverage: { final_count: 1 },
+        page: { offset: 0, count: 1, total: 1, continuation: null },
+        continuation: null,
+      }),
+    );
+    await renderPage();
+    await act(async () => {
+      buttonByText("Search knowledge").click();
+    });
+    await flush();
+    const input = container.querySelector('input[aria-label="Search query"]') as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+    await act(async () => {
+      setter?.call(input, "Context");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const submit = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.trim() === "Search")!;
+    await act(async () => {
+      submit.click();
+    });
+    await flush();
+    expect(container.textContent).toContain("Context owner 负责回收");
+    expect(container.textContent).toContain("memory:fact/context-owner");
+    expect(container.textContent).toContain("事实");
+    expect(container.querySelector("svg.lucide-pin")).not.toBeNull();
   });
 });
 

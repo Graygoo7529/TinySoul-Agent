@@ -9,7 +9,7 @@
  * instead of a promotional blurb.
  */
 
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import { BookOpen, CalendarDays, Loader2, MessagesSquare, RotateCcw, Sparkles } from "lucide-react";
 
 import type { DayEntry } from "../../api/v2/types";
@@ -24,17 +24,21 @@ import { useAppStore } from "../../store/appStore";
 import { useConnectionStore } from "../../store/connectionStore";
 import { usePagedSequence } from "../history/usePagedSequence";
 import { decodeMemoryCatalogItem, type MemoryCatalogItem } from "./catalogModel";
+import { memoryKindMeta } from "./kindMeta";
 import { useMemoryPage } from "./store";
 
 type KindFilter = "all" | "daily" | "entity" | "concept" | "fact" | "note";
 
-const KIND_TABS: { value: KindFilter; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "daily", label: "Daily" },
-  { value: "entity", label: "Entities" },
-  { value: "concept", label: "Concepts" },
-  { value: "fact", label: "Facts" },
-  { value: "note", label: "Notes" },
+const KIND_TABS: { value: KindFilter; label: ReactNode }[] = [
+  { value: "all", label: "全部" },
+  ...(["daily", "entity", "concept", "fact", "note"] as const).map((kind) => {
+    const meta = memoryKindMeta(kind);
+    const Icon = meta.icon;
+    return {
+      value: kind,
+      label: <span className="inline-flex items-center gap-1"><Icon size={11} className={meta.iconClass} />{meta.label}</span>,
+    };
+  }),
 ];
 
 export function MemoryNav({
@@ -214,8 +218,10 @@ function KnowledgeNav({
           )
         ) : (
           <div className="space-y-0.5">
-            {items.map((item) => (
-              <button
+            {items.map((item) => {
+              const meta = memoryKindMeta(item.kind);
+              const KindIcon = meta.icon;
+              return <button
                 key={item.ref}
                 type="button"
                 onClick={() => useMemoryPage.getState().select(item.ref)}
@@ -226,6 +232,7 @@ function KnowledgeNav({
                     : "text-fg-muted hover:bg-hover"
                 }`}
               >
+                <KindIcon size={12} className={`shrink-0 ${meta.iconClass}`} />
                 <span className="min-w-0 flex-1 truncate">{item.display}</span>
                 {item.redirectTo !== null && (
                   <Badge tone="orange" title={`Redirects to ${item.redirectTo}`}>
@@ -235,9 +242,9 @@ function KnowledgeNav({
                 {item.status !== "" && item.status !== "active" && (
                   <Badge tone="gray">{item.status}</Badge>
                 )}
-                <Badge tone="pink">{item.kind}</Badge>
-              </button>
-            ))}
+                <Badge tone={meta.tone}><KindIcon size={10} />{meta.label}</Badge>
+              </button>;
+            })}
             {catalog.next !== null && (
               <Button
                 variant="outline"

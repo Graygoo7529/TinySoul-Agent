@@ -17,6 +17,8 @@
 
 ## 改进点 1：Memory 五类文档色彩与图标系统
 
+状态：done（2026-10-30）
+
 ### 现状与修改
 
 daily/entity/concept/fact/note 在目录和文档头部都使用粉色徽标，类型扫读弱。新建 `features/memory/kindMeta.ts` 作为唯一映射：
@@ -29,7 +31,7 @@ daily/entity/concept/fact/note 在目录和文档头部都使用粉色徽标，�
 | fact | Pin | green | 事实 |
 | note | StickyNote | pink | 便签 |
 
-应用到 MemoryNav 行、MemoryDocumentView 头部、kind tabs 和 Memory 搜索结果行；未知 kind 使用灰色与原值，不猜类型。
+应用到 MemoryNav 行、MemoryDocumentView 头部、kind tabs 和 Memory 搜索结果行；未知 kind 使用灰色与原值，不猜类型。共享 Tabs 的 label 仅扩展为 React 节点以承载图标，其它 Tab 的呈现与行为不变。完整验证为 98 个测试文件、851 个用例，TypeScript 检查与生产构建通过。
 
 ### 预期效果
 

@@ -35,6 +35,7 @@ import { useConnectionStore } from "../../store/connectionStore";
 import { ChunkedMarkdown, directReferences, isReferenceItem } from "../resources/ChunkedMarkdown";
 import { copyReference, quoteReference } from "../resources/router";
 import { useOwnerPage } from "../resources/useOwnerPage";
+import { memoryKindMeta } from "./kindMeta";
 import { useMemoryPage } from "./store";
 
 export function MemoryDocumentView({
@@ -98,6 +99,8 @@ export function MemoryDocumentView({
   // An empty document still delivers one empty chunk (it exists); content
   // presence is decided by text, not by the chunk count.
   const hasContent = page.items.some((item) => item.text.trim() !== "");
+  const kind = metadata === null ? null : memoryKindMeta(metadata.kind);
+  const KindIcon = kind?.icon;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -107,8 +110,8 @@ export function MemoryDocumentView({
             {metadata?.display ?? ref}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-fg-faint">
-            {metadata !== null && metadata.kind !== "" && (
-              <Badge tone="pink">{metadata.kind}</Badge>
+            {kind !== null && KindIcon !== undefined && metadata?.kind !== "" && (
+              <Badge tone={kind.tone}><KindIcon size={11} />{kind.label}</Badge>
             )}
             {metadata !== null && metadata.status !== "" && (
               <Badge tone={metadata.status === "active" ? "gray" : "orange"}>
