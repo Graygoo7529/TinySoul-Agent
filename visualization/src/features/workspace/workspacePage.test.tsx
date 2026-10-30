@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Braces, File, FileCode, FileText, Image } from "lucide-react";
 
 import type { JsonObject } from "../../api/v2/json";
 import type { WorkspaceResourceRecord } from "../../api/v2/types";
@@ -18,6 +19,7 @@ import {
 import { useInspectorStore } from "../../store/inspectorStore";
 import { resetTurnController } from "../chat/turnController";
 import { useWorkspacePage } from "./store";
+import { fileKindIcon } from "./tree";
 import { WorkspacePage } from "./WorkspacePage";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -604,5 +606,52 @@ describe("WorkspacePage search", () => {
     expect(page.fragment).toBe("L1");
     // The frozen results stay open behind the opened file.
     expect(page.searchOpen).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tree presentation
+// ---------------------------------------------------------------------------
+
+describe("fileKindIcon", () => {
+  it("maps recognized suffixes and image media types, gray File otherwise", () => {
+    expect(fileKindIcon(textRecord("a.md"))).toMatchObject({ Icon: FileText });
+    expect(fileKindIcon(textRecord("a.md")).className).toContain("text-info");
+    expect(fileKindIcon(textRecord("a.MD", { suffix: ".MD" })).Icon).toBe(FileText);
+    expect(
+      fileKindIcon(textRecord("build.py", { suffix: ".py", media_type: "text/x-python" })).Icon,
+    ).toBe(FileCode);
+    expect(
+      fileKindIcon(textRecord("data.json", { suffix: ".json", media_type: "application/json" })).Icon,
+    ).toBe(Braces);
+    expect(
+      fileKindIcon(textRecord("chart.png", { suffix: ".png", media_type: "image/png" })).Icon,
+    ).toBe(Image);
+    const unknown = fileKindIcon(
+      textRecord("report.pdf", { suffix: ".pdf", media_type: "application/pdf" }),
+    );
+    expect(unknown.Icon).toBe(File);
+    expect(unknown.className).toBe("text-fg-faint");
+  });
+});
+
+describe("WorkspacePage tree presentation", () => {
+  it("renders typed icons and shared tag tones in the tree", async () => {
+    endpoint.get("/v2/workspace/manifest", () =>
+      jsonResponse(manifest(ACTIVE, [
+        textRecord("notes/a.md", { tags: ["pinned"] }),
+        textRecord("data.json", { suffix: ".json", media_type: "application/json", tags: ["tmp"] }),
+        textRecord("archive/report.pdf", { suffix: ".pdf", media_type: "application/pdf" }),
+      ])),
+    );
+    await renderPage();
+    const mdRow = fileRow("notes/a.md");
+    expect(mdRow.querySelector("svg.text-info")).not.toBeNull();
+    expect(mdRow.querySelector("span.text-accent")?.textContent).toBe("pinned");
+    const jsonRow = fileRow("data.json");
+    expect(jsonRow.querySelector("svg.text-warning")).not.toBeNull();
+    expect(jsonRow.querySelector("span.text-warning")?.textContent).toBe("tmp");
+    const pdfRow = fileRow("archive/report.pdf");
+    expect(pdfRow.querySelector("svg.text-fg-faint")).not.toBeNull();
   });
 });

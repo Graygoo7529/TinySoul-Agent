@@ -33,7 +33,7 @@ import type {
   WorkspaceResourceRecord,
   WorkspaceTag,
 } from "../../api/v2/types";
-import { Badge, type BadgeTone } from "../../components/ui/Badge";
+import { Badge } from "../../components/ui/Badge";
 import { Button, IconButton } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { useAppStore } from "../../store/appStore";
@@ -45,14 +45,9 @@ import { downloadWorkspaceBlob } from "./download";
 import { AppendModal, PathInputModal, ReplaceModal, TagsModal } from "./modals";
 import type { WorkspaceMutations } from "./mutations";
 import { useWorkspacePage, workspaceDraftKey } from "./store";
+import { TAG_TONES } from "./tree";
 
 type PanelModal = "move" | "tags" | "append" | "replace" | "trash" | null;
-
-const TAG_TONES: Record<string, BadgeTone> = {
-  pinned: "accent",
-  tmp: "yellow",
-  important: "teal",
-};
 
 export function FilePanel({
   viewDay,

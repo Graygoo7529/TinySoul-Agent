@@ -2,7 +2,9 @@
 
 日期：2026-10-09；2026-10-27 按最新前后端契约复核
 
-状态：改进点 1、2、3、4、5、6、7 已实施；待完整验证后归档
+状态：done（2026-10-30 复核归档）
+
+改进点 1–7 全部实施。2026-10-30 复核：ACTION_FAMILY 与 62 个 canonical Action 一一对应（registry.test.ts 强制矩阵完整，无缺失无残留）；write 族两段式、execution 终端风格与 interpreter 芯片、analysis Markdown 报告卡、web 统一结果卡、workspace.read 行号、core.reason gist、低频族真实内容呈现均在代码中核实；99 个测试文件、864 个用例，TypeScript 检查与生产构建通过。
 
 范围：`visualization/src/features/chat/ActivityGlimpse.tsx`、`visualization/src/features/trace/resultViews.tsx`、`analysisModel.ts`、`webModel.ts`、`SearchResultView.tsx`、`registry.ts` 及相应测试。三层渲染架构保持不变：对话 trail、过程面板内联、详情面板共用 `ACTION_FAMILY`；gist 内容经 `glimpseBody()` 单源复用。
 
@@ -88,7 +90,7 @@ WriteView 已覆盖 target/ref/source/trash、edits、old/new text、正文预�
 
 ## 实施顺序与验收
 
-顺序：改进点 1–7 已全部实施，完整验证后归档。每期独立验收，不修改后端契约。
+顺序：改进点 1–7 已全部实施，完整验证通过后于 2026-10-30 归档。每期独立验收，不修改后端契约。
 
 - 每族 gist 的规划/结果语义可辨，详情输入区与结果区清楚；
 - gist 与详情不再各自解释同一字段；

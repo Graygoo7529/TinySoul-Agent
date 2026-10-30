@@ -10,6 +10,8 @@
 
 ## 改进点 1：文件类型图标与 tag 配色统一
 
+状态：done（2026-10-30）
+
 ### 现状与修改
 
 文件树统一使用灰色 File 图标；树内 tag 全灰，FilePanel 头部使用语义色。新增共享 fileKind 映射（可放现有 tree.ts，避免无必要新文件）：
@@ -17,6 +19,8 @@
 - Markdown → FileText；代码 → FileCode；JSON/TOML/YAML → Braces；图片 → ImageIcon；其它二进制 → File；目录仍 Folder；
 - 颜色使用现有淡色 text/token，不新增一套色板；
 - TAG_TONES 提取共享常量：**pinned=accent、tmp=yellow、important=teal**，未知 tag 灰色。当前正确标签是 important，不是旧 library。
+
+实施验证：tree.ts 新增 fileKindIcon（media_type image/* 判图片，suffix 小写归一后映射 .md/.markdown→FileText text-info、常见代码后缀→FileCode text-success、.json/.jsonc/.toml/.yaml/.yml→Braces text-warning，未知灰色 File；着色图标 opacity-75 保持淡色）与共享 TAG_TONES；Sidebar 文件行接入类型图标、文件与目录行 tag 用同一映射并加 opacity-80 减淡；FilePanel 删除本地 TAG_TONES 改导入。测试覆盖 fileKindIcon 各族、大小写与未知兜底，及树行图标/徽章色调。99 个测试文件、866 个用例，TypeScript 检查与生产构建通过。
 
 ### 预期效果
 

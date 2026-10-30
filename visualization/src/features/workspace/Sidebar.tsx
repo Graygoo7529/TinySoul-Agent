@@ -47,7 +47,9 @@ import type { WorkspaceMutations } from "./mutations";
 import { useWorkspacePage } from "./store";
 import {
   buildWorkspaceTree,
+  fileKindIcon,
   filterWorkspaceTree,
+  TAG_TONES,
   type WorkspaceTreeNode,
 } from "./tree";
 
@@ -343,7 +345,11 @@ function TreeNodeRow({
           <FolderIcon size={13} className="shrink-0 text-fg-faint" />
           <span className="min-w-0 flex-1 truncate">{node.name}</span>
           {node.record?.tags.map((tag) => (
-            <Badge key={tag} tone="gray" className="px-1 text-[9.5px]">
+            <Badge
+              key={tag}
+              tone={TAG_TONES[tag] ?? "gray"}
+              className="px-1 text-[9.5px] opacity-80"
+            >
               {tag}
             </Badge>
           ))}
@@ -362,6 +368,10 @@ function TreeNodeRow({
   }
 
   const selected = selectedLink === ref;
+  const { Icon: KindIcon, className: kindIconClass } =
+    node.record !== null
+      ? fileKindIcon(node.record)
+      : { Icon: FileIcon, className: "text-fg-faint" };
   return (
     <button
       type="button"
@@ -372,7 +382,7 @@ function TreeNodeRow({
       style={{ paddingLeft: `${depth * 12 + 17}px` }}
       title={node.path}
     >
-      <FileIcon size={13} className="shrink-0 text-fg-faint" />
+      <KindIcon size={13} className={`shrink-0 ${kindIconClass}`} />
       <span className="min-w-0 flex-1 truncate">{node.name}</span>
       {dirtyLinks.has(ref) && (
         <span
@@ -381,7 +391,11 @@ function TreeNodeRow({
         />
       )}
       {node.record?.tags.map((tag) => (
-        <Badge key={tag} tone="gray" className="px-1 text-[9.5px]">
+        <Badge
+          key={tag}
+          tone={TAG_TONES[tag] ?? "gray"}
+          className="px-1 text-[9.5px] opacity-80"
+        >
           {tag}
         </Badge>
       ))}

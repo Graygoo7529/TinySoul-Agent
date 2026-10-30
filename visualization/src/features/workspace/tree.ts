@@ -7,9 +7,56 @@
  * Filtering keeps the ancestors of every hit so a match stays in context.
  * Path validation mirrors the owner ref rules; the backend stays
  * authoritative.
+ *
+ * The shared presentation mapping lives here too: fileKindIcon gives one
+ * muted type icon per manifest record (tree rows), and TAG_TONES keeps the
+ * tree and the FilePanel header reading the same tag the same way.
  */
 
+import { Braces, File, FileCode, FileText, Image, type LucideIcon } from "lucide-react";
+
 import type { WorkspaceResourceRecord } from "../../api/v2/types";
+import type { BadgeTone } from "../../components/ui/Badge";
+
+/** Tag → badge tone, shared by the tree rows and the FilePanel header. */
+export const TAG_TONES: Record<string, BadgeTone> = {
+  pinned: "accent",
+  tmp: "yellow",
+  important: "teal",
+};
+
+const MARKDOWN_SUFFIXES = new Set([".md", ".markdown"]);
+const CODE_SUFFIXES = new Set([
+  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+  ".py", ".rs", ".go", ".java", ".c", ".h", ".cpp", ".hpp", ".cs",
+  ".rb", ".php", ".sh", ".ps1", ".css", ".scss", ".html", ".vue", ".sql",
+]);
+const DATA_SUFFIXES = new Set([".json", ".jsonc", ".toml", ".yaml", ".yml"]);
+
+/**
+ * The muted type icon for one manifest record: recognized suffixes get their
+ * shape with a soft existing token, images follow media_type, and anything
+ * unrecognized stays a plain gray File — never a guessed type.
+ */
+export function fileKindIcon(record: WorkspaceResourceRecord): {
+  Icon: LucideIcon;
+  className: string;
+} {
+  if (record.media_type.startsWith("image/")) {
+    return { Icon: Image, className: "text-domain-home opacity-75" };
+  }
+  const suffix = record.suffix.toLowerCase();
+  if (MARKDOWN_SUFFIXES.has(suffix)) {
+    return { Icon: FileText, className: "text-info opacity-75" };
+  }
+  if (CODE_SUFFIXES.has(suffix)) {
+    return { Icon: FileCode, className: "text-success opacity-75" };
+  }
+  if (DATA_SUFFIXES.has(suffix)) {
+    return { Icon: Braces, className: "text-warning opacity-75" };
+  }
+  return { Icon: File, className: "text-fg-faint" };
+}
 
 export interface WorkspaceTreeNode {
   /** Workspace-relative POSIX path (the root itself is never a node). */
