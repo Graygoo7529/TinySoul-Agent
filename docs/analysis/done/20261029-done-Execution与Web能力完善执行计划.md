@@ -4,7 +4,7 @@
 
 状态：`done`。维护者已确认 D1、D2；P1–P4 已实施，P5 已完成规约核对、文档同步和必要验证。最终 Full 1492 passed、3 deselected，ty 与 git diff --check 通过。计划于 2026-10-29 完成并归档。
 
-复核基线：`e2564cf7`（修复共用 HTML 规范化与异常分类）。依据：[AGENTS.md](../../../AGENTS.md)、[原始轨迹分析](../20261029%20Web与Execution轨迹失败分析.md)、[Execution 设计](../../design/execution.md)、[Infra 设计](../../design/infra.md)、[Web 设计](../../design/capabilities/web.md)。
+复核基线：`e2564cf7`（修复共用 HTML 规范化与异常分类）。依据：[AGENTS.md](../../../AGENTS.md)、[原始轨迹分析](20261029-done-Web与Execution轨迹失败分析.md)、[Execution 设计](../../design/execution.md)、[Infra 设计](../../design/infra.md)、[Web 设计](../../design/capabilities/web.md)。
 
 本计划从现有能力主线和真实问题出发。独立复现用于验证设计，不把历史网址、五次 bash 调用、70 秒或某段诊断脚本变成业务规则。
 

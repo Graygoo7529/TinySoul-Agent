@@ -2,9 +2,9 @@
 
 日期：2026-10-29。本文保留最初轨迹分析及当时的调查结果；HTML 规范化、Execution 启动/编码、Discovery 失败分类和网络路由的后续改进已完成，实施事实见下方归档计划。根据维护者补充，最后一次停止由其手工发起。
 
-后续提交复核与实施验收见 [Execution 与 Web 能力完善执行计划](done/20261029-done-Execution与Web能力完善执行计划.md)。维护者已确认并完成 P1–P4，包含 Discovery 已知超时与 seed 失败事实传递、运行中 Job 输出探查、明确编码和按实际路由处理 DNS。下文的待讨论建议作为历史分析保留；历史 generation 的网络原因、手工停止与 timeout 记录的具体时序仍缺少原始证据，不因后续修复而宣称已还原。
+后续提交复核与实施验收见 [Execution 与 Web 能力完善执行计划](20261029-done-Execution与Web能力完善执行计划.md)。维护者已确认并完成 P1–P4，包含 Discovery 已知超时与 seed 失败事实传递、运行中 Job 输出探查、明确编码和按实际路由处理 DNS。下文的待讨论建议作为历史分析保留；历史 generation 的网络原因、手工停止与 timeout 记录的具体时序仍缺少原始证据，不因后续修复而宣称已还原。
 
-依据：[AGENTS.md](../../AGENTS.md)、[Web 设计](../design/capabilities/web.md)、[Execution 设计](../design/execution.md)、当前实现与 [2026-10-28/2 原始轨迹](../../reference/traces/turn-trace-2026-10-28-2.zip)。
+依据：[AGENTS.md](../../../AGENTS.md)、[Web 设计](../../design/capabilities/web.md)、[Execution 设计](../../design/execution.md)、当前实现与 [2026-10-28/2 原始轨迹](../../../reference/traces/turn-trace-2026-10-28-2.zip)。
 
 分析从正常能力链路出发，以轨迹定位现象，用代码和独立复现确认原因。改进应保护通用能力契约，不把本次网址、调用顺序、脚本或模型输出固定成新规则。
 
@@ -33,7 +33,7 @@ Execution 将显式解释器与 command/source_ref 转为真实进程。run 在�
 
 ## 已确认：共用 HTML 规范化调用错误
 
-状态：`done`。实现位置：[network.py](../../tinysoul/plugins/capabilities/web/backends/network.py)。
+状态：`done`。实现位置：[network.py](../../../tinysoul/plugins/capabilities/web/backends/network.py)。
 
 修复前，`normalize_html_links()` 调用：
 
@@ -57,9 +57,9 @@ Git 历史进一步定位到 `d56aff3a`（2026-10-07）：项目统一引用命�
 
 ## 已确认：异常分类掩盖了实现错误
 
-状态：`done`。实现位置：[network.py](../../tinysoul/plugins/capabilities/web/backends/network.py)、[worker.py](../../tinysoul/plugins/capabilities/web/backends/worker.py)、[discovery.py](../../tinysoul/plugins/capabilities/web/backends/discovery.py)；设计同步至 [Web 设计](../design/capabilities/web.md)。
+状态：`done`。实现位置：[network.py](../../../tinysoul/plugins/capabilities/web/backends/network.py)、[worker.py](../../../tinysoul/plugins/capabilities/web/backends/worker.py)、[discovery.py](../../../tinysoul/plugins/capabilities/web/backends/discovery.py)；设计同步至 [Web 设计](../../design/capabilities/web.md)。
 
-修复前，`normalize_html_links()` 把解析、调用方法和序列化包在一个 `except Exception` 中，全部归为 `invalid_html`；[errors.py](../../tinysoul/plugins/capabilities/web/errors.py) 再将它映射为 `use_fallback`。于是“本地实现调用不存在的方法”被投影成“页面无法处理，可以换提取器”。这直接削弱了模型后续选择的依据。
+修复前，`normalize_html_links()` 把解析、调用方法和序列化包在一个 `except Exception` 中，全部归为 `invalid_html`；[errors.py](../../../tinysoul/plugins/capabilities/web/errors.py) 再将它映射为 `use_fallback`。于是“本地实现调用不存在的方法”被投影成“页面无法处理，可以换提取器”。这直接削弱了模型后续选择的依据。
 
 这次异常没有附加 error_type。Discovery 的 `_PageState` 只保留 failure_reason，seed 失败又被概括成通用反馈。原始异常链留在 worker 内，导出的局部结果不足以区分页面解析问题与本地编程错误。
 
@@ -89,7 +89,7 @@ Cycle 10 的 `phase2/llm/tasks/001/request.json` 中，工具说明已经写明�
 
 五个 bash 调用由同一次 Cycle 10 Phase2 响应一起生成，属于同一批次。即使批次串行执行，Action 之间也没有新的模型决策。Cycle 11 的 Phase1 和 Phase2 请求都包含这五条完整 `action_result`，明确反馈 bash 未启用、列出三个可用解释器，并给出 `invalid_request / change_request`。随后模型已改选 Python。因此，这里是同批次重复选择不可用能力，不是收到失败后跨 Cycle 继续重试 bash，也不是 Trace 丢失反馈。
 
-代码链路为 Execution Action 构造局部失败 → [Phase3](../../tinysoul/kernel/loop/phases/phase3.py) 渲染 ActionResult 并发送 Trace signal → Context 安装 TurnTrace → 下一次主循环请求重新装配。轨迹和实现两者相符，无需为本次五个调用增加特殊重试上限或批次恢复状态。
+代码链路为 Execution Action 构造局部失败 → [Phase3](../../../tinysoul/kernel/loop/phases/phase3.py) 渲染 ActionResult 并发送 Trace signal → Context 安装 TurnTrace → 下一次主循环请求重新装配。轨迹和实现两者相符，无需为本次五个调用增加特殊重试上限或批次恢复状态。
 
 Cycle 11 两个请求使用 `interpreter=python` 与 `command`。Catalog 的 command 分支仅允许 shell，source_ref 分支才允许 Python，因此归一化阶段拒绝，没有进程启动。它符合当前明确契约。
 
@@ -97,7 +97,7 @@ Cycle 11 两个请求使用 `interpreter=python` 与 `command`。Catalog 的 com
 
 ### 使用 cmd 解释 Python 源码
 
-Cycle 14 请求明确指定 `interpreter=cmd`、`source_ref=workspace:scripts/net_test.py`。[ExecutionEngine](../../tinysoul/plugins/execution/engine.py) 读取源码快照，按所选解释器生成脚本副本与 argv，故 Python 文本被复制为 CMD 脚本并交给 cmd。
+Cycle 14 请求明确指定 `interpreter=cmd`、`source_ref=workspace:scripts/net_test.py`。[ExecutionEngine](../../../tinysoul/plugins/execution/engine.py) 读取源码快照，按所选解释器生成脚本副本与 argv，故 Python 文本被复制为 CMD 脚本并交给 cmd。
 
 Cycle 15 的 `phase1/llm/tasks/001/request.json` 保留了此结果的完整模型 payload：Job `20261028-2-1`、reason `nonzero_exit`、exit_code `255`，stdout 显示逐行执行 `import socket`、`URLS = [`，stderr 包含 import 命令无法识别。足以确认语言与解释器不匹配；这里没有完成 Python 网络探测。
 
@@ -137,7 +137,7 @@ Python 作为直接脚本入口，与 shell 并列是合理的能力分类：它
 
 状态：`pending`（已复现；未实施）。
 
-[infra/process/managed.py](../../tinysoul/infra/process/managed.py) 的 `_read_text()` 固定按 UTF-8、errors=replace 读取输出；轨迹第一个 Job 的 stderr 已含 360 个 U+FFFD。原始字节未保存在 ZIP 中，已替换的字符无法从该导出恢复。此问题影响解释，不是 exit 255 的起因。
+[infra/process/managed.py](../../../tinysoul/infra/process/managed.py) 的 `_read_text()` 固定按 UTF-8、errors=replace 读取输出；轨迹第一个 Job 的 stderr 已含 360 个 U+FFFD。原始字节未保存在 ZIP 中，已替换的字符无法从该导出恢复。此问题影响解释，不是 exit 255 的起因。
 
 受控进程把 stdout/stderr 接到二进制文件句柄，Popen 的 `text=True, encoding="utf-8"` 不会转换子进程直接写入这些文件的字节。`PYTHONIOENCODING` 只控制 Python，不能统一 shell 和原生程序。
 
@@ -151,7 +151,7 @@ Python 作为直接脚本入口，与 shell 并列是合理的能力分类：它
 
 状态：当前验证 `done`；历史故障归因及代理下地址校验的适配讨论仍为 `pending`。
 
-仓库 [开发网络配置](../../tinysoul/assets/development/configs/infra/network.toml) 指定 override，HTTP/HTTPS 代理均为 `http://127.0.0.1:7897`，no_proxy 为本机地址。开发 Execution 启用 python、powershell、cmd，关闭 bash，没有模块或 interpreter 网络覆盖。有效策略按 Infra → Execution → interpreter 解析，替换继承的代理提示后交给所有受控进程；shell 的 Python/curl 子进程同样继承。这是仓库模板与当前主机验证，不等于已经取得历史 generation 的有效配置快照。
+仓库 [开发网络配置](../../../tinysoul/assets/development/configs/infra/network.toml) 指定 override，HTTP/HTTPS 代理均为 `http://127.0.0.1:7897`，no_proxy 为本机地址。开发 Execution 启用 python、powershell、cmd，关闭 bash，没有模块或 interpreter 网络覆盖。有效策略按 Infra → Execution → interpreter 解析，替换继承的代理提示后交给所有受控进程；shell 的 Python/curl 子进程同样继承。这是仓库模板与当前主机验证，不等于已经取得历史 generation 的有效配置快照。
 
 本次以该配置生成进程环境，进行有界、只读验证：
 
