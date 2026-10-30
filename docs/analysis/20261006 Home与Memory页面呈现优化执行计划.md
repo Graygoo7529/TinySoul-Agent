@@ -65,12 +65,16 @@ daily/entity/concept/fact/note 在目录和文档头部都使用粉色徽标，�
 
 ## 改进点 4：Home overlay 状态渗透目录
 
+状态：done（2026-10-30）
+
 ### 修改范围与内容
 
 - Changes 按钮在已读取 changes 后显示计数；首屏不额外请求，打开 Changes 后计数常驻，ReflectionDialog 已取得 home_change_count 时可同步；
 - 将已加载的 changes 集合提升到 useHomePage，DirectoryRow 对实际匹配 ref 显示 created/modified/deleted/diverged 状态点；
 - 点击状态点调用现有 openDiff 直达对应 diff；未读取 changes 时不显示、不伪造；
 - effective 中不存在的 deleted 项不制造目录行，仍可从 Changes 列表读取。
+
+实施验证：首屏无 Changes 请求；打开后显示计数，返回目录仍保留状态点；created/modified/deleted 与 baseline_diverged 分开呈现，状态点复用 openDiff。98 个测试文件、852 个用例，TypeScript 检查与生产构建通过。
 
 ### 预期效果
 

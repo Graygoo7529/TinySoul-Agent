@@ -39,6 +39,7 @@ beforeEach(() => {
     query: "",
     diffLink: null,
     diffKind: null,
+    changes: null,
     currentDirectRefs: [],
     rightPanel: "none",
   });
@@ -275,6 +276,58 @@ describe("HomePage changes", () => {
     expect(useHomePage.getState().diffLink).toBeNull();
     expect(useHomePage.getState().ref).toBe("home:top/agent/identity");
     expect(container.querySelector("h1")?.textContent).toBe("Identity");
+  });
+
+  it("keeps loaded changes visible in the directory and opens their diffs", async () => {
+    endpoint.get("/v2/home/catalog", () => jsonResponse({
+      items: [
+        catalogItem("home:top/agent/identity", "top"),
+        catalogItem("home:top/agent/background", "top"),
+        catalogItem("home:top/agent/turn-trace", "top"),
+      ],
+      next_continuation: null,
+    }));
+    endpoint.get("/v2/home/changes", () => jsonResponse({
+      items: [
+        { ref: "home:top/agent/identity", kind: "created", baseline_diverged: false },
+        { ref: "home:top/agent/background", kind: "modified", baseline_diverged: false },
+        { ref: "home:top/agent/turn-trace", kind: "modified", baseline_diverged: true },
+        { ref: "home:resource/agent/removed.md", kind: "deleted", baseline_diverged: false },
+      ],
+      next_continuation: null,
+    }));
+    endpoint.get("/v2/home/diff", () => jsonResponse({
+      ref: "home:top/agent/background",
+      view: "content",
+      items: [{ ref: "home:top/agent/background#L1-L4", text: DIFF_TEXT }],
+      metadata: { baseline_diverged: false, actual_chars: 0, effective_chars: 19 },
+    }));
+    await renderPage();
+    expect(endpoint.calls("/v2/home/changes")).toHaveLength(0);
+
+    await act(async () => {
+      buttonByText("Changes").click();
+    });
+    await flush();
+    expect(buttonByText("Changes4")).not.toBeNull();
+    await act(async () => {
+      buttonByText("Changes4").click();
+    });
+    await flush();
+    const modified = container.querySelector('button[aria-label="Open modified diff for home:top/agent/background"]');
+    expect(modified).not.toBeNull();
+    expect(container.querySelector('button[aria-label="Open diverged diff for home:top/agent/turn-trace"]')).not.toBeNull();
+    expect(container.querySelector('button[aria-label="Open deleted diff for home:resource/agent/removed.md"]')).toBeNull();
+
+    await act(async () => {
+      (modified as HTMLButtonElement).click();
+    });
+    await flush();
+    expect(useHomePage.getState().diffLink).toBe("home:top/agent/background");
+    const diffs = endpoint.calls("/v2/home/diff");
+    expect(diffs).toHaveLength(1);
+    expect(queryOf(diffs[0], "ref")).toBe("home:top/agent/background");
+    expect(container.textContent).toContain("+Workspace guidance");
   });
 
   it("explains a diverged baseline without offering merge controls", async () => {

@@ -233,20 +233,38 @@ function DirectoryRow({
   badge?: ReactElement;
   depth?: number;
 }): ReactElement {
-  return (
+  const entry = useHomePage((s) => s.changes?.find((change) => change.ref === item.ref) ?? null);
+  const row = <button
+    type="button"
+    onClick={onSelect}
+    title={item.ref}
+    className={`flex h-6.5 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12.5px] ${
+      selected ? "bg-accent-soft text-accent" : "text-fg-muted hover:bg-hover"
+    }`}
+    style={{ paddingLeft: `${depth * 12 + 8}px` }}
+  >
+    <span className="min-w-0 flex-1 truncate">{item.title}</span>
+    {badge}
+  </button>;
+  if (entry === null) return row;
+  const status = entry.baselineDiverged ? "diverged" : entry.kind;
+  const tone = entry.baselineDiverged ? "bg-domain-execution"
+    : entry.kind === "created" ? "bg-success"
+    : entry.kind === "modified" ? "bg-warning"
+    : entry.kind === "deleted" ? "bg-danger"
+    : "bg-fg-faint";
+  return <div className="flex items-center">
+    {row}
     <button
       type="button"
-      onClick={onSelect}
-      title={item.ref}
-      className={`flex h-6.5 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12.5px] ${
-        selected ? "bg-accent-soft text-accent" : "text-fg-muted hover:bg-hover"
-      }`}
-      style={{ paddingLeft: `${depth * 12 + 8}px` }}
+      aria-label={`Open ${status} diff for ${item.ref}`}
+      title={`${status}: ${item.ref}`}
+      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-hover"
+      onClick={() => useHomePage.getState().openDiff(item.ref, entry.kind)}
     >
-      <span className="min-w-0 flex-1 truncate">{item.title}</span>
-      {badge}
+      <span className={`h-1.5 w-1.5 rounded-full ${tone}`} />
     </button>
-  );
+  </div>;
 }
 
 /** One general skill: expandable, with its SKILL.md and other resources. */

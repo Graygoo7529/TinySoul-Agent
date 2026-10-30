@@ -5,7 +5,7 @@
  * list never offers accept/reject.
  */
 
-import type { ReactElement } from "react";
+import { useEffect, useMemo, type ReactElement } from "react";
 import { GitCompareArrows, Loader2, RotateCcw } from "lucide-react";
 
 import type { JsonValue } from "../../api/v2/json";
@@ -63,9 +63,16 @@ export function HomeChanges({ epoch }: { epoch: number }): ReactElement {
     [epoch],
   );
 
-  const entries = changes.items
-    .map(decodeHomeChange)
-    .filter((entry): entry is HomeChangeEntry => entry !== null);
+  const entries = useMemo(
+    () => changes.items.map(decodeHomeChange).filter((entry): entry is HomeChangeEntry => entry !== null),
+    [changes.items],
+  );
+  useEffect(() => {
+    useHomePage.getState().setChanges(entries);
+  }, [entries]);
+  useEffect(() => {
+    useHomePage.getState().setChanges(null);
+  }, [epoch]);
 
   return (
     <aside className="flex h-full w-72 shrink-0 flex-col border-r border-line bg-bg-elev/40">

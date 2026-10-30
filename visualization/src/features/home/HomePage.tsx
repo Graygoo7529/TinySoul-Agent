@@ -45,6 +45,7 @@ export function HomePage(): ReactElement {
   const ref = useHomePage((s) => s.ref);
   const fragment = useHomePage((s) => s.fragment);
   const panel = useHomePage((s) => s.panel);
+  const changes = useHomePage((s) => s.changes);
   const diffLink = useHomePage((s) => s.diffLink);
   const currentDirectRefs = useHomePage((s) => s.currentDirectRefs);
   const rightPanel = useHomePage((s) => s.rightPanel);
@@ -131,7 +132,7 @@ export function HomePage(): ReactElement {
           }
         >
           <ListChecks size={12} />
-          Changes
+          Changes{changes !== null && <span className="font-mono text-[10px]">{changes.length}</span>}
         </Button>
         <Button
           variant={rightPanel === "search" ? "secondary" : "ghost"}

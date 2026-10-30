@@ -14,6 +14,7 @@ import { create } from "zustand";
 
 import type { HomeView } from "../../api/v2/types";
 import type { HomeTarget } from "../resources/targetsStore";
+import type { HomeChangeEntry } from "./HomeChanges";
 
 export type HomePanel = "directory" | "changes";
 export type HomeRightPanel = "none" | "search" | "references";
@@ -34,6 +35,8 @@ interface HomePageState {
   /** Direct refs of the currently read document (from its page metadata). */
   currentDirectRefs: DirectReference[];
   rightPanel: HomeRightPanel;
+  /** Overlay entries loaded explicitly through Changes; null before the first read. */
+  changes: HomeChangeEntry[] | null;
 
   setView: (view: HomeView) => void;
   select: (ref: string | null, fragment?: string | null) => void;
@@ -42,6 +45,7 @@ interface HomePageState {
   openDiff: (ref: string, kind?: string | null) => void;
   closeDiff: () => void;
   setRightPanel: (panel: HomeRightPanel) => void;
+  setChanges: (changes: HomeChangeEntry[] | null) => void;
   /** Content reader installs the current document's direct refs. */
   setCurrentDirectRefs: (refs: DirectReference[]) => void;
   /** Router entry: open the pending target recorded by the ResourceRouter. */
@@ -58,6 +62,7 @@ export const useHomePage = create<HomePageState>()((set) => ({
   diffKind: null,
   currentDirectRefs: [],
   rightPanel: "none",
+  changes: null,
 
   setView: (view) =>
     set((state) => ({
@@ -79,6 +84,7 @@ export const useHomePage = create<HomePageState>()((set) => ({
     set({ diffLink, diffKind: kind, panel: "changes" }),
   closeDiff: () => set({ diffLink: null, diffKind: null }),
   setRightPanel: (rightPanel) => set({ rightPanel }),
+  setChanges: (changes) => set({ changes }),
   setCurrentDirectRefs: (currentDirectRefs) => set({ currentDirectRefs }),
   openTarget: (target) =>
     set({
