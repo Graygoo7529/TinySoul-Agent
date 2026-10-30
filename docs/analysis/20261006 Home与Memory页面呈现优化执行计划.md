@@ -107,9 +107,13 @@ overlay 不再只藏在独立面板里；目录能定位有变化的资源，同
 
 ## 改进点 6：diff 视图的聚焦整理入口
 
+状态：done（2026-10-30）
+
 - HomeDiffView 增加次级按钮“就这条发起整理”，打开现有 ReflectionDialog kind=home，并通过可选 initialText 预填聚焦当前 ref 的说明；
 - 仅预填用户可编辑的 instructions，提交仍走现有 POST /v2/reflection，不新增写权限或 review token；
 - diverged、actual/effective 差异和只读语义保持不变。
+
+实施验证：按确认调整为仅 Sparkles 图标按钮（IconButton label 提供悬浮提示与 aria-label），位于 diff 头部 Tabs 之后；ReflectionDialog 新增可选 prop initialInstructions 仅作 instructions 初始值；预填为「重点审核这条 Home 变更：{ref}（{kind}）。」，kind 缺失时省略括号，不预填接受/拒绝结论；kind 切换、target day、提交与错误处理不变。homePage 用例覆盖预填内容、编辑后提交与无 target_day。98 个测试文件、855 个用例，TypeScript 检查与生产构建通过。
 
 预期效果：从发现可疑 overlay 到发起聚焦整理少一次手工描述，审核仍完全归 Reflection。
 

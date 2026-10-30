@@ -385,6 +385,65 @@ describe("HomePage changes", () => {
     expect(container.textContent).not.toContain("Accept");
     expect(container.textContent).not.toContain("Reject");
   });
+
+  it("opens a focused reflection from the diff with an editable prefill", async () => {
+    wireChanges(false);
+    endpoint.get("/v2/reflection", () =>
+      jsonResponse({
+        availability: {
+          checked_day: ACTIVE,
+          home_pending: true,
+          home_change_count: 1,
+          home_skill_memory_count: 0,
+          memory_pending: false,
+          memory_days: [],
+          missing_daily_days: [],
+          next_before: null,
+          scanned_days: 1,
+        },
+      }),
+    );
+    endpoint.post("/v2/reflection", () =>
+      jsonResponse({ accepted: true, command_id: "reflect-1", turn_id: "turn-1" }),
+    );
+    await renderPage();
+    await act(async () => {
+      buttonByText("Changes").click();
+    });
+    await act(async () => {
+      (container.querySelector('button[title="home:top/agent/contract"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      (container.querySelector('button[aria-label="就这条发起整理"]') as HTMLButtonElement).click();
+    });
+    await flush();
+    // The prefill names the change under review; the user can edit it.
+    const instructions = container.querySelector(
+      'textarea[aria-label="Reflection instructions"]',
+    ) as HTMLTextAreaElement;
+    expect(instructions.value).toBe(
+      "重点审核这条 Home 变更：home:top/agent/contract（created）。",
+    );
+    const setter = Object.getOwnPropertyDescriptor(
+      window.HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    await act(async () => {
+      setter?.call(instructions, "重点审核 home:top/agent/contract，确认新增段落");
+      instructions.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      buttonByText("Start Home reflection").click();
+    });
+    const posts = endpoint.calls("/v2/reflection", "POST");
+    expect(posts).toHaveLength(1);
+    const body = bodyJson(posts[0]) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      kind: "home",
+      instructions: "重点审核 home:top/agent/contract，确认新增段落",
+    });
+    expect(body).not.toHaveProperty("target_day");
+  });
 });
 
 // ---------------------------------------------------------------------------

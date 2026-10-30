@@ -17,6 +17,7 @@ import {
   Loader2,
   RotateCcw,
   Rows3,
+  Sparkles,
 } from "lucide-react";
 
 import type {
@@ -26,11 +27,12 @@ import type {
 } from "../../api/v2/types";
 import { nextContinuation } from "../../api/v2/pagination";
 import { Badge, type BadgeTone } from "../../components/ui/Badge";
-import { Button } from "../../components/ui/Button";
+import { Button, IconButton } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Tabs } from "../../components/ui/Tabs";
 import { useConnectionStore } from "../../store/connectionStore";
 import { useOwnerPage } from "../resources/useOwnerPage";
+import { ReflectionDialog } from "../resources/ReflectionDialog";
 import { parseDiffLines, toSideRows, type DiffLine, type SideRow } from "./diffModel";
 import { useHomePage } from "./store";
 
@@ -51,6 +53,7 @@ export function HomeDiffView({
 }): ReactElement {
   const diffKind = useHomePage((s) => s.diffKind);
   const [mode, setMode] = useState<DiffMode>("unified");
+  const [organizeOpen, setOrganizeOpen] = useState(false);
   const page = useOwnerPage<HomeContentItem, HomeDiffPage, HomeDiffMetadata>(
     (token, signal) => {
       const clients = useConnectionStore.getState().clients;
@@ -74,6 +77,10 @@ export function HomeDiffView({
   const metadata = page.metadata;
   const errorMessage =
     page.error instanceof Error ? page.error.message : String(page.error ?? "");
+  // The prefill only names the change under review (ref + kind from the
+  // changes fact); it never prejudges accept/reject — that stays with the
+  // Reflection, and the user can edit or clear it before submitting.
+  const reviewPrefill = `重点审核这条 Home 变更：${ref}${diffKind !== null ? `（${diffKind}）` : ""}。`;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -105,6 +112,13 @@ export function HomeDiffView({
           value={mode}
           onChange={setMode}
         />
+        <IconButton
+          label="就这条发起整理"
+          className="h-7 w-7"
+          onClick={() => setOrganizeOpen(true)}
+        >
+          <Sparkles size={13} />
+        </IconButton>
       </div>
 
       {metadata !== null && metadata.baseline_diverged && (
@@ -183,6 +197,14 @@ export function HomeDiffView({
             Show more
           </Button>
         </div>
+      )}
+
+      {organizeOpen && (
+        <ReflectionDialog
+          kind="home"
+          initialInstructions={reviewPrefill}
+          onClose={() => setOrganizeOpen(false)}
+        />
       )}
     </div>
   );

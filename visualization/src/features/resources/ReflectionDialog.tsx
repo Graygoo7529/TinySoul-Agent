@@ -30,6 +30,12 @@ import { randomId } from "../../utils/randomId";
 
 export interface ReflectionDialogProps {
   kind?: "home" | "memory";
+  /**
+   * Optional prefill for the instructions textarea (e.g. a focused review
+   * note from the diff view). It is only the initial value — the user can
+   * edit or clear it, and the submit path is unchanged.
+   */
+  initialInstructions?: string;
   onClose: () => void;
 }
 
@@ -59,14 +65,14 @@ export function suggestedTargetDay(candidates: DayCandidate[]): string | null {
     null;
 }
 
-export function ReflectionDialog({ kind: initialKind, onClose }: ReflectionDialogProps): ReactElement {
+export function ReflectionDialog({ kind: initialKind, initialInstructions, onClose }: ReflectionDialogProps): ReactElement {
   const [kind, setKind] = useState<"home" | "memory">(initialKind ?? "home");
   const [availability, setAvailability] = useState<ReflectionAvailability | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [earlierBusy, setEarlierBusy] = useState(false);
   const [targetDay, setTargetDay] = useState<string | null>(null);
   const [manualDay, setManualDay] = useState("");
-  const [instructions, setInstructions] = useState("");
+  const [instructions, setInstructions] = useState(initialInstructions ?? "");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
