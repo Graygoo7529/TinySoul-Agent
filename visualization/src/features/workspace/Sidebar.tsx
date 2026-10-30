@@ -9,6 +9,7 @@
 
 import {
   useMemo,
+  useRef,
   useState,
   type DragEvent,
   type ReactElement,
@@ -81,6 +82,7 @@ export function Sidebar({
   const [filter, setFilter] = useState("");
   const [createModal, setCreateModal] = useState<"file" | "folder" | null>(null);
   const [dropActive, setDropActive] = useState(false);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const dirtyLinks = useMemo(() => {
     const prefix = `${apiDay ?? ""}|`;
@@ -196,6 +198,26 @@ export function Sidebar({
                 >
                   <FolderPlus size={13} />
                 </IconButton>
+                <IconButton
+                  label="Upload files"
+                  className="h-6.5 w-6.5"
+                  onClick={() => uploadInputRef.current?.click()}
+                >
+                  <Upload size={13} />
+                </IconButton>
+                {/* Click and drop share the same upload path (root target). */}
+                <input
+                  ref={uploadInputRef}
+                  type="file"
+                  multiple
+                  aria-hidden="true"
+                  className="hidden"
+                  onChange={(event) => {
+                    const files = [...(event.target.files ?? [])];
+                    event.target.value = "";
+                    if (files.length > 0) void mutations.upload(files, "");
+                  }}
+                />
               </>
             )}
           </div>

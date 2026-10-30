@@ -48,9 +48,13 @@
 
 ## 改进点 4：上传按钮显式化
 
+状态：done（2026-10-30）
+
 - 在新建文件/文件夹旁增加上传图标按钮，点击打开文件选择器；
 - 选定文件复用拖放的 `mutations.upload(files, targetDir)`，重名拒绝、归档禁用和 busy 语义一致；
 - 保留拖放提示，不建立第二条上传流程。
+
+实施验证：Sidebar 工具条在 New folder 后增加 Upload files 图标按钮（IconButton tooltip）与隐藏 input[type=file multiple]；点击打开系统选择器，onChange 后调用与拖放根目录相同的 mutations.upload(files, "")，input 复位允许重复选择同一文件；仅在活动日渲染。测试覆盖按钮触发选择器、writeBlob PUT（overwrite: false）与归档日隐藏。99 个测试文件、871 个用例，TypeScript 检查与生产构建通过。
 
 预期效果：上传可发现，点击与拖放结果一致。
 

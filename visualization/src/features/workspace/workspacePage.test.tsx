@@ -714,3 +714,63 @@ describe("WorkspacePage header semantics", () => {
     expect(matches).toHaveLength(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Upload entry
+// ---------------------------------------------------------------------------
+
+describe("WorkspacePage upload entry", () => {
+  it("uploads through the toolbar button via the same writeBlob path as drop", async () => {
+    endpoint.get("/v2/workspace/manifest", () =>
+      jsonResponse(manifest(ACTIVE, [textRecord("a.md")])),
+    );
+    endpoint.on("PUT", "/v2/workspace/blob", (request) =>
+      jsonResponse({
+        record: textRecord(queryOf(request, "ref")?.replace(/^workspace:/, "") ?? "photo.png"),
+        manifest: manifest(ACTIVE, [textRecord("a.md")]),
+      }),
+    );
+    await renderPage();
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input).not.toBeNull();
+    expect(input.multiple).toBe(true);
+    const button = container.querySelector('button[aria-label="Upload files"]') as HTMLButtonElement;
+    expect(button).not.toBeNull();
+
+    // The button opens the picker (input.click()); the choice arrives as change.
+    const clickSpy = vi.spyOn(input, "click").mockImplementation(() => {});
+    await act(async () => {
+      button.click();
+    });
+    expect(clickSpy).toHaveBeenCalled();
+
+    const file = new window.File([new Uint8Array([1, 2])], "photo.png", { type: "image/png" });
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const puts = endpoint.calls("/v2/workspace/blob", "PUT");
+    expect(puts).toHaveLength(1);
+    expect(queryOf(puts[0], "ref")).toBe("workspace:photo.png");
+    expect(queryOf(puts[0], "overwrite")).toBe("false");
+    // The picker resets so the same file can be chosen again.
+    expect(input.value).toBe("");
+  });
+
+  it("hides the upload button on archived days", async () => {
+    endpoint.get("/v2/workspace/manifest", (request) =>
+      queryOf(request, "day") === ARCHIVE
+        ? jsonResponse(manifest(ARCHIVE, [textRecord("old.md")]))
+        : jsonResponse(manifest(ACTIVE, [textRecord("today.md")])),
+    );
+    await renderPage();
+    expect(container.querySelector('button[aria-label="Upload files"]')).not.toBeNull();
+    await act(async () => {
+      useWorkspacePage.getState().setDay(ARCHIVE);
+    });
+    await flush();
+    expect(container.querySelector('button[aria-label="Upload files"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="New file"]')).toBeNull();
+  });
+});
