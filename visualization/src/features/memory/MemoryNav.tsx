@@ -36,7 +36,7 @@ const KIND_TABS: { value: KindFilter; label: ReactNode }[] = [
     const Icon = meta.icon;
     return {
       value: kind,
-      label: <span className="inline-flex items-center gap-1"><Icon size={11} className={meta.iconClass} />{meta.label}</span>,
+      label: <span className="inline-flex items-center gap-1 whitespace-nowrap"><Icon size={11} className={`shrink-0 ${meta.iconClass}`} />{meta.label}</span>,
     };
   }),
 ];
@@ -156,6 +156,7 @@ function KnowledgeNav({
     <>
       <div className="space-y-2 border-b border-line px-3 py-2">
         <Tabs<KindFilter>
+          className="flex-wrap"
           items={KIND_TABS}
           value={(kind ?? "all") as KindFilter}
           onChange={(value) =>
