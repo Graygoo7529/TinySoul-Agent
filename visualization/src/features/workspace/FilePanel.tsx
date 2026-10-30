@@ -45,7 +45,7 @@ import { downloadWorkspaceBlob } from "./download";
 import { AppendModal, PathInputModal, ReplaceModal, TagsModal } from "./modals";
 import type { WorkspaceMutations } from "./mutations";
 import { useWorkspacePage, workspaceDraftKey } from "./store";
-import { TAG_TONES } from "./tree";
+import { mediaTypeLabel, TAG_TONES } from "./tree";
 
 type PanelModal = "move" | "tags" | "append" | "replace" | "trash" | null;
 
@@ -107,6 +107,7 @@ export function FilePanel({
 
   const closeModal = () => setModal(null);
   const isText = record.kind === "text";
+  const typeLabel = mediaTypeLabel(record.media_type);
   const fileName =
     record.relative_path.split("/").pop() ?? record.relative_path;
 
@@ -167,10 +168,27 @@ export function FilePanel({
             <span>{record.kind}</span>
             <span>·</span>
             <span>{formatSize(record.size)}</span>
-            <span>·</span>
-            <span className="truncate">{record.media_type}</span>
+            {typeLabel !== null && (
+              <>
+                <span>·</span>
+                <span
+                  className="truncate text-fg-muted underline decoration-dotted underline-offset-2"
+                  title={record.media_type}
+                >
+                  {typeLabel}
+                </span>
+              </>
+            )}
             {dirty && <Badge tone="accent">edited</Badge>}
           </div>
+          {record.description !== "" && (
+            <div
+              className="mt-1 truncate text-[11.5px] text-fg-muted"
+              title={record.description}
+            >
+              {record.description}
+            </div>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           {isActive && isText && (
@@ -274,7 +292,6 @@ export function FilePanel({
             </div>
             <div className="text-[12px] text-fg-faint">
               Directory — its files appear in the tree.
-              {record.description !== "" && ` ${record.description}`}
             </div>
           </div>
         </div>

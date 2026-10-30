@@ -19,7 +19,7 @@ import {
 import { useInspectorStore } from "../../store/inspectorStore";
 import { resetTurnController } from "../chat/turnController";
 import { useWorkspacePage } from "./store";
-import { fileKindIcon } from "./tree";
+import { fileKindIcon, mediaTypeLabel } from "./tree";
 import { WorkspacePage } from "./WorkspacePage";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -653,5 +653,64 @@ describe("WorkspacePage tree presentation", () => {
     expect(jsonRow.querySelector("span.text-warning")?.textContent).toBe("tmp");
     const pdfRow = fileRow("archive/report.pdf");
     expect(pdfRow.querySelector("svg.text-fg-faint")).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Header semantics
+// ---------------------------------------------------------------------------
+
+describe("mediaTypeLabel", () => {
+  it("labels known types, passes unknown values through, hides empty", () => {
+    expect(mediaTypeLabel("text/markdown")).toBe("Markdown");
+    expect(mediaTypeLabel("text/x-python")).toBe("Python");
+    expect(mediaTypeLabel("image/png")).toBe("PNG 图片");
+    expect(mediaTypeLabel("inode/directory")).toBe("目录");
+    expect(mediaTypeLabel("application/octet-stream")).toBe("二进制");
+    expect(mediaTypeLabel("application/x-custom")).toBe("application/x-custom");
+    expect(mediaTypeLabel("")).toBeNull();
+  });
+});
+
+describe("WorkspacePage header semantics", () => {
+  it("shows a readable type label and the description line in the header", async () => {
+    endpoint.get("/v2/workspace/manifest", () =>
+      jsonResponse(manifest(ACTIVE, [
+        textRecord("notes/a.md", { description: "按城市分组的天气调研笔记" }),
+      ])),
+    );
+    endpoint.get("/v2/workspace/resource", () =>
+      jsonResponse(textPage("workspace:notes/a.md", ACTIVE, "# Hello")),
+    );
+    await renderPage();
+    await act(async () => {
+      fileRow("notes/a.md").click();
+    });
+    expect(container.textContent).toContain("Markdown");
+    expect(container.textContent).not.toContain("text/markdown");
+    expect(container.querySelector('span[title="text/markdown"]')).not.toBeNull();
+    expect(container.textContent).toContain("按城市分组的天气调研笔记");
+  });
+
+  it("labels directories and keeps the description only in the header", async () => {
+    endpoint.get("/v2/workspace/manifest", () =>
+      jsonResponse(manifest(ACTIVE, [
+        textRecord("notes", {
+          kind: "directory",
+          media_type: "inode/directory",
+          suffix: "",
+          description: "调研与草稿笔记",
+        }),
+        textRecord("notes/a.md"),
+      ])),
+    );
+    await renderPage();
+    act(() => {
+      useWorkspacePage.getState().select("workspace:notes");
+    });
+    expect(container.textContent).toContain("目录");
+    expect(container.textContent).toContain("its files appear in the tree");
+    const matches = container.textContent!.match(/调研与草稿笔记/g) ?? [];
+    expect(matches).toHaveLength(1);
   });
 });

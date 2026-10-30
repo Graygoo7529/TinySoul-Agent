@@ -58,6 +58,49 @@ export function fileKindIcon(record: WorkspaceResourceRecord): {
   return { Icon: File, className: "text-fg-faint" };
 }
 
+const MEDIA_TYPE_LABELS: Record<string, string> = {
+  "text/markdown": "Markdown",
+  "text/plain": "纯文本",
+  "text/x-python": "Python",
+  "application/json": "JSON",
+  "application/toml": "TOML",
+  "application/yaml": "YAML",
+  "text/csv": "CSV",
+  "text/tab-separated-values": "TSV",
+  "text/html": "HTML",
+  "text/css": "CSS",
+  "text/javascript": "JavaScript",
+  "text/typescript": "TypeScript",
+  "application/xml": "XML",
+  "application/sql": "SQL",
+  "text/x-shellscript": "Shell",
+  "text/x-powershell": "PowerShell",
+  "text/x-msdos-batch": "Batch",
+  "image/png": "PNG 图片",
+  "image/jpeg": "JPEG 图片",
+  "image/gif": "GIF 图片",
+  "image/webp": "WebP 图片",
+  "application/pdf": "PDF",
+  "application/msword": "Word 文档",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "Word 文档",
+  "application/vnd.ms-powerpoint": "PowerPoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "PowerPoint",
+  "application/vnd.ms-excel": "Excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "Excel",
+  "inode/directory": "目录",
+  "application/octet-stream": "二进制",
+};
+
+/**
+ * Readable label for a manifest media type, mirroring the backend's own
+ * classification vocabulary. Unknown values pass through unchanged; an empty
+ * media type renders nothing.
+ */
+export function mediaTypeLabel(mediaType: string): string | null {
+  if (mediaType === "") return null;
+  return MEDIA_TYPE_LABELS[mediaType] ?? mediaType;
+}
+
 export interface WorkspaceTreeNode {
   /** Workspace-relative POSIX path (the root itself is never a node). */
   path: string;

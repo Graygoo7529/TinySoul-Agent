@@ -36,9 +36,13 @@
 
 ## 改进点 3：FilePanel 头部语义化
 
+状态：done（2026-10-30）
+
 - media_type 原值收进 title，原位显示可读类型词（Markdown、PNG 图片、JSON 等），未知类型保留原值；
-- `record.summary` 与 `record.description` 都是当前 manifest 的真实字段；非空时在头部下方显示一行说明，优先 summary，必要时并列但不重复相同文本；
+- ~~`record.summary` 与 `record.description` 并列考虑~~（2026-10-30 修订）：核对后端后确认 summary 由 reconcile 自动生成（`"{类型label}, {size} bytes"`），与头部类型词和大小完全重复，不上屏；说明行只显示 description（set_description 写入的真实用途说明，非空时一行截断 + 悬浮全文）；
 - kind、size、tags、edited、归档只读和外部变更提示保持。
+
+实施验证：tree.ts 新增 mediaTypeLabel（与后端 classification 词汇同源；目录/二进制/办公文档/图片均有词，未知原值，空值不显示）；FilePanel 头部原位替换为可读词（点线下划线 + title 原值）并增加 description 行；目录占位不再追加 description，BlobView 非图片卡删除重复 Description 行，图片内嵌条复用同一映射。测试覆盖映射各族/未知/空值、头部类型词与 description 行、目录去重。99 个测试文件、869 个用例，TypeScript 检查与生产构建通过。
 
 预期效果：头部从协议字段变成“文件类型 + 用途说明”，不新增请求。
 

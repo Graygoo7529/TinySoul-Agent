@@ -15,6 +15,7 @@ import { Button } from "../../components/ui/Button";
 import { useWorkspaceBlobUrl } from "../resources/blobUrl";
 import { formatSize } from "../../utils/format";
 import { downloadWorkspaceBlob } from "./download";
+import { mediaTypeLabel } from "./tree";
 
 export function BlobView({
   ref,
@@ -45,9 +46,6 @@ export function BlobView({
         <dl className="space-y-1.5 text-[12px]">
           <MetadataRow label="Media type" value={record.media_type} />
           <MetadataRow label="Size" value={formatSize(record.size)} />
-          {record.description !== "" && (
-            <MetadataRow label="Description" value={record.description} />
-          )}
         </dl>
         <div className="text-[11px] leading-4 text-fg-faint">
           This file type is not embedded in the page. Download it to open with
@@ -96,7 +94,7 @@ function ImageBlob({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-2 border-b border-line px-4 py-1.5 text-[11px] text-fg-faint">
-        <span>{record.media_type}</span>
+        <span title={record.media_type}>{mediaTypeLabel(record.media_type)}</span>
         <span>·</span>
         <span>{formatSize(record.size)}</span>
         <span className="flex-1" />
