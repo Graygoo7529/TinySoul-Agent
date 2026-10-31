@@ -43,7 +43,7 @@ import { FilePanel } from "./FilePanel";
 import { Sidebar } from "./Sidebar";
 import { useWorkspaceMutations } from "./mutations";
 import { useWorkspacePage } from "./store";
-import { topLevelDirectories } from "./tree";
+import { directoryStats, topLevelDirectories } from "./tree";
 
 interface ManifestView {
   day: string;
@@ -162,6 +162,15 @@ export function WorkspacePage(): ReactElement {
     [manifest, ref],
   );
 
+  // Direct-child stats for a selected directory, from the loaded manifest.
+  const dirStats = useMemo(
+    () =>
+      record !== null && record.kind === "directory" && manifest !== null
+        ? directoryStats(manifest.records, record.relative_path)
+        : null,
+    [manifest, record],
+  );
+
   const scopes = useMemo<SearchScopeChoice[]>(
     () => [
       {
@@ -252,6 +261,7 @@ export function WorkspacePage(): ReactElement {
             record={record}
             fragment={fragment}
             mutations={mutations}
+            directoryStats={dirStats}
           />
         ) : ref !== null && manifestStatus === "ready" ? (
           <div className="flex flex-1 items-center justify-center p-6">

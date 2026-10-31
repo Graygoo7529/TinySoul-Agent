@@ -101,6 +101,41 @@ export function mediaTypeLabel(mediaType: string): string | null {
   return MEDIA_TYPE_LABELS[mediaType] ?? mediaType;
 }
 
+export interface DirectoryStats {
+  /** Direct child files. */
+  files: number;
+  /** Direct child directories. */
+  subdirs: number;
+  /** Total bytes of the direct child files. */
+  totalBytes: number;
+}
+
+/**
+ * Direct-child statistics of one directory, aggregated from the already
+ * loaded manifest — the same scope as expanding the tree node one level.
+ */
+export function directoryStats(
+  records: WorkspaceResourceRecord[],
+  dirPath: string,
+): DirectoryStats {
+  const prefix = `${dirPath}/`;
+  let files = 0;
+  let subdirs = 0;
+  let totalBytes = 0;
+  for (const record of records) {
+    if (!record.relative_path.startsWith(prefix)) continue;
+    const rest = record.relative_path.slice(prefix.length);
+    if (rest.includes("/")) continue;
+    if (record.kind === "directory") {
+      subdirs += 1;
+    } else {
+      files += 1;
+      totalBytes += record.size;
+    }
+  }
+  return { files, subdirs, totalBytes };
+}
+
 export interface WorkspaceTreeNode {
   /** Workspace-relative POSIX path (the root itself is never a node). */
   path: string;

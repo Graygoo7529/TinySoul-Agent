@@ -45,7 +45,7 @@ import { downloadWorkspaceBlob } from "./download";
 import { AppendModal, PathInputModal, ReplaceModal, TagsModal } from "./modals";
 import type { WorkspaceMutations } from "./mutations";
 import { useWorkspacePage, workspaceDraftKey } from "./store";
-import { mediaTypeLabel, TAG_TONES } from "./tree";
+import { mediaTypeLabel, TAG_TONES, type DirectoryStats } from "./tree";
 
 type PanelModal = "move" | "tags" | "append" | "replace" | "trash" | null;
 
@@ -55,6 +55,7 @@ export function FilePanel({
   record,
   fragment,
   mutations,
+  directoryStats: dirStats,
 }: {
   /** The day the page displays; null = active. */
   viewDay: string | null;
@@ -62,6 +63,8 @@ export function FilePanel({
   record: WorkspaceResourceRecord;
   fragment: string | null;
   mutations: WorkspaceMutations;
+  /** Direct-child stats for a directory record; null for files. */
+  directoryStats?: DirectoryStats | null;
 }): ReactElement {
   const isActive = viewDay === null || viewDay === activeDay;
   const apiDay = isActive ? null : viewDay;
@@ -290,6 +293,31 @@ export function FilePanel({
             <div className="text-sm font-medium text-fg-muted">
               {record.relative_path}
             </div>
+            {dirStats != null && (
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-line bg-bg-sunken px-3 py-1 text-[11px] text-fg-muted">
+                {dirStats.files === 0 && dirStats.subdirs === 0 ? (
+                  "空目录"
+                ) : (
+                  <>
+                    {dirStats.files > 0 && (
+                      <span>
+                        <span className="font-mono font-semibold text-fg">{dirStats.files}</span> 个文件
+                      </span>
+                    )}
+                    {dirStats.files > 0 && dirStats.subdirs > 0 && <span className="text-fg-faint">·</span>}
+                    {dirStats.subdirs > 0 && (
+                      <span>
+                        <span className="font-mono font-semibold text-fg">{dirStats.subdirs}</span> 个子目录
+                      </span>
+                    )}
+                    <span className="text-fg-faint">·</span>
+                    <span>
+                      共 <span className="font-mono font-semibold text-fg">{formatSize(dirStats.totalBytes)}</span>
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
             <div className="text-[12px] text-fg-faint">
               Directory — its files appear in the tree.
             </div>

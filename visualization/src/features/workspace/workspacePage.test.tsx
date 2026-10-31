@@ -19,7 +19,7 @@ import {
 import { useInspectorStore } from "../../store/inspectorStore";
 import { resetTurnController } from "../chat/turnController";
 import { useWorkspacePage } from "./store";
-import { fileKindIcon, mediaTypeLabel } from "./tree";
+import { directoryStats, fileKindIcon, mediaTypeLabel } from "./tree";
 import { WorkspacePage } from "./WorkspacePage";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -806,5 +806,68 @@ describe("WorkspacePage tree row facts", () => {
     const dirRow = container.querySelector('button[title="notes"]') as HTMLButtonElement;
     expect(dirRow).not.toBeNull();
     expect(dirRow.title).toBe("notes");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Directory stats
+// ---------------------------------------------------------------------------
+
+describe("directoryStats", () => {
+  it("counts only direct children and their bytes", () => {
+    const stats = directoryStats([
+      textRecord("notes", { kind: "directory", media_type: "inode/directory", suffix: "" }),
+      textRecord("notes/a.md", { size: 100 }),
+      textRecord("notes/b.md", { size: 200 }),
+      textRecord("notes/raw", { kind: "directory", media_type: "inode/directory", suffix: "" }),
+      textRecord("notes/raw/nested.md", { size: 500 }),
+      textRecord("other.md", { size: 999 }),
+    ], "notes");
+    expect(stats).toEqual({ files: 2, subdirs: 1, totalBytes: 300 });
+  });
+
+  it("returns zeros for an empty or unknown directory", () => {
+    expect(directoryStats([textRecord("a.md")], "notes")).toEqual({
+      files: 0,
+      subdirs: 0,
+      totalBytes: 0,
+    });
+  });
+});
+
+describe("WorkspacePage directory stats", () => {
+  it("shows direct-child stats in the directory placeholder", async () => {
+    endpoint.get("/v2/workspace/manifest", () =>
+      jsonResponse(manifest(ACTIVE, [
+        textRecord("notes", { kind: "directory", media_type: "inode/directory", suffix: "" }),
+        textRecord("notes/a.md", { size: 128 }),
+        textRecord("notes/b.md", { size: 1024 }),
+        textRecord("notes/raw", { kind: "directory", media_type: "inode/directory", suffix: "" }),
+        textRecord("notes/raw/nested.md", { size: 4096 }),
+      ])),
+    );
+    await renderPage();
+    act(() => {
+      useWorkspacePage.getState().select("workspace:notes");
+    });
+    expect(container.textContent).toContain("2 个文件");
+    expect(container.textContent).toContain("1 个子目录");
+    // Only direct file bytes — the nested file is not counted.
+    expect(container.textContent).toContain("1.1 KB");
+    expect(container.textContent).not.toContain("5.1 KB");
+  });
+
+  it("says 空目录 for a directory without direct children", async () => {
+    endpoint.get("/v2/workspace/manifest", () =>
+      jsonResponse(manifest(ACTIVE, [
+        textRecord("drafts", { kind: "directory", media_type: "inode/directory", suffix: "" }),
+        textRecord("a.md"),
+      ])),
+    );
+    await renderPage();
+    act(() => {
+      useWorkspacePage.getState().select("workspace:drafts");
+    });
+    expect(container.textContent).toContain("空目录");
   });
 });
