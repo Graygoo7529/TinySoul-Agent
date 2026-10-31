@@ -2,7 +2,7 @@
 
 日期：2026-10-06；2026-10-27 按最新 manifest 与标签语义复核
 
-状态：待逐项确认与实施
+状态：done（2026-10-30，改进点 1、3、4、2、5、6 全部实施并验证，按计划顺序完成）
 
 范围：`visualization/src/features/workspace/`（Sidebar、FilePanel、TextFileView、BlobView、tree/共享呈现helper）及测试。
 
@@ -75,9 +75,13 @@
 
 ## 改进点 6：图片点击放大
 
+状态：done（2026-10-30）
+
 - 点击图片打开全屏查看层，复用 Modal 遮罩与 Esc 关闭；
 - 原图适配视口，支持 0.25x–4x 滚轮缩放与拖拽平移，提供复位和下载；
 - 鉴权 Blob/Object URL 生命周期不变，不让 `<img>` 直接指向需鉴权端点。
+
+实施验证：ImageBlob 图片获得 zoom-in 光标、悬浮描边与「点击放大查看」；BlobView 新增 ImageLightbox——Modal 同款遮罩（暗色 + 轻模糊 + z-drawer + Esc），顶部条为文件名/类型词/大小/当前倍率/复位/下载/关闭，底部操作提示。缩放与平移共存于单一 view state 的函数式更新（批量滚轮事件不丢步进）；缩放以光标为锚，0.25x–4x 步进 ×1.25；拖拽用 Pointer 捕获（jsdom 无此 API 故可选调用），短于 4px 的背景按压视为点击关闭；双击或复位按钮回 100%。下载走既有 downloadWorkspaceBlob，Object URL 生命周期不变。BlobView.test.tsx 5 例覆盖渲染/Esc/缩放 clamp/点击与拖拽区分/复位/下载。100 个测试文件、881 个用例，TypeScript 检查与生产构建通过。
 
 预期效果：截图和生成图可检查细节，操作收敛在现有 Modal 语义内。
 
