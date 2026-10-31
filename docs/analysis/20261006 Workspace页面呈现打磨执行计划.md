@@ -28,9 +28,13 @@
 
 ## 改进点 2：树行大小与修改时间
 
+状态：done（2026-10-30）
+
 - 文件行右侧以 10px 淡色显示 `formatSize(record.size)`，长名称优先截断，标签过多时允许隐藏次要信息而不是撑破树；
 - manifest 已提供 `mtime_ns`，在 title 中显示完整修改时间（按 ns → ms 转换），行内不常驻第二时间列；
 - dirty 点和 tags 语义不变。
+
+实施验证：文件行尾增加 shrink-0 等宽 10px size；title 变为「路径 + Modified 时间」两行（mtime_ns ÷ 1e9 转秒后复用 formatDateTime）；tag 数 > 2 时 size 不渲染（次要信息让位）；目录行 title 保持纯路径。fileRow 测试 helper 适配为按 title 首行匹配路径。99 个测试文件、872 个用例，TypeScript 检查与生产构建通过。
 
 预期效果：大文件与文件新旧可判断，树仍保持紧凑。
 

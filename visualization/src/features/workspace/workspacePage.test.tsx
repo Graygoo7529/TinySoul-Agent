@@ -145,7 +145,10 @@ function buttonByText(text: string): HTMLButtonElement {
 }
 
 function fileRow(path: string): HTMLButtonElement {
-  const row = container.querySelector(`button[title="${path}"]`);
+  // The row tooltip's first line is the path; the second carries the mtime.
+  const row = Array.from(container.querySelectorAll("button[title]")).find(
+    (candidate) => candidate.getAttribute("title")?.split("\n")[0] === path,
+  );
   if (!row) throw new Error(`file row "${path}" not rendered`);
   return row as HTMLButtonElement;
 }
@@ -772,5 +775,36 @@ describe("WorkspacePage upload entry", () => {
     await flush();
     expect(container.querySelector('button[aria-label="Upload files"]')).toBeNull();
     expect(container.querySelector('button[aria-label="New file"]')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tree row facts
+// ---------------------------------------------------------------------------
+
+describe("WorkspacePage tree row facts", () => {
+  it("shows file size inline and the modified time in the row tooltip", async () => {
+    endpoint.get("/v2/workspace/manifest", () =>
+      jsonResponse(manifest(ACTIVE, [
+        textRecord("notes/a.md", { size: 128, mtime_ns: 1759968000 * 1e9 }),
+        textRecord("big.json", { suffix: ".json", media_type: "application/json", size: 18 * 1024 }),
+        textRecord("crowded.md", { tags: ["pinned", "tmp", "important"], size: 999 }),
+      ])),
+    );
+    await renderPage();
+    const aRow = fileRow("notes/a.md");
+    expect(aRow.textContent).toContain("128 B");
+    expect(aRow.title).toContain("notes/a.md");
+    expect(aRow.title).toContain("Modified ");
+    const bigRow = fileRow("big.json");
+    expect(bigRow.textContent).toContain("18.0 KB");
+    // More than two tags: the size yields instead of breaking the row.
+    const crowdedRow = fileRow("crowded.md");
+    expect(crowdedRow.textContent).toContain("pinned");
+    expect(crowdedRow.textContent).not.toContain("999 B");
+    // Directory rows keep the plain path tooltip.
+    const dirRow = container.querySelector('button[title="notes"]') as HTMLButtonElement;
+    expect(dirRow).not.toBeNull();
+    expect(dirRow.title).toBe("notes");
   });
 });

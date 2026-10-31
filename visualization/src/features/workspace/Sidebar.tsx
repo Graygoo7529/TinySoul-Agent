@@ -394,6 +394,7 @@ function TreeNodeRow({
     node.record !== null
       ? fileKindIcon(node.record)
       : { Icon: FileIcon, className: "text-fg-faint" };
+  const tags = node.record?.tags ?? [];
   return (
     <button
       type="button"
@@ -402,7 +403,11 @@ function TreeNodeRow({
         selected ? "bg-accent-soft text-accent" : "text-fg-muted hover:bg-hover"
       }`}
       style={{ paddingLeft: `${depth * 12 + 17}px` }}
-      title={node.path}
+      title={
+        node.record !== null
+          ? `${node.path}\nModified ${formatDateTime(node.record.mtime_ns / 1e9)}`
+          : node.path
+      }
     >
       <KindIcon size={13} className={`shrink-0 ${kindIconClass}`} />
       <span className="min-w-0 flex-1 truncate">{node.name}</span>
@@ -412,7 +417,7 @@ function TreeNodeRow({
           title="Unsaved edits"
         />
       )}
-      {node.record?.tags.map((tag) => (
+      {tags.map((tag) => (
         <Badge
           key={tag}
           tone={TAG_TONES[tag] ?? "gray"}
@@ -421,6 +426,12 @@ function TreeNodeRow({
           {tag}
         </Badge>
       ))}
+      {/* Secondary info yields when the row is crowded with tags. */}
+      {node.record !== null && tags.length <= 2 && (
+        <span className="shrink-0 font-mono text-[10px] text-fg-faint">
+          {formatSize(node.record.size)}
+        </span>
+      )}
     </button>
   );
 }
