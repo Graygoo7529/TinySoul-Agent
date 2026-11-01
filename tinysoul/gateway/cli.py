@@ -5,7 +5,6 @@ import asyncio
 
 import argparse
 from pathlib import Path
-from secrets import token_urlsafe
 import signal as signal_module
 import sys
 from tinysoul.agent import Agent, AgentState, UserTurnRequest
@@ -14,7 +13,13 @@ from tinysoul.agent.requests import ExitRequest
 from collections.abc import Callable, Sequence
 from types import FrameType
 
-from tinysoul.gateway.endpoint import EndpointError, EndpointHost, EndpointSettings
+from tinysoul.gateway.endpoint import (
+    EndpointError,
+    EndpointHost,
+    EndpointLaunchSettings,
+    EndpointSettings,
+    load_endpoint_auth,
+)
 from tinysoul.infra import ConfigEnvironment, ConfigError
 from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.loop import LoopControlKind
@@ -82,7 +87,7 @@ def _init(argv: Sequence[str]) -> int:
         return 1
     print(
         f"Initialized TinySoul project at {outcome.root} "
-        f"(config profile: {outcome.config_profile.value})"
+        f"(config profile: {outcome.config_profile.value}; .auth generated)"
     )
     return 0
 
@@ -92,7 +97,7 @@ def _reset(argv: Sequence[str]) -> int:
         prog="tinysoul reset",
         description=(
             "Recreate a TinySoul project from packaged templates, clear all "
-            "project data, and preserve its .env file."
+            "project data, and preserve its local .env and .auth files."
         ),
     )
     parser.add_argument(
@@ -122,9 +127,11 @@ def _reset(argv: Sequence[str]) -> int:
         print(f"tinysoul: {exc}", file=sys.stderr)
         return 1
     env_status = ".env preserved" if outcome.env_preserved else "no .env to preserve"
+    auth_status = ".auth preserved" if outcome.auth_preserved else "no .auth to preserve"
     print(
         f"Reset TinySoul project at {outcome.root} "
-        f"(config profile: {outcome.config_profile.value}; {env_status})"
+        f"(config profile: {outcome.config_profile.value}; "
+        f"{env_status}; {auth_status})"
     )
     return 0
 
@@ -163,19 +170,20 @@ def _start(argv: Sequence[str]) -> int:
 
     try:
         with ProjectInstanceLease(root) as lease:
+            config = ConfigEnvironment.from_project_root(root, overrides=overrides)
             endpoint_host: EndpointHost | None = None
             if args.once is None:
+                launch = config.load_section("endpoint", EndpointLaunchSettings)
+                auth = load_endpoint_auth(root)
                 endpoint_settings = EndpointSettings(
-                    token=token_urlsafe(32),
+                    host=launch.bind_host,
+                    port=launch.port,
+                    token=auth.token,
                     instance_id=lease.identity.instance_id,
                     project_identity=lease.identity.project_identity,
                 )
-                endpoint_host = EndpointHost(
-                    settings=endpoint_settings,
-                    ready=lease.publish,
-                )
+                endpoint_host = EndpointHost(settings=endpoint_settings)
 
-            config = ConfigEnvironment.from_project_root(root, overrides=overrides)
             agent_settings = config.parse_section("agent", parse_agent_settings)
             builder = (
                     standard_agent(root)
@@ -222,6 +230,11 @@ async def _run_application(
         if endpoint_host is not None:
             endpoint_host.set_lifecycle(_EndpointLifecycle(agent, endpoint_host))
             await endpoint_host.start()
+            print(
+                "tinysoul: Endpoint listening at "
+                f"{endpoint_host.settings.host}:{endpoint_host.port} "
+                "(token source: .auth)"
+            )
         if once is not None:
             handle = await agent.submit_turn(UserTurnRequest(once, source="cli"))
             result = await handle.wait()

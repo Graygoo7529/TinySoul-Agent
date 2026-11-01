@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Protocol
 from tinysoul.agent.composition.assembly import AgentRuntime
 from tinysoul.agent.observation.outputs import ObservationRoute
 from tinysoul.runtime import ObservationLevel
 
-from tinysoul.infra.json import JsonObject
 from tinysoul.gateway.endpoint.runtime_bridge import RuntimeEndpointBridge
 from tinysoul.gateway.presentation import PresentationService
 
@@ -22,14 +20,11 @@ from .events import EndpointEventBuffer, EndpointEventJournal
 def mount_endpoint(
     runtime: AgentRuntime,
     settings: EndpointSettings,
-    *,
-    ready: Callable[[EndpointReady], None] | None = None,
 ) -> EndpointEngine:
     """Attach HTTP hosting and observation replay to an unstarted Agent."""
 
     host = EndpointHost(
         settings=settings,
-        ready=ready,
         available=lambda: runtime.is_available,
     )
     engine = host.bind(runtime)
@@ -46,27 +41,6 @@ class EndpointServer(Protocol):
     async def stop(self) -> None: ...
 
 
-@dataclass(frozen=True)
-class EndpointReady:
-    host: str
-    port: int
-    token: str
-    instance_id: str
-    project_identity: str
-    protocol_version: int = 2
-
-    def to_json(self) -> JsonObject:
-        return {
-            "type": "endpoint.ready",
-            "protocol_version": self.protocol_version,
-            "host": self.host,
-            "port": self.port,
-            "token": self.token,
-            "instance_id": self.instance_id,
-            "project_identity": self.project_identity,
-        }
-
-
 class EndpointHost:
     """Own the Endpoint transport while allowing generation rebinding."""
 
@@ -74,13 +48,11 @@ class EndpointHost:
         self,
         *,
         settings: EndpointSettings,
-        ready: Callable[[EndpointReady], None] | None = None,
         available: Callable[[], bool] | None = None,
         runtime_bridge: RuntimeEndpointBridge | None = None,
     ) -> None:
         self._engine: EndpointEngine | None = None
         self._settings = settings
-        self._ready = ready
         self._available = available
         self._runtime_bridge = runtime_bridge or RuntimeEndpointBridge()
         self._server: EndpointServer | None = None
@@ -92,6 +64,14 @@ class EndpointHost:
         if self._engine is None:
             raise EndpointServerError("Endpoint is not bound to an Agent generation")
         return self._engine
+
+    @property
+    def settings(self) -> EndpointSettings:
+        return self._settings
+
+    @property
+    def port(self) -> int:
+        return self._server.port if self._server is not None else self._settings.port
 
     def bind(self, runtime: AgentRuntime) -> EndpointEngine:
         """Bind the stable Endpoint facade to the current Agent generation."""
@@ -173,25 +153,6 @@ class EndpointHost:
         except EndpointServerError as exc:
             raise self._runtime_bridge.from_endpoint_error(exc) from exc
         self._server = server
-        try:
-            if self._ready is not None:
-                self._ready(
-                    EndpointReady(
-                        host=self._settings.host,
-                        port=server.port,
-                        token=self._settings.token,
-                        instance_id=self._settings.instance_id,
-                        project_identity=self._settings.project_identity,
-                    )
-                )
-        except Exception as exc:
-            self._server = None
-            try:
-                await server.stop()
-            except EndpointServerError:
-                pass
-            error = EndpointServerError("Endpoint ready handshake failed")
-            raise self._runtime_bridge.from_endpoint_error(error) from exc
 
     async def stop(self) -> None:
         server = self._server

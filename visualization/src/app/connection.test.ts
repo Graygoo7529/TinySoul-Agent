@@ -12,6 +12,7 @@ import {
   connect,
   autoConnect,
   disconnect,
+  logout,
   resetConnectionManager,
   restartBackend,
 } from "./connection";
@@ -159,31 +160,6 @@ describe("handshake", () => {
     expect(MockEventsSocket.instances).toHaveLength(0);
   });
 
-  it("rejects a stale lease when the answering instance differs", async () => {
-    const endpoint = new FakeEndpoint();
-    installBaseRoutes(endpoint, makeStatus());
-    const ok = await connect(
-      { ...TARGET, instanceId: "instance_old" },
-      { fetchImpl: endpoint.fetchImpl, webSocketFactory: mockWebSocketFactory },
-    );
-    expect(ok).toBe(false);
-    const connection = useConnectionStore.getState();
-    expect(connection.phase).toBe("error");
-    expect(connection.error).toContain("stale");
-    expect(MockEventsSocket.instances).toHaveLength(0);
-  });
-
-  it("rejects an endpoint serving a different project", async () => {
-    const endpoint = new FakeEndpoint();
-    installBaseRoutes(endpoint, makeStatus({ projectIdentity: "project-a" }));
-    const ok = await connect(
-      { ...TARGET, projectIdentity: "project-b" },
-      { fetchImpl: endpoint.fetchImpl, webSocketFactory: mockWebSocketFactory },
-    );
-    expect(ok).toBe(false);
-    expect(useConnectionStore.getState().error).toContain("different project");
-  });
-
   it("reports an unreachable endpoint without opening a stream", async () => {
     const endpoint = new FakeEndpoint();
     endpoint.get("/v2/health", () => {
@@ -258,7 +234,7 @@ describe("handshake", () => {
 
 describe("autoConnect", () => {
   it("returns false when no target is known", async () => {
-    const ok = await autoConnect("B:/WorkSpace/TinySoul-Agent", {
+    const ok = await autoConnect({
       fetchImpl: new FakeEndpoint().fetchImpl,
     });
     expect(ok).toBe(false);
@@ -272,7 +248,7 @@ describe("autoConnect", () => {
     );
     const endpoint = new FakeEndpoint();
     installBaseRoutes(endpoint, makeStatus());
-    const ok = await autoConnect("B:/WorkSpace/TinySoul-Agent", {
+    const ok = await autoConnect({
       fetchImpl: endpoint.fetchImpl,
       webSocketFactory: mockWebSocketFactory,
     });
@@ -544,6 +520,17 @@ describe("disconnect and restart", () => {
     await vi.advanceTimersByTimeAsync(30000);
     expect(endpoint.requests).toHaveLength(0);
     expect(MockEventsSocket.instances).toHaveLength(1);
+  });
+
+  it("logout disconnects and clears the saved target", async () => {
+    const { ok } = await connectIdle();
+    expect(ok).toBe(true);
+    expect(localStorage.getItem("tinysoul-web-connection")).not.toBeNull();
+
+    logout();
+
+    expect(localStorage.getItem("tinysoul-web-connection")).toBeNull();
+    expect(useConnectionStore.getState().phase).toBe("idle");
   });
 
   it("restartBackend posts /v2/restart and re-syncs on the new generation", async () => {

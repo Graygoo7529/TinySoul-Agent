@@ -81,6 +81,27 @@ pnpm tauri dev
 
 The frontend connects to a backend and does not own its process. See [frontend setup and connection details](visualization/README.md).
 
+### Endpoint login
+
+`tinysoul init` creates a project-local `.auth` file containing the stable
+Endpoint bearer token. Keep that file on the backend host and never commit it.
+The normal backend listens at `127.0.0.1:1430`; enter that address and the
+`.auth` token in the frontend. The frontend remembers the pair locally and
+reuses it after restart. Use **Log out** to clear the local pair and switch
+hosts.
+
+For a trusted remote host, put the following in the backend project's `.env`
+and restart the backend:
+
+```dotenv
+TINYSOUL_ENDPOINT__BIND_HOST=0.0.0.0
+TINYSOUL_ENDPOINT__PORT=1430
+```
+
+Enter the host's client-reachable IP (for example `192.168.1.20:1430`) and the
+same `.auth` token on the laptop. `.env` contains backend settings and provider
+credentials; it is separate from the frontend's remembered login.
+
 ## SDK and design
 
 The Python SDK uses `Agent.create(...)`, `Agent.start()`, `Agent.submit_turn(UserTurnRequest(...))` and `Agent.shutdown()`. SDK creation does not open a terminal or HTTP listener. See [Agent design](docs/design/agent.md) for lifecycle and service ownership.

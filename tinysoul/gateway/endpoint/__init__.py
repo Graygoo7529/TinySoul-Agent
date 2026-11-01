@@ -1,6 +1,7 @@
 """Authenticated local Endpoint for desktop visualization clients."""
 
-from .config import EndpointSettings
+from .auth import EndpointAuth, generated_auth_text, load_endpoint_auth
+from .config import EndpointLaunchSettings, EndpointSettings
 from .engine import (
     EndpointControlKind,
     EndpointEngine,
@@ -20,11 +21,13 @@ from .events import (
     EndpointEventPage,
 )
 from .failures import EndpointFailureKind
-from .host import EndpointHost, EndpointReady
+from .host import EndpointHost
 from .http.server import EndpointASGIServer
 
 __all__ = [
     "EndpointContractError",
+    "EndpointAuth",
+    "generated_auth_text",
     "EndpointControlKind",
     "EndpointEngine",
     "EndpointError",
@@ -35,10 +38,11 @@ __all__ = [
     "EndpointFailureKind",
     "EndpointHost",
     "EndpointLifecycle",
+    "EndpointLaunchSettings",
     "EndpointASGIServer",
     "EndpointInvariantError",
-    "EndpointReady",
     "EndpointRequestError",
     "EndpointServerError",
     "EndpointSettings",
+    "load_endpoint_auth",
 ]

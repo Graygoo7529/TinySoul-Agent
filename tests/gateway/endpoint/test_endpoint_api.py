@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Self
@@ -630,7 +630,10 @@ def test_v2_replay_resets_old_instance_or_future_cursor(
 
 async def test_endpoint_asgi_server_uses_prebound_random_port(tmp_path: Path) -> None:
     engine, _gateway, _events = _engine(tmp_path)
-    server = EndpointASGIServer(engine=engine, settings=engine.settings)
+    server = EndpointASGIServer(
+        engine=engine,
+        settings=replace(engine.settings, port=0),
+    )
     await server.start()
     try:
         async with httpx.AsyncClient(trust_env=False) as client:
@@ -640,6 +643,24 @@ async def test_endpoint_asgi_server_uses_prebound_random_port(tmp_path: Path) ->
             )
         assert response.status_code == 200
         assert response.json() == {"ok": True}
+    finally:
+        await server.stop()
+
+
+async def test_endpoint_asgi_server_accepts_explicit_non_loopback_bind(
+    tmp_path: Path,
+) -> None:
+    engine, _gateway, _events = _engine(tmp_path)
+    settings = replace(engine.settings, host="0.0.0.0", port=0)
+    server = EndpointASGIServer(engine=engine, settings=settings)
+    await server.start()
+    try:
+        async with httpx.AsyncClient(trust_env=False) as client:
+            response = await client.get(
+                f"http://127.0.0.1:{server.port}/v2/health",
+                timeout=5.0,
+            )
+        assert response.status_code == 200
     finally:
         await server.stop()
 

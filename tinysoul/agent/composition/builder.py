@@ -134,6 +134,7 @@ from .assembly import AgentAssembly, AgentRuntime
 
 _HARNESS_CONFIGURATION_SECTIONS = (
     "config",
+    "endpoint",
     "agent",
     "action",
     "loop",

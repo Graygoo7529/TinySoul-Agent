@@ -11,6 +11,7 @@ import shutil
 import tempfile
 
 from ..errors import ProjectInitializationError
+from ..endpoint.auth import generated_auth_text
 
 _INITIAL_PROJECT_DIRECTORIES = ("memory",)
 
@@ -55,6 +56,7 @@ class ProjectResetOutcome:
     file_count: int
     config_profile: ProjectConfigProfile
     env_preserved: bool
+    auth_preserved: bool
 
     def __post_init__(self) -> None:
         if not isinstance(self.root, Path) or not self.root.is_absolute():
@@ -70,6 +72,10 @@ class ProjectResetOutcome:
         if not isinstance(self.env_preserved, bool):
             raise ProjectInitializationError(
                 "Reset project env preservation state is invalid"
+            )
+        if not isinstance(self.auth_preserved, bool):
+            raise ProjectInitializationError(
+                "Reset project auth preservation state is invalid"
             )
 
 
@@ -117,6 +123,15 @@ class ProjectInitializer:
             operation="initialization",
             prefix="init",
         )
+        try:
+            (staging / ".auth").write_text(
+                generated_auth_text(), encoding="utf-8", newline="\n"
+            )
+        except OSError as exc:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise ProjectInitializationError(
+                f"Failed to create project auth file: {exc}"
+            ) from exc
 
         try:
             if existed:
@@ -143,7 +158,7 @@ class ProjectInitializer:
 
 
 class ProjectResetter:
-    """Replace one existing TinySoul project while retaining its local env file."""
+    """Replace one existing TinySoul project while retaining local credentials."""
 
     def reset(
         self,
@@ -199,6 +214,24 @@ class ProjectResetter:
                     f"Failed to preserve project env file: {exc}"
                 ) from exc
 
+        auth_path = root / ".auth"
+        auth_bytes: bytes | None = None
+        if auth_path.is_symlink():
+            raise ProjectInitializationError(
+                f"Project auth file cannot be a symlink during reset: {auth_path}"
+            )
+        if auth_path.exists():
+            if not auth_path.is_file():
+                raise ProjectInitializationError(
+                    f"Project auth path must be a file during reset: {auth_path}"
+                )
+            try:
+                auth_bytes = auth_path.read_bytes()
+            except OSError as exc:
+                raise ProjectInitializationError(
+                    f"Failed to preserve project auth file: {exc}"
+                ) from exc
+
         resources = _packaged_project_files(config_profile)
         staging = _stage_project(
             root,
@@ -212,6 +245,8 @@ class ProjectResetter:
         try:
             if env_bytes is not None:
                 (staging / ".env").write_bytes(env_bytes)
+            if auth_bytes is not None:
+                (staging / ".auth").write_bytes(auth_bytes)
             backup = Path(
                 tempfile.mkdtemp(
                     prefix=f".{root.name}.tinysoul-reset-old-",
@@ -268,6 +303,7 @@ class ProjectResetter:
             file_count=len(resources),
             config_profile=config_profile,
             env_preserved=env_bytes is not None,
+            auth_preserved=auth_bytes is not None,
         )
 
 

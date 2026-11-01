@@ -36,7 +36,11 @@ def test_cli_init_preserves_packaged_resources_and_valid_configuration(
         **_resource_snapshot(assets.joinpath("common")),
         **_resource_snapshot(assets.joinpath(profile.value)),
     }
-    assert _tree_snapshot(root) == expected
+    actual = _tree_snapshot(root)
+    auth = actual.pop(".auth")
+    assert auth.startswith(b"token=")
+    assert len(auth.rstrip().split(b"=", 1)[1]) >= 32
+    assert actual == expected
     assert (root / "memory").is_dir()
     environment = ConfigEnvironment.from_project_root(root, env={})
     llm = LLMConfigParser().parse(environment.section_tree("llm"))
@@ -74,7 +78,9 @@ def test_project_initializer_accepts_empty_directory_and_rejects_nonempty(
     outcome = ProjectInitializer().initialize(empty)
 
     assert outcome.root == empty.resolve()
-    assert outcome.file_count == len(_tree_snapshot(empty))
+    snapshot = _tree_snapshot(empty)
+    assert snapshot[".auth"].startswith(b"token=")
+    assert outcome.file_count == len(snapshot) - 1
     marker = tmp_path / "existing" / "marker.txt"
     marker.parent.mkdir()
     marker.write_text("keep", encoding="utf-8")
@@ -99,6 +105,7 @@ def test_cli_reset_recreates_development_project_and_preserves_env(
     original_home = (root / "home" / "agent" / "AGENT.md").read_bytes()
     env = b"SUBLYX_API_KEY=secret\r\nMOONSHOT_API_KEY=other\r\n"
     (root / ".env").write_bytes(env)
+    auth = (root / ".auth").read_bytes()
     (root / "home" / "agent" / "AGENT.md").write_text("custom home", encoding="utf-8")
     (root / "configs" / "llm" / "providers.toml").write_text(
         "custom config", encoding="utf-8"
@@ -124,7 +131,9 @@ def test_cli_reset_recreates_development_project_and_preserves_env(
     assert result == 0
     assert "config profile: development" in captured.out
     assert ".env preserved" in captured.out
+    assert ".auth preserved" in captured.out
     assert (root / ".env").read_bytes() == env
+    assert (root / ".auth").read_bytes() == auth
     assert (root / "home" / "agent" / "AGENT.md").read_bytes() == original_home
     assert (root / "home" / "agent" / "user" / "user.md").read_bytes() == (
         expected_development / "home" / "agent" / "user" / "user.md"
@@ -236,6 +245,20 @@ def test_cli_reset_rejects_project_held_by_running_instance(
     assert result == 1
     assert "already running for this project" in captured.err
     assert marker.read_text(encoding="utf-8") == "active"
+
+
+def test_cli_start_requires_auth_but_once_does_not(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = tmp_path / "agent"
+    copy_initialized_project(root)
+    (root / ".auth").unlink()
+
+    result = cli.main(["start", "--root", str(root)])
+
+    assert result == 1
+    assert "auth file is missing" in capsys.readouterr().err
 
 
 def _tree_snapshot(root: Path) -> dict[str, bytes]:

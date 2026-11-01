@@ -2,14 +2,12 @@ import { useEffect } from "react";
 import { MotionConfig } from "motion/react";
 import { autoConnect } from "./app/connection";
 import { AppShell } from "./components/shell/AppShell";
-import { useAppStore } from "./store/appStore";
 import {
   applyUiPrefsToDocument,
   useUiPrefs,
 } from "./store/uiPrefsStore";
 
 export default function App() {
-  const projectRoot = useAppStore((s) => s.projectRoot);
   const uiPrefs = useUiPrefs();
   const theme = uiPrefs.theme;
 
@@ -24,9 +22,9 @@ export default function App() {
   }, [uiPrefs]);
 
   useEffect(() => {
-    // Connect once on mount (Tauri lease or the stored browser target); when
-    // no target is known the connect screen collects address + token.
-    void autoConnect(projectRoot);
+    // Connect once on mount from the client-local address/token target; when
+    // no target is known the connect screen collects both values.
+    void autoConnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

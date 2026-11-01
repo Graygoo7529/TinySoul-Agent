@@ -17,6 +17,7 @@ ENV/
 .env
 .env.*
 !.env.example
+.auth
 
 # Local references
 reference

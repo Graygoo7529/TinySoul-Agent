@@ -1,5 +1,6 @@
 # Local secrets and generated state
 .env
+.auth
 runtime/
 archive/
 

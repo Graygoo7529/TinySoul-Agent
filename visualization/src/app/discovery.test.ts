@@ -22,12 +22,10 @@ describe("browser target persistence", () => {
     });
   });
 
-  it("persists only address + token, not lease identity", () => {
+  it("persists only address + token", () => {
     storeBrowserTarget({
       address: "https://example.test:9443",
       token: "tok-2",
-      instanceId: "instance_9",
-      projectIdentity: "proj",
     });
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({
       address: "https://example.test:9443",
@@ -47,32 +45,13 @@ describe("browser target persistence", () => {
   });
 });
 
-describe("v1 migration", () => {
-  it("migrates the legacy host/port shape to an http URL", () => {
+describe("obsolete connection shapes", () => {
+  it("does not interpret the old host/port shape", () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({ host: "192.168.1.10", port: 1430, token: "legacy" }),
     );
-    expect(loadStoredBrowserTarget()).toEqual({
-      address: "http://192.168.1.10:1430",
-      token: "legacy",
-    });
-  });
-
-  it("prefers the v2 shape when both are present", () => {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        address: "https://new.example:443",
-        token: "tok",
-        host: "old-host",
-        port: 1430,
-      }),
-    );
-    expect(loadStoredBrowserTarget()).toEqual({
-      address: "https://new.example:443",
-      token: "tok",
-    });
+    expect(loadStoredBrowserTarget()).toBeNull();
   });
 });
 
@@ -98,10 +77,10 @@ describe("invalid stored values", () => {
     expect(loadStoredBrowserTarget()).toBeNull();
   });
 
-  it("returns null for a non-positive legacy port", () => {
+  it("returns null for a target without an address", () => {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ host: "h", port: 0, token: "tok" }),
+      JSON.stringify({ token: "tok" }),
     );
     expect(loadStoredBrowserTarget()).toBeNull();
   });

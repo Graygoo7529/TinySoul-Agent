@@ -8,6 +8,7 @@ from tinysoul.agent.config import AgentSettings
 from tinysoul.agent.config import OutputSettings
 from tinysoul.gateway import cli
 from tinysoul.agent import AgentState
+from tinysoul.gateway.endpoint import EndpointLaunchSettings
 from tinysoul.kernel.loop import TurnOutcomeStatus
 from tinysoul.runtime import ObservationLevel
 
@@ -22,6 +23,11 @@ class _FakeConfig:
                 max_model_detail_chars=321,
             ),
         )
+
+    def load_section(self, section, settings_type):
+        assert section == "endpoint"
+        assert settings_type is EndpointLaunchSettings
+        return EndpointLaunchSettings()
 
 
 class _FakeGateway:
@@ -181,6 +187,7 @@ def test_cli_once_returns_nonzero_without_final_answer(
 def test_cli_start_attaches_terminal_and_model_endpoint(
     tmp_path: Path,
     monkeypatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     captured: dict[str, object] = {}
     app = _FakeApp()
@@ -195,9 +202,10 @@ def test_cli_start_attaches_terminal_and_model_endpoint(
     monkeypatch.setattr(cli, "ProjectInstanceLease", _FakeLease)
 
     class FakeEndpointHost:
-        def __init__(self, *, settings, ready):
+        def __init__(self, *, settings):
             builder.endpoint_settings = settings
-            builder.endpoint_ready = ready
+            self.settings = settings
+            self.port = settings.port
 
         def bind(self, assembly):
             assert assembly is app
@@ -215,6 +223,11 @@ def test_cli_start_attaches_terminal_and_model_endpoint(
             pass
 
     monkeypatch.setattr(cli, "EndpointHost", FakeEndpointHost)
+    monkeypatch.setattr(
+        cli,
+        "load_endpoint_auth",
+        lambda root: SimpleNamespace(token="x" * 32),
+    )
 
     result = cli.main(
         [
@@ -234,6 +247,12 @@ def test_cli_start_attaches_terminal_and_model_endpoint(
     assert builder.endpoint_settings is not None
     assert builder.endpoint_settings.instance_id == "instance_test"
     assert builder.endpoint_settings.project_identity == "project_test"
+    assert builder.endpoint_settings.host == "127.0.0.1"
+    assert builder.endpoint_settings.port == 1430
+    assert builder.endpoint_settings.token == "x" * 32
     assert len(builder.input_sources) == 1
     assert builder.sink_max_chars == 321
     assert app.run_count == 1
+    assert "Endpoint listening at 127.0.0.1:1430 (token source: .auth)" in (
+        capsys.readouterr().out
+    )

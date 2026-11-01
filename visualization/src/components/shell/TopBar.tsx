@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { History, Layers, Power, RefreshCw, Wrench } from "lucide-react";
-import { restartBackend } from "../../app/connection";
+import { History, Layers, LogOut, Power, RefreshCw, Wrench } from "lucide-react";
+import { logout, restartBackend } from "../../app/connection";
 import { useConnectionStore } from "../../store/connectionStore";
 import { openContextDrawer } from "../../features/context/entries";
 import { openHistoryBrowser } from "../../features/history/entries";
@@ -17,6 +17,7 @@ import { ReflectionDialog } from "../../features/resources/ReflectionDialog";
  */
 export function TopBar() {
   const status = useConnectionStore((s) => s.status);
+  const address = useConnectionStore((s) => s.info?.address.httpBaseUrl ?? "");
   const epoch = useConnectionStore((s) => s.epoch);
   const connected = useConnectionStore((s) => s.phase === "connected");
   const [confirmingRestart, setConfirmingRestart] = useState(false);
@@ -31,6 +32,11 @@ export function TopBar() {
         <Badge tone="accent">
           <span className="animate-pulse-dot">●</span> turn active
         </Badge>
+      )}
+      {connected && (
+        <span className="hidden max-w-[220px] truncate font-mono text-[11px] text-fg-faint lg:inline">
+          {address}
+        </span>
       )}
       <IconButton
         label="History"
@@ -55,6 +61,9 @@ export function TopBar() {
         disabled={!connected}
       >
         <Power size={15} />
+      </IconButton>
+      <IconButton label="Log out" onClick={logout}>
+        <LogOut size={15} />
       </IconButton>
       <ReconnectIndicator />
       {organizing && <ReflectionDialog onClose={() => setOrganizing(false)} />}

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -8,10 +7,9 @@ import pytest
 from tinysoul.gateway.errors import ProjectInstanceError
 from tinysoul.gateway.project.instance import ProjectInstanceLease
 from tinysoul.gateway.project.instance import project_identity_for
-from tinysoul.gateway.endpoint import EndpointReady
 
 
-def test_project_instance_lease_publishes_and_cleans_connection_record(
+def test_project_instance_lease_keeps_process_lock_and_identity(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "project"
@@ -21,21 +19,9 @@ def test_project_instance_lease_publishes_and_cleans_connection_record(
 
     with lease:
         assert lease.identity.project_identity == project_identity_for(root)
-        lease.publish(
-            EndpointReady(
-                host="127.0.0.1",
-                port=43123,
-                token="x" * 32,
-                instance_id=lease.identity.instance_id,
-                project_identity=lease.identity.project_identity,
-            )
-        )
-        record = json.loads(lease.record_path.read_text(encoding="utf-8"))
-        assert record["instance_id"] == lease.identity.instance_id
-        assert record["project_identity"] == lease.identity.project_identity
-        assert record["project_root"] == str(root.resolve())
-
-    assert lease.record_path.exists() is False
+        assert lease.identity.project_root == root.resolve()
+        assert lease.identity.instance_id.startswith("instance_")
+    assert not tuple(directory.glob("*.json"))
 
 
 def test_project_instance_lease_rejects_second_owner(tmp_path: Path) -> None:

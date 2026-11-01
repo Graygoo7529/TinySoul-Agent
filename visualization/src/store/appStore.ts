@@ -4,8 +4,7 @@
  * After the v2 switch this store deliberately holds no backend business
  * state: formal snapshots live in connectionStore/turnStore, request drafts
  * live with their feature, and this store keeps only client-local
- * preferences (active tab, project root used by Tauri discovery) and
- * transient toasts.
+ * preferences (active tab) and transient toasts.
  */
 
 import { create } from "zustand";
@@ -47,11 +46,9 @@ export interface ToastItem {
 
 export interface AppState {
   activeTab: AppTab;
-  projectRoot: string;
   toasts: ToastItem[];
 
   setActiveTab: (tab: AppTab) => void;
-  setProjectRoot: (root: string) => void;
   pushToast: (
     kind: ToastItem["kind"],
     text: string,
@@ -64,11 +61,9 @@ export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
       activeTab: "chat",
-      projectRoot: "B:/WorkSpace/TinySoul-Agent",
       toasts: [],
 
       setActiveTab: (activeTab) => set({ activeTab }),
-      setProjectRoot: (projectRoot) => set({ projectRoot }),
 
       pushToast: (kind, text, action) =>
         set((state) => ({
@@ -83,7 +78,6 @@ export const useAppStore = create<AppState>()(
     {
       name: "tinysoul-ui-state",
       partialize: (state) => ({
-        projectRoot: state.projectRoot,
         activeTab: normalizePersistedActiveTab(state.activeTab),
       }),
       merge: (persistedState, currentState) => {
@@ -93,10 +87,6 @@ export const useAppStore = create<AppState>()(
             : {};
         return {
           ...currentState,
-          projectRoot:
-            typeof persisted.projectRoot === "string"
-              ? persisted.projectRoot
-              : currentState.projectRoot,
           activeTab: normalizePersistedActiveTab(persisted.activeTab),
         };
       },

@@ -19,7 +19,7 @@ from tinysoul.gateway import cli
 from tinysoul.agent import AgentClosedError, UserTurnRequest
 from tinysoul.agent.composition.assembly import AgentAssembly, AgentRuntime
 from tinysoul.agent.composition.builder import standard_agent
-from tinysoul.gateway.endpoint import EndpointHost, EndpointReady, EndpointSettings
+from tinysoul.gateway.endpoint import EndpointHost, EndpointSettings
 from tinysoul.infra import ConfigEnvironment
 from tinysoul.runtime import ObservationEvent, ObservationLevel, RuntimeException
 from tests.support.project import copy_initialized_project
@@ -31,14 +31,7 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
 ) -> None:
     root = tmp_path / "agent"
     copy_initialized_project(root)
-    ready = asyncio.get_running_loop().create_future()
-    handshakes: list[EndpointReady] = []
-
-    def on_ready(value: EndpointReady) -> None:
-        handshakes.append(value)
-        ready.set_result(value)
-
-    host = EndpointHost(settings=EndpointSettings(token="x" * 32), ready=on_ready)
+    host = EndpointHost(settings=EndpointSettings(token="x" * 32, port=0))
     assemblies: list[AgentRuntime] = []
     rebuilding = asyncio.Event()
     release = asyncio.Event()
@@ -93,7 +86,17 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
     definition = AgentAssembly(root, runtime_factory=factory)
     application = asyncio.create_task(cli._run_application(definition, None, host))
     try:
-        connection = await asyncio.wait_for(ready, 5)
+        for _ in range(500):
+            if host.port > 0:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("Endpoint server did not publish a port")
+        connection = type("Connection", (), {
+            "host": host.settings.host,
+            "port": host.port,
+            "token": host.settings.token,
+        })()
         async with httpx.AsyncClient(
             base_url=f"http://{connection.host}:{connection.port}",
             headers={"Authorization": f"Bearer {connection.token}"},
@@ -142,7 +145,7 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
                 await client.get("/v2/presentation/configs/interface")
             ).json()
             assert shared_interface["values"]["theme"] == "dark"
-            assert host.engine is engine and len(handshakes) == 1
+            assert host.engine is engine
             assert not application.done()
             with pytest.raises(AgentClosedError):
                 await old_commands.submit_turn(UserTurnRequest("old facade"))
@@ -170,7 +173,6 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
             fail_build = False
             assert (await client.post("/v2/restart")).status_code == 202
             assert (await client.get("/v2/status")).json()["ready"] is True
-            assert len(handshakes) == 1
 
             # Cancel the lifecycle caller itself; a disconnected HTTP client
             # does not necessarily cancel the ASGI request task.

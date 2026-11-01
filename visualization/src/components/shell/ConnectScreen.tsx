@@ -1,35 +1,25 @@
 import { useState, type FormEvent } from "react";
 import { PlugZap } from "lucide-react";
-import { autoConnect, connect } from "../../app/connection";
-import { isTauriShell } from "../../app/discovery";
-import { useAppStore } from "../../store/appStore";
+import { connect } from "../../app/connection";
 import { useConnectionStore } from "../../store/connectionStore";
 import { Button } from "../ui/Button";
 
 /**
  * Shown when no backend connection is established: a manual address + token
- * form, and inside the Tauri shell a one-click discovery of the local
- * instance published for the configured project root.
+ * form. Browser and Tauri use the same address/token login path.
  */
 export function ConnectScreen() {
   const phase = useConnectionStore((s) => s.phase);
   const error = useConnectionStore((s) => s.error);
-  const projectRoot = useAppStore((s) => s.projectRoot);
   const [address, setAddress] = useState("");
   const [token, setToken] = useState("");
-  const [localPending, setLocalPending] = useState(false);
 
-  const connecting = phase === "connecting" || localPending;
+  const connecting = phase === "connecting";
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!address.trim() || !token.trim()) return;
     void connect({ address: address.trim(), token: token.trim() });
-  };
-
-  const connectLocal = () => {
-    setLocalPending(true);
-    void autoConnect(projectRoot).finally(() => setLocalPending(false));
   };
 
   return (
@@ -42,7 +32,8 @@ export function ConnectScreen() {
         <p className="text-[13px] leading-5 text-fg-muted">
           The app is a pure client of a running TinySoul Endpoint. Enter the
           client-reachable address (<code>IP:Port</code>, http(s) URL) and the
-          access token the instance published.
+          stable access token from the backend project&apos;s <code>.auth</code>
+          file.
         </p>
 
         <form onSubmit={submit} className="mt-4">
@@ -82,17 +73,6 @@ export function ConnectScreen() {
           </Button>
         </form>
 
-        {isTauriShell() && (
-          <Button
-            variant="outline"
-            className="mt-2 w-full"
-            loading={localPending}
-            disabled={connecting}
-            onClick={connectLocal}
-          >
-            Use the local instance of this project
-          </Button>
-        )}
       </div>
     </div>
   );

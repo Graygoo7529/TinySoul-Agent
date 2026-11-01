@@ -24,6 +24,19 @@ presentation engine 直接接收独立的 [PresentationService](presentation.md)
 
 CLI 在 Agent factory 中绑定稳定 host，外部单独启动/停止 HTTP server；Agent.wait_for_exit 跨越重启，重建失败不会关闭 Endpoint。单 generation 的嵌入式装配可使用 mount_endpoint 随 Assembly 启停；需要跨 restart 的嵌入方应显式持有 EndpointHost 并按 CLI 的宿主生命周期装配。
 
+### 启动配置与认证
+
+Endpoint 的部署配置属于 Gateway 进程边界。项目目录中的 `.env` 可提供
+`TINYSOUL_ENDPOINT__BIND_HOST` 和 `TINYSOUL_ENDPOINT__PORT`，默认监听
+`127.0.0.1:1430`；显式 bind host 必须是 IP 地址，也可以是受信主机的非
+loopback 地址。`tinysoul init` 生成同一项目的 `.auth` 文件，其中唯一的
+`token=` 值是稳定 Bearer 凭据；普通 `start` 只读取它，缺失或无效时启动失败。
+`reset` 原样保留已有 `.env` 和 `.auth`，不会因为重置或普通重启轮换 token。
+
+前端只保存用户输入的 `{address, token}`，浏览器和 Tauri 走同一连接路径。进程
+锁和 `instance_id` 仍用于防止重复运行及识别运行实例，但不再发布含 token 的
+租约或承担前端发现职责。
+
 依赖绑定与业务可用性分开表达：bind 只替换候选 facade 和 Observation route，EndpointEngineContext 通过显式注入的同步只读函数获取 owner 可用性。CLI 使用 Agent 的 running 状态；单 Assembly 挂载使用其激活完成且仍受理工作的投影。Host 尚未接入可用性来源时不放行业务访问，status、health、replay 和宿主 restart 仍可使用。业务入口集中检查同一可用性，不保存平行 ready 状态；active_day 不作为 activation 完成的替代条件。
 
 HTTP restart 只等待 SDK 已有的共享重启任务并投影结果，不逐请求解绑。重叠请求加入同一操作，等待者取消不改变成功绑定；操作结束之后的新请求可再次重启。观察 route 可记录启动与收尾，故障隔离仍由 Observation owner 负责。

@@ -12,4 +12,4 @@ The asset directory may be absent when there are no files.
 
 These files belong to the project. Package templates are copied only during
 initialization/reset. `tinysoul reset` restores this directory along with the
-rest of the project and preserves only `.env`.
+rest of the project and preserves the local `.env` and `.auth` files.

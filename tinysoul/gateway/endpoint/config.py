@@ -7,15 +7,57 @@ from ipaddress import ip_address
 from pathlib import Path
 from uuid import uuid4
 
+from tinysoul.infra.config import ConfigError
+
 from .errors import EndpointContractError
 
 
 @dataclass(frozen=True)
+class EndpointLaunchSettings:
+    """Process-owned socket settings loaded from the project environment."""
+
+    bind_host: str = "127.0.0.1"
+    port: int = 1430
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.bind_host, str) or not self.bind_host.strip():
+            raise ConfigError(
+                "Endpoint bind host must be an IP address",
+                key="endpoint.bind_host",
+                value=self.bind_host,
+                expected="IPv4 or IPv6 address",
+            )
+        try:
+            ip_address(self.bind_host)
+        except ValueError as exc:
+            raise ConfigError(
+                "Endpoint bind host must be an IP address",
+                key="endpoint.bind_host",
+                value=self.bind_host,
+                expected="IPv4 or IPv6 address",
+            ) from exc
+        if isinstance(self.port, bool) or not isinstance(self.port, int):
+            raise ConfigError(
+                "Endpoint port must be an integer",
+                key="endpoint.port",
+                value=self.port,
+                expected="integer between 1 and 65535",
+            )
+        if not 1 <= self.port <= 65535:
+            raise ConfigError(
+                "Endpoint port must be between 1 and 65535",
+                key="endpoint.port",
+                value=self.port,
+                expected="integer between 1 and 65535",
+            )
+
+
+@dataclass(frozen=True)
 class EndpointSettings:
-    """Validated local-only server and bounded event settings."""
+    """Validated server and bounded event settings."""
 
     host: str = "127.0.0.1"
-    port: int = 0
+    port: int = 1430
     token: str = ""
     instance_id: str = ""
     project_identity: str = ""
@@ -32,14 +74,14 @@ class EndpointSettings:
     max_resource_bytes: int = 8 * 1024 * 1024
 
     def __post_init__(self) -> None:
+        if not isinstance(self.host, str) or not self.host.strip():
+            raise EndpointContractError("Endpoint host must be an IP address")
         try:
-            address = ip_address(self.host)
+            ip_address(self.host)
         except ValueError as exc:
             raise EndpointContractError(
-                "Endpoint host must be a loopback IP address"
+                "Endpoint host must be an IP address"
             ) from exc
-        if not address.is_loopback:
-            raise EndpointContractError("Endpoint may only bind to loopback")
         if isinstance(self.port, bool) or not isinstance(self.port, int):
             raise EndpointContractError("Endpoint port must be an integer")
         if not 0 <= self.port <= 65535:

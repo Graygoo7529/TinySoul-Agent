@@ -2,7 +2,7 @@
  * Connection lifecycle for the Endpoint v2 link (plan §4/P00).
  *
  * One module owns the whole lifecycle: handshake (health + status, protocol
- * v2 check, lease identity verification), the WebSocket observation stream
+ * v2 check), the WebSocket observation stream
  * with bounded-backoff reconnect, replay-gap resync through owner reads,
  * generation/instance change handling, the ready=false poll, and the event
  * invalidation routing into the chat orchestration.
@@ -32,8 +32,7 @@ import {
 import { presentationStore } from "../features/chat/presentationStore";
 import { refreshInterface, resetPresentation } from "../features/settings/presentationController";
 import {
-  discoverLocalLease,
-  isTauriShell,
+  clearStoredBrowserTarget,
   loadStoredBrowserTarget,
   storeBrowserTarget,
   type ConnectTarget,
@@ -144,21 +143,6 @@ export async function connect(
       .failConnect(epoch, "The endpoint does not speak protocol v2.");
     return false;
   }
-  if (target.instanceId !== undefined && status.instance_id !== target.instanceId) {
-    useConnectionStore
-      .getState()
-      .failConnect(epoch, "The discovered instance lease is stale; retry discovery.");
-    return false;
-  }
-  if (
-    target.projectIdentity !== undefined &&
-    status.project_identity !== target.projectIdentity
-  ) {
-    useConnectionStore
-      .getState()
-      .failConnect(epoch, "The endpoint serves a different project.");
-    return false;
-  }
   if (!useConnectionStore.getState().completeConnect(epoch, { info, clients, status })) {
     return false; // a newer attempt superseded this one
   }
@@ -180,25 +164,11 @@ export async function connect(
 }
 
 /**
- * Startup connection: the Tauri lease for the configured project root, or
- * the persisted browser target. Returns false when no target is known —
- * the connect screen then collects address + token manually.
+ * Startup connection from the persisted browser target. Returns false when
+ * no target is known — the connect screen then collects address + token.
  */
-export async function autoConnect(
-  projectRoot: string,
-  deps: ConnectionDeps = {},
-): Promise<boolean> {
+export async function autoConnect(deps: ConnectionDeps = {}): Promise<boolean> {
   injectedDeps = { ...injectedDeps, ...deps };
-  if (isTauriShell()) {
-    try {
-      const target = await discoverLocalLease(projectRoot);
-      // Lease credentials are session-scoped; connect() persists them, but
-      // Tauri startup always prefers a fresh discovery over the stored copy.
-      if (target !== null) return connect(target);
-    } catch {
-      // discovery failed; fall through to the stored target
-    }
-  }
   const stored = loadStoredBrowserTarget();
   if (stored === null) return false;
   return connect(stored);
@@ -211,6 +181,12 @@ export function disconnect(): void {
   useConnectionStore.getState().reset();
   resetPresentation();
   resetTurnController();
+}
+
+/** Explicit logout: disconnect and forget the client-local target. */
+export function logout(): void {
+  disconnect();
+  clearStoredBrowserTarget();
 }
 
 /**
@@ -240,7 +216,7 @@ export async function restartBackend(): Promise<boolean> {
 /**
  * Re-read the formal status and react to identity transitions. Returns false
  * when the read failed or the epoch moved on; a different instance answering
- * on the same address triggers a full re-discovery instead.
+ * on the same address triggers a full re-handshake instead.
  */
 async function refreshStatus(epoch: number): Promise<boolean> {
   const connection = useConnectionStore.getState();
@@ -257,9 +233,8 @@ async function refreshStatus(epoch: number): Promise<boolean> {
   if (current.epoch !== epoch) return false;
   if (current.info !== null && status.instance_id !== current.info.instanceId) {
     // The address now serves a different endpoint instance (backend process
-    // was replaced): re-run the full handshake, re-reading the lease when
-    // one exists, so a rotated token/port is picked up.
-    void reconnectFromDiscovery();
+    // was replaced): reuse the saved address and token for a full handshake.
+    void reconnectFromTarget();
     return false;
   }
   if (!current.applyStatus(epoch, status)) return false;
@@ -296,15 +271,7 @@ function handleStatusTransition(
 }
 
 /** Full re-handshake after the answering instance changed. */
-async function reconnectFromDiscovery(): Promise<void> {
-  if (lastTarget !== null && lastTarget.instanceId !== undefined && isTauriShell()) {
-    try {
-      const target = await discoverLocalLease(useAppStore.getState().projectRoot);
-      if (target !== null && (await connect(target))) return;
-    } catch {
-      // fall through to the last manual target
-    }
-  }
+async function reconnectFromTarget(): Promise<void> {
   if (lastTarget !== null) {
     await connect(lastTarget);
     return;
@@ -336,7 +303,7 @@ function openStream(epoch: number): void {
         if (current.epoch !== epoch) return;
         if (frame.instance_id !== info.instanceId) {
           teardownStream();
-          void reconnectFromDiscovery();
+          void reconnectFromTarget();
           return;
         }
         reconnectAttempt = 0;

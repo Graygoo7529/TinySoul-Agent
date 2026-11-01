@@ -2,260 +2,353 @@
 
 日期：2026-11-01
 
-状态：ready-for-implementation
+状态：implemented-and-verified
 
 ## 目标
 
-把 TinySoul 的 Endpoint 连接收敛为一个清晰的长期协议：
+把 TinySoul 的后端 Endpoint 连接收敛为一条长期稳定、前后端一致的协议：
 
-```text
-前端连接目标 = client-reachable address + stable bearer token
-```
+    前端连接目标 = client-reachable address + stable bearer token
 
-本机开发、远程主机部署、浏览器前端和 Tauri 前端都使用同一条连接路径。后端重启、源码更新或普通配置调整不会改变已保存的连接目标；前端通过 logout 清除本地凭据并切换目标。
+浏览器、Tauri 桌面端、本地开发和远程主机都填写同一种 ip:port + token。后端重启、源码更新和普通项目配置变更不改变连接目标；前端通过 logout 清除自己的连接凭据并切换到另一台主机。
 
-本计划按 `AGENTS.md` 的 owner 和生命周期边界设计：Endpoint 负责认证与协议，CLI 负责进程启动配置，Infra/ConfigEnvironment 负责环境来源，前端只保存自己的连接目标，不读取后端文件，也不拥有 Agent、Turn 或运行数据。
+本计划基于当前 AGENTS.md 的所有权和生命周期约定修订：
+
+- Gateway/Endpoint 负责鉴权、协议映射和运行投影，不拥有 Agent/Turn 业务状态。
+- CLI 负责进程启动配置；Infra 的 ConfigEnvironment 继续负责 .env 与进程环境来源。
+- 前端只持有自己的连接目标，不读取后端项目文件，不依赖后端本机路径。
+- 项目没有向后兼容压力，旧的租约发现链路、开发专用快捷连接和不再需要的字段可以直接删除。
 
 ## 已确认的设计决定
 
-1. 不增加可写的 `[endpoint]` TOML。Endpoint 监听器属于进程启动边界；项目 TOML 继续只描述 Agent、模型、插件和业务行为。
-2. 稳定 token 属于后端部署目录的 `.env`，不会放入 Git，也不会由前端读取。`tinysoul init` 为新项目生成 token；缺少 token 时后端启动失败，不回退为每次启动随机 token。
-3. Endpoint 使用固定端口，默认 `1430`。`0` 只保留给直接构造的测试或明确的临时嵌入场景，不作为部署配置默认值。
-4. 默认只绑定 loopback；只有后端启动配置明确设置非 loopback 绑定地址时才允许远程连接。
-5. 前端保存 `{address, token}`，logout 清除保存的目标、当前连接和本地连接状态。logout 不修改远程主机 `.env`，也不伪造服务端 token 撤销。
-6. `instance_id` 仍是一次后端进程的运行身份，用于检测 Endpoint 替换和事件续传；它不是登录凭据，也不进入前端持久化目标。
-7. 不引入用户名、密码数据库、服务端 session、TLS、账户管理或主机更新脚本。项目按 `AGENTS.md` 的个人受信主机假设运行。
+### 1. 后端配置文件的职责
 
-## 数据所有权与实际部署模型
+后端部署目录使用两个本地文件：
 
-| 位置 | 保存内容 | 是否随 Git 更新 | 作用 |
+| 文件 | 内容 | 生成/保留 | Git |
 | --- | --- | --- | --- |
-| 后端项目 `.env` | `endpoint` token、bind host、port、模型凭据 | 否；`.gitignore` 忽略 | 某个主机/数据目录的启动配置 |
-| 后端 `tinysoul.toml` 与 `configs/` | Agent、模型、Action、插件和业务配置 | 是 | 可复现的项目行为配置 |
-| 前端浏览器/Tauri 存储 | `address + token` | 否；每台前端独立 | 自动连接和 logout 切换目标 |
-| 后端 `runtime/`、`memory/`、`archive/` | Session、Workspace、Memory 等事实 | 否 | 主机上的 Agent 数据 |
+| .auth | 仅保存 Endpoint bearer token | init 生成；reset 原样保留 | 忽略 |
+| .env | 可选的 Endpoint 监听配置和外部凭据 | init 不生成；reset 原样保留 | 忽略 |
 
-后端环境变量使用现有配置来源的命名约定。为明确它是监听接口而不是前端登录地址，采用：
+.auth 使用明确的单键格式：
 
-```dotenv
-TINYSOUL_ENDPOINT__TOKEN=stable-token-at-least-32-characters
-TINYSOUL_ENDPOINT__BIND_HOST=127.0.0.1
-TINYSOUL_ENDPOINT__PORT=1430
-```
+    token=<url-safe token>
 
-`__` 只表示 `ConfigEnvironment` 将环境变量映射为内部 dotted key；它不代表存在 `[endpoint]` TOML。`BIND_HOST` 是后端 socket 的监听地址，前端输入的是实际可达的 `address`：当后端绑定 `0.0.0.0` 时，前端应填写主机的局域网或可达 IP。
+读取时只接受一个 token 值，并继续执行长度和非空校验。普通环境变量不覆盖 .auth，避免进程环境意外改变长期授权凭据。修改 .auth 是明确的 token 更换操作，前端下次连接需要重新登录。
 
-环境来源保持现有优先级：进程环境可以有意覆盖 `.env`，但启动输出只报告 token 来源，不输出 token 本身。除非明确修改 `TINYSOUL_ENDPOINT__TOKEN`，普通配置修改和后端重启不会改变 token。
+.env 保留现有 Infra dotenv 语义，用于部署目录的本地配置。Endpoint 只增加两个可选字段：
 
-## 现状与需要解决的缺口
+    TINYSOUL_ENDPOINT__BIND_HOST=127.0.0.1
+    TINYSOUL_ENDPOINT__PORT=1430
 
-- `tinysoul/gateway/cli.py` 在每次 `start` 中调用 `token_urlsafe(32)`，已保存的前端凭据在后端重启后失效。
-- `EndpointSettings` 默认 `host=127.0.0.1` 且拒绝非 loopback，远程前端无法连接真实网卡。
-- `EndpointSettings.port=0` 让系统每次自动分配端口，无法形成可长期保存的 `ip:port`。
-- `ProjectInstanceLease` 将 token、host、port 写入本机租约 JSON；该文件只适合同机 Tauri 发现，不是 A/B 部署的连接协议，也重复保存了后端授权凭据。
-- 前端 `autoConnect(projectRoot)` 在 Tauri 中优先读取本机租约，`ConnectScreen` 有独立的“本机实例”按钮；`appStore.projectRoot` 还包含开发者机器路径。
-- 当前 HTTP Bearer 和 WebSocket 首帧认证已经满足统一认证协议，主要缺口在 token 生命周期、监听配置和发现链路。
+它们不是前端登录数据，也不进入 .auth。.env.example 会说明默认值和远程绑定示例，但 init 不把示例复制成 .env。因此现有“.env 由使用者填写、reset 原样保留”的生命周期保持不变。
 
-## 预期用户流程
+不引入 .connection 或 .endpoint 文件：前者容易与前端保存的连接目标混淆，后者会为两个简单的监听字段增加另一套解析、优先级、保留和文档规则。也不把监听配置放入项目 TOML；Endpoint 监听器属于 Gateway 进程启动边界，不是 Agent 业务配置。
 
-### 本地开发
+### 2. 监听地址和端口
 
-`tinysoul init` 在项目数据目录生成 `.env` 和稳定 token。默认后端监听 `127.0.0.1:1430`。前端第一次填写：
+- 后端默认监听 127.0.0.1:1430。
+- 1430 是部署默认固定端口，形成可长期保存的连接地址。
+- TINYSOUL_ENDPOINT__BIND_HOST 可以显式设置 0.0.0.0 或具体 IPv4/IPv6 地址，以支持远程电脑连接。
+- BIND_HOST 是 socket 监听地址；前端填写的是实际可访问的主机地址，例如 192.168.1.20:1430。
+- 配置端口必须为 1..65535。底层 Endpoint 测试仍可显式使用 port=0 取得临时端口，生产 CLI 不使用随机端口。
+- 进程环境继续按 Infra 现有优先级覆盖 dotenv；这属于明确的启动覆盖，而不是前端凭据。所有普通启动文档使用 .env 的固定值，避免把进程环境覆盖误当作持久连接配置。
+- EndpointSettings 允许绑定任意可解析 IP，不再只允许 loopback；不接受无法确定 socket 语义的任意主机字符串。
 
-```text
-127.0.0.1:1430 + .env 中的 token
-```
+### 3. token 生命周期
 
-连接成功后前端保存目标。修改源码后重启后端，前端仍使用同一个目标自动重连。
+- tinysoul init 在新项目 staging 目录中生成一次 .auth。
+- 普通 tinysoul start 只读取已有 .auth；缺失、格式错误或 token 过短时启动失败，并给出不包含 token 内容的配置错误。
+- 普通重启、源码更新、git pull 和 .env 中的普通配置变化不会改变 .auth。
+- tinysoul reset 保留已有 .auth 字节，不生成新 token，不静默修复缺失 token。.auth 缺失时 reset 后仍缺失，下一次普通 Endpoint 启动失败；这是“缺少 token 直接失败”的明确语义。
+- tinysoul start --once 不启动 Endpoint，继续允许无 .auth 执行单次 CLI Turn。
+- 启动日志只报告实际绑定地址和 token 来源（.auth），绝不打印 token 内容。
 
-### 远程主机部署
+### 4. 前端连接和 logout
 
-远程主机的数据目录有自己的 `.env`：
+前端唯一持久化的后端连接目标是：
 
-```dotenv
-TINYSOUL_ENDPOINT__BIND_HOST=0.0.0.0
-TINYSOUL_ENDPOINT__PORT=1430
-TINYSOUL_ENDPOINT__TOKEN=该主机自己的稳定 token
-```
+    { address, token }
 
-笔记本前端填写：
+instanceId、projectIdentity 等运行身份只属于一次连接握手返回值，不进入持久化目标。浏览器 localStorage 和 Tauri 使用同一存储协议；Tauri 不再读取后端本机租约文件。
 
-```text
-192.168.1.20:1430 + token
-```
+logout 的语义是：
 
-主机执行 `git pull` 后，`.env` 和 `runtime/` 保留；重启后端仍使用相同地址和 token。笔记本无需项目根目录、Tauri 租约文件或主机本地路径。
+1. 关闭当前 WebSocket/事件流并取消重连定时器；
+2. 清除当前连接状态和本地保存的 {address, token}；
+3. 返回统一登录表单，允许输入另一台主机；
+4. 不停止后端 Agent、不取消后端 Turn、不修改后端 .env 或 .auth。
 
-### 切换连接
+自动连接只尝试本地存储的最后一个成功目标。存储为空或凭据失效时显示同一个 address/token 登录表单。
 
-前端 logout 顺序为：关闭事件流、取消前端重连定时器、清除连接 store、清除持久化 `{address, token}`、返回统一登录表单。登录另一台主机后保存新目标。后端不会因为前端 logout 停止 Agent 或取消 Turn。
+## 当前实现与目标的差距
 
-## 实施范围与修改预览
+当前 tinysoul/gateway/cli.py 每次交互式启动用 token_urlsafe(32) 生成 token，EndpointSettings 默认使用 loopback 和随机端口 0。ProjectInstanceLease 还把 token、host、port 写入用户目录的 JSON 租约，Tauri Rust 命令和前端 discoverLocalLease 读取该租约，形成第二套本机发现和凭据复制链路。
 
-### A. Endpoint 启动配置和校验
+当前 init 只复制 .env.example，不创建 .env；reset 原样保留 .env 并替换其它项目内容。这个生命周期适合继续承载可选的 bind host/port。目标方案新增的只有 .auth 的生成和保留，不改变 .env 的创建/保留规则。
+
+当前 HTTP Bearer、WebSocket 首帧 token、health/status 握手和前端 {address, token} transport 已经存在，因此协议主体不需要重建，主要工作是收敛 token 来源、启动配置和连接发现。
+
+## 实施范围
+
+### A. Endpoint 启动配置和认证读取
 
 涉及：
 
-- `tinysoul/gateway/endpoint/config.py`
-- `tinysoul/gateway/cli.py`
-- `tinysoul/agent/composition/builder.py`
-- `tinysoul/assets/common/.env.example`
-- `tinysoul/gateway/project/initializer.py`
-- `tests/gateway/endpoint/`、`tests/gateway/test_cli.py`、项目初始化测试
+- tinysoul/gateway/endpoint/config.py
+- 新增或整理 Endpoint owner 内部的 .auth 读取/生成实现
+- tinysoul/gateway/cli.py
+- tinysoul/agent/composition/builder.py
+- .gitignore（源码仓库本地凭据忽略）
+- tinysoul/assets/common/.env.example
+- tinysoul/assets/common/.gitignore
 
-改动内容：
+实施内容：
 
-- 在 Endpoint owner 内增加轻量的启动配置解析，明确只接受 `token`、`bind_host`、`port` 三个启动字段；`EndpointSettings` 继续承载 Host/Engine 的运行设置，避免把事件容量、journal 等内部参数暴露成部署协议。
-- `bind_host` 默认 `127.0.0.1`，显式配置的 IPv4/IPv6 地址和 `0.0.0.0` 可用；保留 IP 校验，不接受无法确定监听语义的任意字符串。
-- 部署配置端口默认 `1430`，范围为 `1..65535`；直接测试构造仍可使用 `0` 获取临时端口。
-- token 必须是至少 32 字符的非空字符串；缺少或过短时抛出带配置来源的稳定配置错误。
-- 将 `endpoint` 加入 Agent builder 的保留启动配置 section，使 `.env` 中的 `TINYSOUL_ENDPOINT__*` 不被 Agent 误认为未知业务 section；Endpoint parser 只由 CLI 在需要启动 HTTP 时调用。
-- `tinysoul start --once` 不启动 Endpoint，不因缺少 Endpoint token 阻塞纯 CLI 单轮；交互式 `start` 必须完成 Endpoint 启动配置。
-- 删除 CLI 的随机 token 生成，使用解析出的稳定配置构造 EndpointSettings，并在启动成功时输出实际绑定 host/port、协议版本和 token 来源（dotenv 或 process environment），不输出 token 内容。
-- 新项目初始化时创建被 `.gitignore` 忽略的 `.env`，从 `.env.example` 保留注释和 provider 字段，并生成一次 `secrets.token_urlsafe(32)` 作为 Endpoint token。`reset` 保留已有 `.env`；没有 `.env` 时生成一份可运行的初始 `.env`。
+1. 为 Endpoint 启动配置增加明确的 typed parser，读取 endpoint.bind_host 和 endpoint.port，默认 127.0.0.1、1430，并映射为内部 EndpointSettings.host/port。
+2. 在 Endpoint owner 内实现 .auth 文件的生成、读取和格式校验。生成使用 secrets.token_urlsafe，写入 staging 或原子文件；读取失败转换为 Endpoint 配置边界错误，不泄露原始内容。
+3. CLI 先构造 ConfigEnvironment，在交互式启动时读取 endpoint 启动配置和 .auth，再构造 EndpointSettings。--once 跳过 Endpoint 配置和 .auth。
+4. EndpointSettings 取消 loopback-only 校验，保留 IP、端口、token、内部资源容量等不变量。部署默认端口固定为 1430；直接构造测试可明确传 0。
+5. 将 endpoint 作为 Gateway 保留的启动配置 section，避免 .env 中的 TINYSOUL_ENDPOINT__* 被 AgentBuilder 当作未知业务 section；Agent 本身不解析或拥有这些字段。
+6. 删除 CLI 每次启动的随机 token 生成。Endpoint 启动成功输出 host/port 和 token 来源，不输出 token。
+7. 保持现有 HTTP/WS Bearer 认证和协议版本，不增加 session、账户、token revoke、TLS 或 Endpoint 写文件 API。
 
 预期效果：
 
-```text
-普通配置修改 / 后端重启 ──> address 和 token 不变
-明确修改 endpoint token ──> 下次启动使用新 token，前端重新登录
-缺少 token ──> 明确启动失败，而不是悄悄变成临时凭据
-```
+    init -> .auth 生成
+    start -> 读取 .env 可选监听配置 + .auth 固定 token -> 127.0.0.1:1430
+    remote -> .env 设置 BIND_HOST=0.0.0.0 -> 前端输入实际主机 IP:1430 + token
 
-### B. 进程锁与旧租约发现清理
+### B. 项目初始化和 reset 生命周期
 
 涉及：
 
-- `tinysoul/gateway/project/instance.py`
-- `tinysoul/gateway/endpoint/host.py`
-- `tinysoul/gateway/endpoint/__init__.py`
-- `tests/gateway/project/test_instance.py`
-- `tests/gateway/test_cli.py`、`tests/gateway/test_cli_fake_provider.py`
+- tinysoul/gateway/project/initializer.py
+- tinysoul/gateway/cli.py
+- tests/gateway/project/test_initializer.py
+- tests/release/test_wheel.py 及受影响的打包断言
 
-改动内容：
+实施内容：
 
-- 保留 `ProjectInstanceLease` 的单项目进程锁、项目 identity 和 instance identity；这些仍然是后端生命周期职责。
-- 删除 token-bearing 的租约 JSON 发布和读取职责，避免把稳定 bearer token 复制到本机发现文件；同步删除只服务该记录的 `record_path`、`publish` 和 `EndpointReady` 回调 API，清理无消费者的类型和测试。
-- 保留实例 identity 在 `/v2/status`、事件认证和运行投影中的语义；它只表示当前 Endpoint 进程，不承担发现或授权。
-- Tauri `discover_backend` 只读租约记录的 Rust 命令与相关结构在前端清理阶段删除；项目锁目录仍可继续存在，不再作为前端连接数据源。
+1. ProjectInitializer 在模板 staging 完成后生成 .auth，再整体替换空目标。.auth 不作为包内静态资源，不把 token 写入源码模板。
+2. 更新初始化结果和测试辅助逻辑，使测试区分“包内资源快照”和“初始化生成的本地凭据”，不再用完整目录等于包资源的断言否决动态 .auth。
+3. ProjectResetter 在替换前读取并校验 .env、.auth 是普通文件；存在时分别原样写入 staging。保留状态分别以 env_preserved、auth_preserved 表达，CLI 输出分别报告。
+4. .auth 缺失时 reset 不生成；.env 缺失时也继续缺失。.env.example 始终随新模板更新。
+5. 将 .auth 加入项目模板 .gitignore，同时保留现有 .env、runtime、archive 忽略规则。
+6. 更新项目内 README.md 和 tinysoul/assets/common/README.md，明确 .auth、.env、init/reset 的实际关系。
 
-预期效果：租约只防止同一项目重复启动，不再成为第二套连接协议或第二个凭据存储。
-
-### C. 前端统一连接和登录状态
+### C. 删除租约凭据发现链路
 
 涉及：
 
-- `visualization/src/app/connection.ts`
-- `visualization/src/app/discovery.ts`
-- `visualization/src/components/shell/ConnectScreen.tsx`
-- `visualization/src/components/shell/AppShell.tsx`
-- `visualization/src/components/shell/TopBar.tsx`
-- `visualization/src/store/appStore.ts`
-- `visualization/src/App.tsx`
-- `visualization/src-tauri/src/lib.rs`
-- 连接、shell、discovery 相关 Vitest 测试
+- tinysoul/gateway/project/instance.py
+- tinysoul/gateway/endpoint/host.py
+- tinysoul/gateway/endpoint/__init__.py
+- tests/gateway/project/test_instance.py
+- tests/gateway/test_cli.py
+- tests/gateway/test_cli_fake_provider.py
+- Endpoint host/contract tests
 
-改动内容：
+实施内容：
 
-- `ConnectTarget` 收敛为 `{ address, token }`；instance/project identity 只保留在连接握手返回的 `ConnectionInfo` 中，不进入持久化目标。
-- `autoConnect()` 不再接收 `projectRoot`，浏览器和 Tauri 都只读取同一个 `tinysoul-web-connection` 本地存储。
-- 删除 Tauri 本机租约发现、`isTauriShell()` 连接分支、`discoverLocalLease()`、Rust `discover_backend` 命令、`projectRoot` 状态以及硬编码开发者路径。
-- `ConnectScreen` 只保留 address/token 表单，删除“Use the local instance”按钮；本机和远程输入完全相同。
-- 保留成功连接后保存 `{address, token}` 的行为；新增明确的 `logout()`，清除持久化目标和当前连接。无需引入服务端 session 或多账户列表。
-- `reconnectFromDiscovery()` 改名并收敛为复用最后成功目标；后端 instance_id 变化时仍重新读取 status 和 owner projection，但不访问本机文件。
-- 顶栏增加 logout/切换连接入口，显示当前 Endpoint address；logout 不调用后端 shutdown/restart，也不取消后端 Turn。
-- 保留 `parseEndpointAddress` 对 `IP:Port`、hostname、HTTP/HTTPS 和 WS/WSS 的统一处理；token 只放在 Authorization header 或 WebSocket 首帧，不进入 URL。
+1. 保留 ProjectInstanceLease 的单项目进程锁、项目 identity 和 process-local instance_id，因为它们仍然负责防止同一项目重复运行和识别当前 Endpoint 进程。
+2. 删除 record path、publish()、租约 JSON 的 token/host/port 写入和清理逻辑。锁文件不再承担连接发现或授权职责。
+3. 删除 EndpointReady 中用于发布租约的 token 和发布字段、ready 回调；若无其它真实消费者，直接移除该类型和相关测试，不保留兼容别名。
+4. 保留 status 中用于运行身份和 generation 变化的 instance_id/project_identity 投影，但不把它们当作登录凭据。
+5. 删除 Tauri discover_backend command、Rust 的租约 JSON 结构和本机路径推导；保留与 trace 导出无关的现有 Tauri 能力。
 
 预期效果：
 
-```text
-同机 Tauri      ┐
-同机浏览器      ├─> 填写 address + token ─> 保存 ─> 自动连接
-远程笔记本      ┘
-```
+    ProjectInstanceLease = 进程锁和运行身份
+    .auth              = 稳定授权凭据
+    前端 localStorage  = address + token
 
-三种场景不再有“快速连接”“本机发现”“远程登录”三套不同语义。
+三者不再互相复制职责。
 
-### D. Endpoint 与项目使用文档
+### D. 前端统一连接
 
 涉及：
 
-- `docs/design/endpoint.md`
-- `docs/endpoint/index.md`
-- `docs/endpoint/frontend-integration.md`
-- `visualization/docs/design/connection.md`
-- `visualization/README.md`
-- `tinysoul/assets/common/README.md`
-- 根 `README.md`
-- `visualization/docs/demand/README.md`
-- `visualization/docs/demand/20261030-endpoint-stable-token-remote-bind.md`
+- visualization/src/app/discovery.ts
+- visualization/src/app/connection.ts
+- visualization/src/components/shell/ConnectScreen.tsx
+- visualization/src/components/shell/AppShell.tsx
+- visualization/src/components/shell/TopBar.tsx
+- visualization/src/store/appStore.ts
+- visualization/src/App.tsx
+- visualization/src-tauri/src/lib.rs
+- visualization/src/app/*、shell 相关测试
 
-改动内容：
+实施内容：
 
-- 将“Endpoint 是 loopback 本地协议”和“连接描述由 App 发布”改为当前事实：Endpoint 默认 loopback，但支持显式远程 bind；连接目标由用户输入/前端保存，租约不再是前端协议。
-- 记录 HTTP Bearer、WebSocket 首帧 token、health/status 的认证边界，以及 instance_id 只是运行身份。
-- 写出本地开发、远程主机、源码更新后的完整命令和 `.env` 示例。
-- 说明 `.env` 是后端部署目录的本地配置，前端不读取；TOML/configs 由 Git 管理，runtime 数据不随源码更新覆盖。
-- 说明固定端口、`0.0.0.0` 与实际前端连接 IP 的区别，以及 token 轮换和 logout 的实际语义。
-- 需求文档在实现完成后更新为当前设计或移动到 `docs/analysis/done/`，避免继续描述随机 token、租约发现和可选随机端口。
-- 同步 demand index 的 pending/owner 描述，避免索引继续暗示存在 `[endpoint]` TOML 或保留本机发现链路。
+1. 收敛 ConnectTarget 为 {address, token}；删除 lease-only 的 identity 字段和旧 host/port 存储迁移分支。
+2. 将 discovery 模块收敛为连接目标存储，或按现有依赖关系重命名为 storage 模块；不再导入 Tauri invoke 进行后端发现。
+3. autoConnect() 不再接受 projectRoot，浏览器和 Tauri 走同一条“读取最后目标并连接”路径。
+4. connect() 成功后保存目标；后端 instance_id 变化时重新使用最后保存的 address/token 做握手，不重新读取本机文件。
+5. 新增并接入 logout()，清除连接目标、当前连接和重连状态；连接界面只保留 address/token 表单和错误反馈。
+6. 顶栏提供 logout/切换连接入口，显示当前 address；不提供后端停止、重启或修改 .auth 的伪装操作。
+7. 删除 appStore.projectRoot 及硬编码开发者路径；App.tsx 调用无参数的 autoConnect()。
+8. 删除 Rust discover_backend、BackendConnection、InstanceRecord 及其 handler 注册，确保桌面端编译不再依赖后端项目路径。
 
-### E. 测试与验收
+### E. 文档同步
 
-后端测试：
+涉及：
 
-- Endpoint launch parser：默认值、固定端口、bind host、非 loopback、token 长度和缺失 token。
-- ConfigEnvironment dotenv/process source precedence，确认 token 来源不泄露值。
-- `init` 生成 `.env` 和稳定 token；重复 start/普通配置变更不会生成新 token；`reset` 保留 `.env`。
-- CLI 将配置传给 Endpoint，启动输出只包含地址和 token 来源。
-- HTTP/WS 认证和现有 Endpoint API 回归；状态与错误响应不回显 token。
-- ProjectInstanceLease 只验证锁和 identity，不再验证租约 JSON 或 token 副本。
+- README.md
+- tinysoul/assets/common/README.md
+- tinysoul/assets/common/presentation/README.md
+- docs/design/endpoint.md
+- docs/endpoint/index.md
+- docs/endpoint/frontend-integration.md
+- visualization/docs/design/connection.md
+- visualization/README.md
+- visualization/docs/demand/20261030-endpoint-stable-token-remote-bind.md
+- visualization/docs/demand/README.md
 
-前端测试：
+文档统一说明：
 
-- storage round-trip 只保存 address/token；旧发现字段不再成为连接路径。
-- browser/Tauri 使用相同 `autoConnect()`，不调用 `discover_backend`。
-- `connect()` 成功后自动保存目标，`logout()` 清除目标并关闭 stream。
-- logout 后可连接另一地址；自动重连复用最后成功目标。
-- ConnectScreen 只渲染统一表单，App store 不再持有硬编码 project root。
-- `pnpm build` 验证 Tauri/React/TypeScript 边界没有悬空引用。
+1. 本地开发命令：tinysoul init、tinysoul start、前端输入 127.0.0.1:1430 + .auth token。
+2. 远程主机：在主机项目目录 .env 设置 TINYSOUL_ENDPOINT__BIND_HOST=0.0.0.0 和可选端口，前端输入主机可达 IP 与 .auth token。
+3. .auth 属于后端部署目录，前端只保存用户输入的 {address, token}，不会访问主机文件。
+4. reset 保留 .env 和 .auth，清除 runtime、archive、memory 等项目数据；缺少 .auth 时普通 Endpoint 启动失败。
+5. logout 只清除前端连接凭据和当前连接，不影响后端 Agent。
+6. instance_id 是运行身份，不是登录 token；租约发现不再是连接协议。
+7. 删除“App 发布本机 Endpoint 租约”“本机快速连接”“loopback-only Endpoint”等过时描述。
 
-运行验收：
+需求文档在实现完成后更新为 `implemented` 并由 demand 索引归入已实现条目，避免 pending 索引继续描述已经完成的旧方案。
 
-1. `uv run --locked --extra dev python scripts/test.py tests/gateway tests/infra/config`。
-2. `uv run --locked --extra dev python scripts/test.py --suite full`。
-3. `uv run --locked --extra dev ty check`。
-4. `cd visualization; pnpm test`。
-5. `cd visualization; pnpm build`。
-6. 使用临时项目验证 init → `.env` token → 本机 `127.0.0.1:1430` 登录 → 后端重启 → 前端自动重连。
-7. 使用显式非 loopback bind 配置验证 Endpoint 可绑定并可用实际主机 IP 连接；不把当前机器网卡地址写入测试断言。
-8. `git diff --check`，检查所有生成文件、文档、测试和计划范围。
+### F. 测试重组和语义覆盖
 
-## 不在本次范围
+后端测试重点：
 
-- 不实现主机自动 pull/restart 脚本。
-- 不修改 `init`/`reset` 的运行数据归档语义；只增加稳定 Endpoint 配置的初始化与保留规则。
-- 不增加服务端账户、密码哈希、session、token revoke、TLS、反向代理或企业安全治理。
-- 不让 Endpoint 直接读写任意 `.env` 或提供修改监听器的 HTTP API。
-- 不改变 Agent、Turn、Cycle、Context、Session、Memory、Workspace 和 Action 语义。
-- 不为可编辑模型配置、Action catalog 或提示词增加逐项前端测试。
+- Endpoint 启动配置：默认 bind host、固定部署端口、显式远程 bind、IP/端口/token 校验。
+- .auth：init 生成、读取稳定 token、缺失/格式错误启动失败、reset 保留字节、reset 不生成缺失 token。
+- .env：可选 bind host/port 读取、进程环境覆盖、普通 .env 保留；不测试具体 provider/model 清单。
+- CLI：普通 start 使用稳定 token，--once 不要求 Endpoint token，启动输出不包含 token。
+- HTTP/WS：继续验证 Bearer 和首帧 token 的既有协议，以及未授权响应不泄露 token。
+- ProjectInstanceLease：只测试互斥锁和 identity；删除租约 JSON 发现/授权断言。
+- Endpoint API：保留真实协作边界和代表性成功/失败路径，删除 ready callback、token-bearing lease 的冗余矩阵。
 
-## 可行性核对
+前端测试重点：
 
-方案与现有代码边界相容：HTTP/WebSocket Bearer 已存在，`ConfigEnvironment` 已能读取项目 `.env` 和 process environment，Endpoint host 已经通过显式 `EndpointSettings` 绑定 socket，前端已经有 address/token transport、持久化和连接 epoch。主要工作是把随机生成、loopback 校验、自动端口和本机发现四个旧假设一次性收口。
+- {address, token} localStorage round-trip 和无效存储回退。
+- connect 成功自动保存目标，失败不污染旧状态。
+- autoConnect 只使用保存目标，浏览器/Tauri 不分支读取项目路径。
+- logout 关闭流、清除保存目标和当前状态，并可立即连接另一台主机。
+- 重连沿用最后目标；instance/generation 变化只触发重新握手和投影刷新。
+- ConnectScreen/TopBar 只验证统一表单和 logout 行为，不固化具体地址、token、模型或 provider 文本。
 
-实现风险集中在两处：一是初始化器当前只复制 `.env.example`，需要在 staging 结束前安全生成 `.env`；二是删除租约发布会同时影响 Python 测试、Tauri Rust 命令和前端 discovery，需要按后端协议先行、前端清理随后执行。两处都有明确 owner 和独立测试，不需要引入新的状态机或兼容层。
+删除或修改以下旧测试假设：
 
-固定端口可能使同一台机器同时运行多个不同项目时发生端口冲突；启动应保留明确的 `EndpointServerError`，文档说明可以为不同项目配置不同固定端口。远程 bind 的实际可达地址取决于主机网络和防火墙，这不由 Endpoint 猜测或写入前端；测试只验证监听配置和协议，不硬编码本机网卡。
+- Tauri 读取本机 lease JSON。
+- projectRoot 默认是维护者机器上的硬编码路径。
+- 每次启动生成新 token、随机生产端口。
+- 初始化目录只能精确等于包资源而不能有生成的 .auth。
+- 具体 .env.example provider key、模型名、action catalog 内容的逐项快照。
+
+### G. 标准验证入口
+
+实现过程中始终使用项目统一入口：
+
+    uv run --locked --extra dev python scripts/test.py --suite fast
+    uv run --locked --extra dev python scripts/test.py --suite full
+    uv run --locked --extra dev ty check
+    cd visualization; pnpm test
+    cd visualization; pnpm build
+
+必要时先运行受影响的窄集：
+
+    uv run --locked --extra dev python scripts/test.py tests/gateway tests/infra/config
+
+最终还需执行：
+
+- git diff --check
+- Python fast/full 和 TypeScript/Tauri 构建
+- 在临时项目目录中验证 init -> 读取 .auth -> 本地登录 -> 重启后端 -> 自动重连
+- 在临时项目目录中设置非 loopback bind，使用实际局域网地址完成一次 HTTP/WebSocket 登录
+- 删除 .auth 后确认普通 start 明确失败，start --once 仍可运行
+- 执行 reset，确认 .env、.auth 原样保留且 runtime/archive/memory 数据按既有语义清理
 
 ## 实施顺序
 
-1. 先落地启动配置类型、`.env` 初始化和后端 Endpoint 校验；同步 `docs/endpoint` 协议说明。
-2. 调整 CLI、固定端口、启动输出并验证本机 HTTP/WS 认证。
-3. 移除 token-bearing 租约发布和 Tauri discovery 后端接口，保持项目锁。
-4. 修改前端连接 owner、ConnectScreen、logout 和本地存储，删除硬编码 `projectRoot`。
-5. 更新前端/根 README、设计文档和需求状态。
-6. 运行聚焦测试、Fast/Full/typecheck、前端 test/build 和本机手工闭环。
-7. 基于 `AGENTS.md` 逐项检查 owner、配置来源、凭据生命周期、测试范围、文档事实和未实现项；所有实现和验证完成后将本计划标为 done 并移入 `docs/analysis/done/`。
+1. 先实现 Endpoint 配置和 .auth owner，更新 EndpointSettings、CLI 和启动错误。
+2. 修改 init/reset 和资源模板，补齐 .auth 生成、保留、忽略规则。
+3. 移除租约发布及对应 Python/Rust 发现代码，保留进程锁和运行身份。
+4. 重构前端连接存储、autoConnect、logout、ConnectScreen 和顶栏。
+5. 按当前实现同步设计文档、项目 README、前端 README 和 demand 归档。
+6. 先跑受影响的 Python/前端窄集，再跑 fast/full、类型检查和构建。
+7. 对照本计划、AGENTS.md 和 git diff --check 做最终审阅，确认没有残留随机 token、随机生产端口、硬编码项目路径或 token-bearing lease。
 
-本计划不要求维护者再决定架构方向；`BIND_HOST`、稳定 token、固定端口、后端 `.env` 与前端独立保存目标均按已确认语义记录。若实施前希望保留租约 JSON 作为仅诊断用途，需要另行确认，因为它会重新形成第二个 token 存储位置。
+## 可行性核对
+
+本计划可直接落地，原因如下：
+
+1. HTTP Bearer 和 WebSocket token 已经存在，只需替换 token 来源，不需要重做协议。
+2. ConfigEnvironment 已支持 .env、进程环境和 typed section parser；新增 endpoint 保留 section 可以复用现有配置链路。
+3. Endpoint host/server 已经接受 EndpointSettings，固定端口和非 loopback 校验集中在一个 owner 内。
+4. 初始化/reset 已有 staging、原子替换、.env 保留和失败回滚流程；.auth 可作为同类的本地部署文件加入，不需要新建数据迁移系统。
+5. 前端 transport 已经接受 address/token，改动集中在发现来源、持久化和 UI 生命周期。
+6. 项目锁和运行身份与租约 JSON 可以独立，删除发现文件不会影响 Agent/Turn、generation 或 Endpoint status 语义。
+
+主要风险是边界清理而不是新架构：
+
+- 初始化目录快照、reset 结果对象和 CLI 测试需要从单一 .env 保留扩展为 .env/.auth 两项。
+- 删除 Rust discovery 后必须同步删除所有 TypeScript 调用和 Tauri handler 注册。
+- 固定端口要求直接启动 Endpoint 的测试显式使用临时端口，避免测试之间争用 1430。
+- .env 的 endpoint 字段必须加入 Gateway 保留 section，否则 AgentBuilder 会把它误判为未知业务配置。
+
+这些风险都有明确 owner、局部测试和验证命令，没有未决的架构决策。.auth 格式、.env 的 host/port 生命周期、固定端口、reset 行为和前端 logout 语义均已确定，本计划已完成实施并进入最终核对。
+
+## 完成标准
+
+- 普通 start 在稳定 .auth 和默认/显式监听配置下启动，重启后地址和 token 不变。
+- init 生成 .auth，reset 原样保留 .auth 和 .env，缺失 .auth 的普通 Endpoint 启动明确失败。
+- 本地和远程前端都只需输入 address + token；浏览器和 Tauri 不依赖后端本机路径或租约文件。
+- logout 能清除本地目标并切换主机，不改变后端运行。
+- 项目不再生成或读取 token-bearing instance lease，不再保留硬编码开发者路径。
+- 文档、测试、源码和 AGENTS.md 的 owner、配置、生命周期描述一致。
+- fast/full、Python 类型检查、前端测试和 TypeScript/Vite 构建全部通过；Rust
+  `cargo check` 因当前机器未安装 cargo 尚未执行。
+
+## 实施核对（2026-11-01）
+
+计划中的代码和文档范围已完成：
+
+- Gateway 使用 `EndpointLaunchSettings` 读取 `.env` 的 bind host/port，默认固定
+  `127.0.0.1:1430`；`.auth` owner 负责生成和校验稳定 token，普通 `start` 缺少
+  凭据时失败，`start --once` 不打开 Endpoint。
+- `init/reset` 的 staging、保留和 `.gitignore` 已覆盖 `.auth`；reset 同时报告
+  `.env` 与 `.auth` 是否保留。
+- `ProjectInstanceLease` 只保留进程锁和运行身份；EndpointReady、token-bearing
+  JSON 租约、Tauri `discover_backend` 和前端 `projectRoot` 已移除。
+- 浏览器和 Tauri 共用 `{address, token}` 本地存储；自动连接、重连和 logout 已
+  统一，logout 不影响后端 Agent。
+- README、Endpoint 设计/协议、前端连接设计和 demand 索引已改为当前语义。
+
+验证结果：
+
+- Python fast：`1370 passed, 145 deselected`。
+- Python full：`1512 passed, 3 deselected`。
+- Endpoint server random-port and explicit non-loopback bind checks: `2 passed`.
+- `ty check --python .venv`：通过。
+- 前端 Vitest：`100 files, 879 tests` 通过。
+- 前端 `tsc + vite build`：通过。
+- `git diff --check`：通过。
+
+当前机器没有 `uv` 和 `cargo` 命令，因此用已有 `.venv` 执行等价 Python 检查；
+Tauri Rust 的 `cargo check` 未能执行，代码已同步移除发现命令及 `sha2` 的直接依赖，
+应在安装 Rust 的开发环境中补跑仓库 README 中的构建命令。
+
+### AGENTS.md 对照
+
+- 认证和监听属于 Gateway/Endpoint 进程边界；`.env` 仍由 Infra 配置设施读取，
+  Agent 仅登记 `endpoint` 为保留 section，不拥有其业务语义。
+- `.auth` 是后端部署目录凭据，前端只拥有 `{address, token}` 的客户端目标；没有
+  新增第二套调度器、业务状态副本、通用文件 API 或兼容别名。
+- ProjectInstanceLease 继续只承担进程锁和运行身份，Session/Turn/Generation 的
+  owner 与生命周期没有被 Endpoint 或前端复制。
+- 测试保护稳定行为（token 生命周期、bind/port 校验、reset、统一登录/logout），
+  没有逐项固化 provider、model、prompt 或 action catalog 的可编辑内容；测试中间
+  产物由既有 `.local-test/` 管理。
+- 旧发现链路属于已放弃设计，已直接删除而未建立过渡兼容层，符合当前开发阶段无
+  向后兼容压力的规约。

@@ -1,6 +1,6 @@
 # TinySoul Desktop Frontend
 
-A Tauri 2 + React + TypeScript + Vite desktop interface for TinySoul. It connects to the local Endpoint backend, presents agent interactions as a conversation with full runtime transparency, and provides a workspace file manager that never touches the local filesystem directly.
+A Tauri 2 + React + TypeScript + Vite desktop interface for TinySoul. It connects to a running Endpoint backend over the same address-plus-token flow for local and remote use, presents agent interactions as a conversation with full runtime transparency, and provides a workspace file manager that never touches the local filesystem directly.
 
 ## Development
 
@@ -29,7 +29,11 @@ Start TinySoul in a visible Terminal, then open the frontend:
 tinysoul start --root <project-root> --mode normal
 ```
 
-The frontend discovers that project instance automatically. When no instance is available it shows the recommended command and a retry action; it never starts or stops the backend.
+In the frontend, enter `<host>:1430` (or an explicit HTTP URL) and the token
+from the backend project's `.auth` file. The client stores `{address, token}`
+locally and automatically reconnects to that target after restart. **Log out**
+clears the target so another host can be entered. The frontend never reads the
+backend project path and never starts or stops the backend.
 
 Build the production bundle:
 
@@ -46,10 +50,10 @@ pnpm build   # tsc + vite build
 
 ## Architecture
 
-- `src-tauri/src/lib.rs` — Tauri Rust boundary that locates and validates the App-owned project connection record.
+- `src-tauri/src/lib.rs` — Tauri Rust boundary for frontend-only capabilities such as trace export; connection credentials stay in the client storage module.
 - `src/api/` — Endpoint HTTP client and WebSocket event stream (exponential-backoff reconnect, gap detection).
 - `src/derive/` — Derives the conversation model from the flat event stream: turns → cycles → phases, Phase1 control operations, working-state projection, activity feed, token usage, and turn trace export.
-- `src/store/appStore.ts` — Zustand store for connection, events, workspace cache, UI state (theme, drawer, toasts); persists project root / theme / tab only.
+- `src/store/appStore.ts` — Zustand store for UI state such as the active tab and toasts; connection targets are owned by `src/app/discovery.ts`.
 - `src/components/ui/` + `src/components/markdown/` — design-system primitives and the shared Markdown renderer.
 - `src/components/chat/ | trace/ | workspace/ | monitor/ | shell/` — feature surfaces.
 
