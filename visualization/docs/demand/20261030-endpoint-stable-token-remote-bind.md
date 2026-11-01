@@ -2,7 +2,7 @@
 
 日期：2026-10-30 · 提出方：前端（visualization） · 状态：implemented · owner：gateway/endpoint
 
-实现与验证见 `docs/analysis/20261101-endpoint-stable-auth-unified-connection-execution-plan.md`。
+实现与验证见 `docs/analysis/done/20261101-endpoint-stable-auth-unified-connection-execution-plan.md`。
 
 ## 理想设计
 

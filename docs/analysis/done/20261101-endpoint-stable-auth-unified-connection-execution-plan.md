@@ -307,8 +307,8 @@ logout 的语义是：
 - logout 能清除本地目标并切换主机，不改变后端运行。
 - 项目不再生成或读取 token-bearing instance lease，不再保留硬编码开发者路径。
 - 文档、测试、源码和 AGENTS.md 的 owner、配置、生命周期描述一致。
-- fast/full、Python 类型检查、前端测试和 TypeScript/Vite 构建全部通过；Rust
-  `cargo check` 因当前机器未安装 cargo 尚未执行。
+- fast/full、Python 类型检查、前端测试、TypeScript/Vite 构建和 Tauri Rust
+  `cargo check` 全部通过。
 
 ## 实施核对（2026-11-01）
 
@@ -333,11 +333,13 @@ logout 的语义是：
 - `ty check --python .venv`：通过。
 - 前端 Vitest：`100 files, 879 tests` 通过。
 - 前端 `tsc + vite build`：通过。
+- Tauri Rust：`cargo check`（`visualization/src-tauri`，使用用户目录中的
+  cargo 可执行文件）：通过。
 - `git diff --check`：通过。
 
-当前机器没有 `uv` 和 `cargo` 命令，因此用已有 `.venv` 执行等价 Python 检查；
-Tauri Rust 的 `cargo check` 未能执行，代码已同步移除发现命令及 `sha2` 的直接依赖，
-应在安装 Rust 的开发环境中补跑仓库 README 中的构建命令。
+当前机器的 shell PATH 未包含 `uv` 和 `cargo`，但两者已安装在用户目录；Python
+检查使用已有 `.venv`，并已通过绝对路径完成 Tauri Rust 的 `cargo check`。代码已同步
+移除发现命令及 `sha2` 的直接依赖，README 中的构建命令可直接复用。
 
 ### AGENTS.md 对照
 
