@@ -5,7 +5,7 @@ The active frontend work is governed by the current execution plan in
 
 ## Implemented demands
 
-- `20261030-endpoint-stable-token-remote-bind.md`（implemented，owner: gateway/endpoint）：
+- `archived/20261030-done-endpoint-stable-token-remote-bind.md`（implemented，owner: gateway/endpoint）：
   endpoint 使用项目 `.auth` 中的稳定 token、`.env` 中的 bind host/port，并让本机与
   A/B 部署统一为「address + token 一次输入 + 持久化自动登录」；前端已删除实例发现链路。
 
