@@ -1,4 +1,4 @@
-import { settingsText } from "../i18n";
+import { t } from "../../../i18n";
 /**
  * Budgets settings page (config-coverage §3.4): turn and reflection cycle
  * limits. Every field edits one writable atomic
@@ -15,8 +15,8 @@ export function BudgetsPage() {
   return (
     <SettingsPageBody>
       <FieldSection
-        title={settingsText("Turn Cycles")}
-        description={settingsText("Complete Agent Cycles allowed in one turn of each kind. A turn that exhausts its budget ends as exhausted instead of answering.")}
+        title={t("settings.text.66f1e6ff5b4b")}
+        description={t("settings.text.6c1a2c9e0a76")}
         paths={[
           "loop.user.max_cycles",
           "reflection.home.max_cycles",

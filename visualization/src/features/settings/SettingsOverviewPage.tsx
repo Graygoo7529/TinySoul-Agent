@@ -1,4 +1,4 @@
-import { settingsText } from "./i18n";
+import { t, rawText, useI18n } from "../../i18n";
 import {
   AlertTriangle,
   ArrowRight,
@@ -44,6 +44,7 @@ function previewValue(value: JsonValue | undefined, limit = 60): string {
  * run-plan summary that routes to the plans page for capture/management.
  */
 export function SettingsOverviewPage() {
+  const { t: translate } = useI18n();
   const saved = useConfigDraftStore((s) => s.saved);
   const active = useConfigDraftStore((s) => s.active);
   const presets = useConfigDraftStore((s) => s.presets);
@@ -62,18 +63,18 @@ export function SettingsOverviewPage() {
     `${source.id} ${source.path ?? ""}`.toLocaleLowerCase().includes(sourceQuery.trim().toLocaleLowerCase()));
   return (
     <div className="settings-form mx-auto flex max-w-3xl flex-col gap-4 p-5">
-      <SectionCard title="运行配置" actions={<Badge tone={activity.can_reload ? "green" : "yellow"}>
-        {activity.can_reload ? "可应用修改" : "忙碌"}</Badge>}>
+      <SectionCard title={translate("settings.overview.running")} actions={<Badge tone={activity.can_reload ? "green" : "yellow"}>
+        {activity.can_reload ? translate("settings.overview.canApply") : translate("settings.overview.busy")}</Badge>}>
         <div className="flex flex-wrap items-center gap-2 text-[13px] text-fg-muted">
           <CheckCircle2 size={16} className="shrink-0 text-accent" />
-          <span>{saved.pending_reload ? "有已保存配置等待激活。" : "已保存配置与当前运行配置一致。"}</span>
+          <span>{saved.pending_reload ? translate("settings.overview.pending") : translate("settings.overview.current")}</span>
         </div>
-        {!activity.can_reload && <p className="mt-2 text-[12px] text-fg-muted">{settingsText(activityReasonText(activity.reason))}</p>}
-        {draftCount === 0 && <p className="mt-2 text-[12px] text-fg-faint">没有本地修改</p>}
+        {!activity.can_reload && <p className="mt-2 text-[12px] text-fg-muted">{rawText(activityReasonText(activity.reason))}</p>}
+        {draftCount === 0 && <p className="mt-2 text-[12px] text-fg-faint">{translate("settings.bottom.noChanges")}</p>}
       </SectionCard>
 
-      {draftCount > 0 && <SectionCard title="本地修改" description="这些修改尚未保存；在底部一次应用全部修改。"
-        actions={issueCount > 0 ? <Badge tone="yellow">{issueCount} 项字段问题</Badge> : <Badge tone="accent">{draftCount} 项</Badge>}>
+      {draftCount > 0 && <SectionCard title={translate("settings.overview.localChanges")} description={translate("settings.overview.localChangesDescription")}
+        actions={issueCount > 0 ? <Badge tone="yellow">{translate("settings.bottom.issues", { count: issueCount })}</Badge> : <Badge tone="accent">{draftCount}</Badge>}>
         <DraftList drafts={drafts} stale={stale} onResolveStale={resolveStale}
           onLocate={(entry) => {
             const owner = pageForDraft(entry);
@@ -81,9 +82,9 @@ export function SettingsOverviewPage() {
           }} />
       </SectionCard>}
 
-      {saved.pending_reload && <SectionCard title="已保存待激活" description="保存值与运行值的差异，应用或重载后生效。">
+      {saved.pending_reload && <SectionCard title={translate("settings.overview.savedPending")} description={translate("settings.overview.savedPendingDescription")}>
         {draftCount > 0 && <div className="mb-2 flex items-center gap-1.5 rounded-md bg-info-soft px-2.5 py-1.5 text-[12px] text-info">
-          <ArrowRight size={12} /> 应用本地修改时也会激活这些已保存修改。
+          <ArrowRight size={12} /> {translate("settings.overview.applyLocalAlsoActivates")}
         </div>}
         <div className="space-y-1">{pending.map((change) => {
           const owner = pageForPath(change.path);
@@ -96,32 +97,32 @@ export function SettingsOverviewPage() {
         })}</div>
       </SectionCard>}
 
-      <SectionCard title="运行方案" description="保存模型路由与可选预算，方便切换。"
-        actions={<Button variant="ghost" size="xs" onClick={() => navigateTo("plans")}>管理方案</Button>}>
+      <SectionCard title={translate("settings.overview.runPlans")} description={translate("settings.overview.runPlansDescription")}
+        actions={<Button variant="ghost" size="xs" onClick={() => navigateTo("plans")}>{translate("settings.overview.managePlans")}</Button>}>
         {presets === null || presets.length === 0
-          ? <p className="text-[12px] text-fg-muted">尚未保存运行方案。</p>
+          ? <p className="text-[12px] text-fg-muted">{translate("settings.overview.noPlans")}</p>
           : <div className="space-y-1.5">{presets.map((preset) =>
               <PresetRow key={preset.id} preset={preset} onOpen={() => navigateTo("plans")} />)}</div>}
       </SectionCard>
 
-      <SettingsDisclosure title="配置来源与运行详情" meta={<span className="text-[11px] text-fg-faint">{saved.sources.length} 个来源</span>}>
+      <SettingsDisclosure title={translate("settings.overview.sources")} meta={<span className="text-[11px] text-fg-faint">{translate("settings.overview.sourceCount", { count: saved.sources.length })}</span>}>
         <div className="space-y-3 p-3">
-          <div className="text-[12px] text-fg-muted">运行代次 <span className="break-all font-mono text-fg">{active.generation_id || "—"}</span></div>
-          <input aria-label="筛选配置来源" placeholder="按名称或路径筛选…" value={sourceQuery} onChange={(event) => setSourceQuery(event.target.value)}
+          <div className="text-[12px] text-fg-muted">{translate("settings.overview.generation")} <span className="break-all font-mono text-fg">{active.generation_id || "—"}</span></div>
+          <input aria-label={translate("settings.overview.sourceFilterLabel")} placeholder={translate("settings.overview.sourceFilterPlaceholder")} value={sourceQuery} onChange={(event) => setSourceQuery(event.target.value)}
             className="w-full rounded-md border border-line bg-bg px-2.5 py-1.5 text-[12px] outline-none focus:border-accent" />
           <div className="space-y-1">{sources.map((source) =>
             <details key={source.id} className="rounded-md border border-line">
               <summary className="flex cursor-pointer items-center gap-2 px-2.5 py-2 text-[12px]">
                 <span className="min-w-0 flex-1 truncate font-mono" title={source.id}>{source.id}</span>
-                {!source.exists && <Badge tone="gray">缺失</Badge>}
-                {!source.writable && <Badge tone="gray">只读</Badge>}
+                {!source.exists && <Badge tone="gray">{translate("settings.overview.sourceMissing")}</Badge>}
+                {!source.writable && <Badge tone="gray">{translate("settings.overview.sourceReadonly")}</Badge>}
               </summary>
               <div className="flex items-start gap-2 border-t border-line p-2.5">
-                <span className="min-w-0 flex-1 break-all font-mono text-[11px] text-fg-muted">{source.path === source.id ? "名称即来源路径" : source.path || "未提供路径"}</span>
-                <CopyButton label="复制路径" text={() => source.path || source.id} />
+                <span className="min-w-0 flex-1 break-all font-mono text-[11px] text-fg-muted">{source.path === source.id ? translate("settings.overview.sourceNamePath") : source.path || translate("settings.overview.sourceNoPath")}</span>
+                <CopyButton label={translate("settings.overview.copyPath")} text={() => source.path || source.id} />
               </div>
             </details>)}</div>
-          {sources.length === 0 && <p className="text-[12px] text-fg-faint">没有匹配的来源。</p>}
+          {sources.length === 0 && <p className="text-[12px] text-fg-faint">{translate("settings.overview.noMatchingSources")}</p>}
         </div>
       </SettingsDisclosure>
     </div>
@@ -169,20 +170,20 @@ function DraftList({
             )}
             {isStale && (
               <span className="flex shrink-0 items-center gap-1">
-                <Badge tone="yellow" title="The saved baseline changed while you were editing">
-                  <AlertTriangle size={10} />{settingsText("stale")}</Badge>
+                <Badge tone="yellow" title={t("settings.overview.staleTitle")}>
+                  <AlertTriangle size={10} />{t("settings.text.a4e976a3d3fc")}</Badge>
                 <Button
                   variant="ghost"
                   size="xs"
-                  title="丢弃本地修改并使用新基线"
+                  title={t("settings.overview.staleAdopt")}
                   onClick={() => onResolveStale(entry.key, "adopt")}
-                >{settingsText("Adopt")}</Button>
+                >{t("settings.text.3937d8446f2d")}</Button>
                 <Button
                   variant="ghost"
                   size="xs"
-                  title="保留本地修改"
+                  title={t("settings.overview.staleKeep")}
                   onClick={() => onResolveStale(entry.key, "keep")}
-                >{settingsText("Keep")}</Button>
+                >{t("settings.text.466fc492747c")}</Button>
               </span>
             )}
           </div>
@@ -211,11 +212,11 @@ function PresetRow({
           <span className="truncate text-[13px] font-medium text-fg">
             {preset.name}
           </span>
-          {preset.matches_current && <Badge tone="green">匹配当前配置</Badge>}
+          {preset.matches_current && <Badge tone="green">{t("settings.overview.matchesCurrent")}</Badge>}
           {issueCount > 0 && (
             <Badge
               tone="yellow"
-              title="此方案的依赖当前缺失"
+              title={t("settings.overview.presetDependencyMissing")}
             >
               {issueCount} {issueCount === 1 ? "issue" : "issues"}
             </Badge>
@@ -236,6 +237,7 @@ function PresetRow({
 
 /** Batch-level apply failure rendering shared by the overview banner. */
 export function ApplyFailureBanner({ failure }: { failure: ApplyFailure }) {
+  const { t: translate } = useI18n();
   const clearApplyFailure = useConfigDraftStore((s) => s.clearApplyFailure);
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -262,16 +264,16 @@ export function ApplyFailureBanner({ failure }: { failure: ApplyFailure }) {
       <div className="min-w-0 flex-1">
         <div className="font-medium">
           {failure.kind === "config-invalid"
-              ? "配置被拒绝，草稿未改变。"
+              ? translate("settings.overview.failure.configInvalid")
             : failure.kind === "request-invalid"
-              ? "请求被拒绝，草稿未改变。"
+              ? translate("settings.overview.failure.requestInvalid")
               : failure.kind === "activation-unavailable"
-                ? "当前无法激活配置，草稿已保留。"
+                ? translate("settings.overview.failure.activationUnavailable")
                 : failure.kind === "activation-failed"
-                  ? "激活失败，之前的运行配置仍在使用。"
+                  ? translate("settings.overview.failure.activationFailed")
                   : failure.kind === "api-error"
-                    ? `端点拒绝了配置应用（${failure.code}）。`
-                    : "配置应用结果未知，草稿已保留。"}
+                    ? translate("settings.overview.failure.api", { code: failure.code })
+                    : translate("settings.overview.failure.unknown")}
         </div>
         <div className="mt-0.5 break-words opacity-90">{failure.message}</div>
         {failure.kind === "config-invalid" && failure.key !== null && (
@@ -286,7 +288,7 @@ export function ApplyFailureBanner({ failure }: { failure: ApplyFailure }) {
               className="font-medium underline opacity-80 hover:opacity-100"
               onClick={() => setDetailsOpen((open) => !open)}
             >
-              {detailsOpen ? "隐藏详情" : "查看详情"}
+              {detailsOpen ? translate("settings.overview.hideDetails") : translate("settings.overview.showDetails")}
             </button>
             {detailsOpen && (
               <div className="mt-1.5 max-h-64 overflow-y-auto text-fg">
@@ -305,11 +307,11 @@ export function ApplyFailureBanner({ failure }: { failure: ApplyFailure }) {
             clearApplyFailure();
           }}
         >
-          定位
+          {translate("settings.overview.locate")}
         </Button>
       )}
       <Button variant="ghost" size="xs" onClick={() => clearApplyFailure()}>
-        关闭
+        {translate("settings.overview.close")}
       </Button>
     </div>
   );
@@ -317,6 +319,7 @@ export function ApplyFailureBanner({ failure }: { failure: ApplyFailure }) {
 
 /** Success-with-diagnostics note; never implies the apply failed. */
 export function CleanupDiagnosticsBanner() {
+  const { t: translate } = useI18n();
   const cleanupDiagnostics = useConfigDraftStore((s) => s.cleanupDiagnostics);
   const dismiss = useConfigDraftStore((s) => s.dismissCleanupDiagnostics);
   if (cleanupDiagnostics === null) return null;
@@ -324,7 +327,7 @@ export function CleanupDiagnosticsBanner() {
     <div className="flex items-start gap-2.5 rounded-lg border border-warning/30 bg-warning-soft px-3.5 py-2.5 text-[12px] leading-5 text-warning">
       <CheckCircle2 size={15} className="mt-0.5 shrink-0" />
       <div className="min-w-0 flex-1">
-        配置已应用，但部分旧资源未能清理：
+        {translate("settings.overview.cleanup")}
         <ul className="mt-1 list-inside list-disc font-mono text-[11px]">
           {cleanupDiagnostics.map((item, index) => (
             <li key={index} className="break-all">
@@ -334,7 +337,7 @@ export function CleanupDiagnosticsBanner() {
         </ul>
       </div>
       <Button variant="ghost" size="xs" onClick={dismiss}>
-        关闭
+        {translate("settings.overview.close")}
       </Button>
     </div>
   );

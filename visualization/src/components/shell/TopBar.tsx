@@ -1,3 +1,4 @@
+import { useI18n } from "../../i18n";
 import { useState } from "react";
 import { History, Layers, LogOut, Power, RefreshCw, Wrench } from "lucide-react";
 import { logout, restartBackend } from "../../app/connection";
@@ -16,6 +17,7 @@ import { ReflectionDialog } from "../../features/resources/ReflectionDialog";
  * connection is down.
  */
 export function TopBar() {
+  const { t } = useI18n();
   const status = useConnectionStore((s) => s.status);
   const address = useConnectionStore((s) => s.info?.address.httpBaseUrl ?? "");
   const epoch = useConnectionStore((s) => s.epoch);
@@ -30,7 +32,7 @@ export function TopBar() {
       </div>
       {connected && status?.turn_active && (
         <Badge tone="accent">
-          <span className="animate-pulse-dot">●</span> 进行中
+          <span className="animate-pulse-dot">●</span> {t("shell.turnActive")}
         </Badge>
       )}
       {connected && (
@@ -39,30 +41,30 @@ export function TopBar() {
         </span>
       )}
       <IconButton
-        label="历史"
+        label={t("shell.history")}
         onClick={() => openHistoryBrowser(epoch)}
         disabled={!connected}
       >
         <History size={15} />
       </IconButton>
-      <Button variant="ghost" size="xs" aria-label="整理" disabled={!connected} onClick={() => setOrganizing(true)}>
-        <Wrench size={14} /><span className="hidden sm:inline">整理</span>
+      <Button variant="ghost" size="xs" aria-label={t("shell.organize")} disabled={!connected} onClick={() => setOrganizing(true)}>
+        <Wrench size={14} /><span className="hidden sm:inline">{t("shell.organize")}</span>
       </Button>
       <IconButton
-        label="语境"
+        label={t("shell.context")}
         onClick={() => openContextDrawer(epoch)}
         disabled={!connected}
       >
         <Layers size={15} />
       </IconButton>
       <IconButton
-        label="重启后端"
+        label={t("shell.restartBackend")}
         onClick={() => setConfirmingRestart(true)}
         disabled={!connected}
       >
         <Power size={15} />
       </IconButton>
-      <IconButton label="退出登录" onClick={logout}>
+      <IconButton label={t("shell.logout")} onClick={logout}>
         <LogOut size={15} />
       </IconButton>
       <ReconnectIndicator />
@@ -75,16 +77,16 @@ export function TopBar() {
 }
 
 function RestartConfirm({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
   const restartPending = useConnectionStore((s) => s.restartPending);
   return (
-    <Modal title="重启后端？" onClose={onClose} width="max-w-md">
+    <Modal title={t("shell.restartTitle")} onClose={onClose} width="max-w-md">
       <p className="text-[13px] leading-5 text-fg-muted">
-        宿主将重建当前 Agent 世代：正在运行的轮次会停止，随后视图自动重新同步。
-        Endpoint 本身的地址与事件历史保持不变。
+        {t("shell.restartDescription")}
       </p>
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>
-          取消
+          {t("common.cancel")}
         </Button>
         <Button
           variant="danger"
@@ -93,7 +95,7 @@ function RestartConfirm({ onClose }: { onClose: () => void }) {
             void restartBackend().finally(onClose);
           }}
         >
-          重启
+          {t("shell.restartBackend")}
         </Button>
       </div>
     </Modal>
@@ -101,6 +103,7 @@ function RestartConfirm({ onClose }: { onClose: () => void }) {
 }
 
 function ReconnectIndicator() {
+  const { t } = useI18n();
   const phase = useConnectionStore((s) => s.phase);
   const eventsPhase = useConnectionStore((s) => s.eventsPhase);
   if (phase === "connected" && eventsPhase === "live") return null;
@@ -108,12 +111,12 @@ function ReconnectIndicator() {
   // "reconnecting" is reserved for a dropped stream the client is recovering.
   const label =
     phase === "connecting"
-      ? "连接中…"
+      ? t("connection.connecting")
       : phase === "connected"
         ? eventsPhase === "reconnecting"
-          ? "重新连接中…"
-          : "连接中…"
-        : "已断开";
+          ? t("connection.reconnecting")
+          : t("connection.connecting")
+        : t("connection.disconnected");
   return (
     <span className="inline-flex items-center gap-1.5 text-[11px] text-fg-faint">
       <RefreshCw size={12} className="animate-spin-slow" />

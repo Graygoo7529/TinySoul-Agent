@@ -1,3 +1,4 @@
+import { useI18n } from "../../i18n";
 import { useState, type FormEvent } from "react";
 import { PlugZap } from "lucide-react";
 import { connect } from "../../app/connection";
@@ -9,6 +10,7 @@ import { Button } from "../ui/Button";
  * form. Browser and Tauri use the same address/token login path.
  */
 export function ConnectScreen() {
+  const { t } = useI18n();
   const phase = useConnectionStore((s) => s.phase);
   const error = useConnectionStore((s) => s.error);
   const [address, setAddress] = useState("");
@@ -27,27 +29,24 @@ export function ConnectScreen() {
       <div className="w-full max-w-md rounded-xl border border-line bg-bg-elev p-6 shadow-card">
         <div className="mb-1 flex items-center gap-2">
           <PlugZap size={17} className="text-accent" />
-          <h1 className="text-base font-semibold">Connect to TinySoul</h1>
+          <h1 className="text-base font-semibold">{t("connection.title")}</h1>
         </div>
         <p className="text-[13px] leading-5 text-fg-muted">
-          The app is a pure client of a running TinySoul Endpoint. Enter the
-          client-reachable address (<code>IP:Port</code>, http(s) URL) and the
-          stable access token from the backend project&apos;s <code>.auth</code>
-          file.
+          {t("connection.description")}
         </p>
 
         <form onSubmit={submit} className="mt-4">
           <label className="mb-1 block text-xs font-medium text-fg-muted">
-            Address
+            {t("connection.address")}
           </label>
           <input
             value={address}
             onChange={(e) => setAddress(e.target.value)}
-            placeholder="127.0.0.1:1430"
+            placeholder={t("connection.addressPlaceholder")}
             className="h-9 w-full rounded-lg border border-line bg-bg-elev px-3 font-mono text-[12px] outline-none focus-ring focus:border-accent"
           />
           <label className="mt-3 mb-1 block text-xs font-medium text-fg-muted">
-            Token
+            {t("connection.token")}
           </label>
           <input
             value={token}
@@ -69,7 +68,7 @@ export function ConnectScreen() {
             loading={connecting}
             disabled={connecting || !address.trim() || !token.trim()}
           >
-            {connecting ? "Connecting…" : "Connect"}
+            {connecting ? t("connection.connecting") : t("connection.connect")}
           </Button>
         </form>
 

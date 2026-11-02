@@ -1,7 +1,7 @@
+import { translatedField } from "../../../i18n";
 import type { JsonValue, PresetChange } from "../../../api/v2/types";
 import { isPlainRecord } from "../draft/model";
 import { useConfigDraftStore } from "../draft/store";
-import { translatedField } from "../i18n";
 import { budgetSummary, type PresetDefinitionView } from "./presetsModel";
 
 function valueText(value: JsonValue): string {

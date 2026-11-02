@@ -10,9 +10,20 @@
       "title": "InterfaceDensity",
       "type": "string"
     },
+    "InterfaceLocale": {
+      "enum": [
+        "zh-CN",
+        "en-US"
+      ],
+      "title": "InterfaceLocale",
+      "type": "string"
+    },
     "InterfaceSettingsResponse": {
       "additionalProperties": true,
       "properties": {
+        "locale": {
+          "$ref": "#/$defs/InterfaceLocale"
+        },
         "theme": {
           "$ref": "#/$defs/ThemeMode"
         },
@@ -39,6 +50,7 @@
         }
       },
       "required": [
+        "locale",
         "theme",
         "font_sans",
         "font_mono",

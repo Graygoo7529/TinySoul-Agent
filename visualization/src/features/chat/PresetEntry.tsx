@@ -1,3 +1,4 @@
+import { rawText } from "../../i18n";
 /**
  * The Composer run-plan quick entry (implementation plan §5.2).
  *
@@ -21,7 +22,6 @@ import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { useAppStore } from "../../store/appStore";
 import { useConnectionStore } from "../../store/connectionStore";
-import { settingsText } from "../settings/i18n";
 import { ensureConfigLoaded } from "../settings/applyController";
 import {
   activationBlocker,
@@ -138,7 +138,7 @@ function PresetPopover({
 
       {blocker !== null && (
         <div className="border-b border-line px-3.5 py-2 text-[11px] leading-4 text-fg-faint">
-          暂时无法应用方案：{settingsText(blocker)}
+          暂时无法应用方案：{rawText(blocker)}
         </div>
       )}
       {loadError !== null && (

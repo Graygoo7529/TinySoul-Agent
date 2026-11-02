@@ -1,6 +1,6 @@
+import { t, rawText } from "../../../i18n";
 import { useCallback, useEffect, useState } from "react";
 import { RotateCw } from "lucide-react";
-import { settingsText } from "../i18n";
 import type { ContextOverview } from "../../../api/v2/context";
 import { requestIdForTurn } from "../../../store/turnStore";
 import { useConnectionStore } from "../../../store/connectionStore";
@@ -43,8 +43,8 @@ export function ContextPage() {
       </div>
 
       <FieldSection
-        title={settingsText("Background")}
-        description={settingsText("The stable identity, Session history projection, Home catalog and Memory views assembled before the current turn trace.")}
+        title={t("settings.text.64dd60fe1a04")}
+        description={t("settings.text.30a9fcd26e72")}
         paths={["session.max_background_chars", "home.max_skill_catalog_chars"]}
         overrides={{
           "session.max_background_chars": { min: 512, slider: { min: 1024, max: 128 * 1024, step: 1024 } },
@@ -53,8 +53,8 @@ export function ContextPage() {
       />
 
       <FieldSection
-        title={settingsText("Context budget")}
-        description={settingsText("The effective window includes input, tools, replay and reserved output. Inline image bytes have a separate limit.")}
+        title={t("settings.text.00a756164637")}
+        description={t("settings.text.fac18bd51979")}
         paths={["context.max_window_tokens", "context.max_image_bytes"]}
         overrides={{
           "context.max_window_tokens": { min: 1 },
@@ -63,8 +63,8 @@ export function ContextPage() {
       />
 
       <FieldSection
-        title={settingsText("Trace")}
-        description={settingsText("TurnTrace chunking is a compression target; complete entries remain intact. Inspection is a bounded progressive page.")}
+        title={t("settings.text.2f38169a712e")}
+        description={t("settings.text.308aa1f3e0ef")}
         paths={["context.trace_chunk_chars", "context.trace_branch_factor", "context.trace_min_hot_entries", "context.max_trace_inspect_chars"]}
         overrides={{
           "context.trace_chunk_chars": { min: 1, slider: { min: 1024, max: 64 * 1024, step: 1024 } },
@@ -75,16 +75,16 @@ export function ContextPage() {
       />
 
       <FieldSection
-        title={settingsText("Composition")}
-        description={settingsText("Optional fixed system identity and journal text used when the MessageStack is rebuilt.")}
+        title={t("settings.text.ca5e00120498")}
+        description={t("settings.text.8a5eaaa33bb2")}
         paths={["context.system_text", "context.journal"]}
         forceAdvanced={["context.journal"]}
       />
 
-      <SettingsDisclosure title={settingsText("Pressure and related limits")} paths={["context.compression_trigger_ratio", "context.compression_target_ratio"]}>
+      <SettingsDisclosure title={t("settings.text.664683d7bef6")} paths={["context.compression_trigger_ratio", "context.compression_target_ratio"]}>
         <FieldSection
-          title={settingsText("Compression")}
-          description={settingsText("Compression starts above the trigger ratio of the effective window and aims for the target ratio. Reserved output also occupies this budget.")}
+          title={t("settings.text.46ead4045fba")}
+          description={t("settings.text.7142fb4a6f70")}
           paths={["context.compression_trigger_ratio", "context.compression_target_ratio"]}
           overrides={{
             "context.compression_trigger_ratio": { min: 0, max: 1, slider: { min: 0, max: 1, step: 0.01 } },
@@ -107,12 +107,12 @@ function RelatedContextLinks() {
     ["Model windows", "Nominal model windows and provider bindings.", "llm-models" as const],
   ];
   return (
-    <SectionCard title={settingsText("Related owner limits")} description={settingsText("These limits affect context inputs or results but remain editable by their owning module.")}>
+    <SectionCard title={t("settings.text.264f18c03584")} description={t("settings.text.78a734d31aac")}>
       <div className="grid gap-1.5 sm:grid-cols-2">
         {links.map(([title, detail, page]) => (
           <button key={title} type="button" className="group rounded-md border border-line bg-bg-sunken px-3 py-2 text-left hover:border-line-strong" onClick={() => navigateTo(page)}>
-            <div className="flex items-center justify-between gap-2 text-[12px] font-medium text-fg"><span>{settingsText(title)}</span><span className="text-accent">→</span></div>
-            <div className="mt-0.5 text-[11px] leading-4 text-fg-muted">{settingsText(detail)}</div>
+            <div className="flex items-center justify-between gap-2 text-[12px] font-medium text-fg"><span>{rawText(title)}</span><span className="text-accent">→</span></div>
+            <div className="mt-0.5 text-[11px] leading-4 text-fg-muted">{rawText(detail)}</div>
           </button>
         ))}
       </div>
@@ -181,8 +181,8 @@ function ContextUsageCard() {
         <RefreshNotice onRefresh={refresh} refreshing={loading} />
       )}
       <SectionCard
-        title={settingsText("Current Context usage")}
-        description={settingsText("Read-only installed segment sizes from the bound Turn; this is character and image-byte usage, not provider token accounting.")}
+        title={t("settings.text.1413a406b588")}
+        description={t("settings.text.89f51ad5a493")}
         actions={
           boundTurnId !== null && !closed ? (
             <button
@@ -192,7 +192,7 @@ function ContextUsageCard() {
               disabled={loading}
             >
               <RotateCw size={12} />
-              {settingsText("Refresh")}
+              {t("settings.text.56e3badc4e6c")}
             </button>
           ) : undefined
         }
@@ -219,8 +219,8 @@ function ContextUsageCard() {
           <div className="text-[12px] text-fg-faint">
             {error ??
               (boundTurnId === null
-                ? settingsText("No active Turn; the rail below shows the installed structure.")
-                : settingsText("Reading the active Context…"))}
+                ? t("settings.text.c86e100853fe")
+                : t("settings.text.bd39d9390e0e"))}
           </div>
         )}
       </SectionCard>

@@ -1,4 +1,4 @@
-import { settingsText } from "../i18n";
+import { t, translatedField as matchField } from "../../../i18n";
 import { SettingsPicker } from "../SettingsPicker";
 /**
  * Collection object editor shared by the MCP and ACP pages (config-coverage
@@ -17,7 +17,6 @@ import { Button, IconButton } from "../../../components/ui/Button";
 import { SectionCard } from "../../../components/ui/Card";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { type CatalogCollection } from "../draft/catalog";
-import { translatedField as matchField } from "../i18n";
 import { draftKey, isFieldDraft, isPlainRecord } from "../draft/model";
 import {
   objectBaseline,
@@ -93,7 +92,7 @@ export function CollectionObjectEditor({
           />}</SettingsPicker>
           <div className="settings-form min-w-0">
             {selected === null ? (
-              <div className="py-6 text-center text-[12px] text-fg-faint">{settingsText("Select an entry to edit, or create a new one. New entries are disabled until configured.")}</div>
+              <div className="py-6 text-center text-[12px] text-fg-faint">{t("settings.text.6567841b80cf")}</div>
             ) : (
               <CollectionObjectDetail
                 collection={collection}
@@ -200,7 +199,7 @@ function CollectionList({
               disabled={newId.trim() === ""}
               onClick={create}
             >
-              <Plus size={11} />{settingsText("Create")}</Button>
+              <Plus size={11} />{t("settings.text.6e157c5da441")}</Button>
             {error !== null && (
               <span className="text-[10px] text-danger">{error}</span>
             )}
@@ -345,7 +344,7 @@ function CollectionObjectDetail({
         {ctx.dirty && !ctx.draftOnly && <Badge tone="accent">已修改</Badge>}
         {ctx.draftOnly && <Badge tone="blue">新增</Badge>}
         {ctx.readOnly !== null && (
-          <Badge tone="gray" title={ctx.readOnly}>{settingsText("read-only")}</Badge>
+          <Badge tone="gray" title={ctx.readOnly}>{t("settings.text.1d8d39a6e91a")}</Badge>
         )}
         <span className="ml-auto">
           <Button

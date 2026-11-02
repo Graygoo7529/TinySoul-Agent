@@ -4,11 +4,13 @@ import { useShallow } from "zustand/react/shallow";
 import type { InterfaceSettings } from "../api/v2/presentation";
 
 export type ThemeMode = InterfaceSettings["theme"];
+export type LocaleChoice = InterfaceSettings["locale"];
 export type SansFontChoice = InterfaceSettings["font_sans"];
 export type MonoFontChoice = InterfaceSettings["font_mono"];
 export type DensityChoice = InterfaceSettings["density"];
 
 export interface UiPrefs {
+  locale: LocaleChoice;
   theme: ThemeMode;
   fontSans: SansFontChoice;
   fontMono: MonoFontChoice;
@@ -20,6 +22,7 @@ export interface UiPrefs {
 
 /** Rendering defaults before connecting; never automatically uploaded. */
 export const UI_PREFS_DEFAULTS: UiPrefs = {
+  locale: "zh-CN",
   theme: "light",
   fontSans: "inter",
   fontMono: "jetbrains",
@@ -61,6 +64,7 @@ export function useUiPrefs(): UiPrefs {
 
 export function prefsFromApi(values: InterfaceSettings): UiPrefs {
   return {
+    locale: values.locale,
     theme: values.theme,
     fontSans: values.font_sans,
     fontMono: values.font_mono,
@@ -73,6 +77,7 @@ export function prefsFromApi(values: InterfaceSettings): UiPrefs {
 
 export function prefsPatchToApi(patch: Partial<UiPrefs>): Partial<InterfaceSettings> {
   return {
+    ...(patch.locale !== undefined && { locale: patch.locale }),
     ...(patch.theme !== undefined && { theme: patch.theme }),
     ...(patch.fontSans !== undefined && { font_sans: patch.fontSans }),
     ...(patch.fontMono !== undefined && { font_mono: patch.fontMono }),

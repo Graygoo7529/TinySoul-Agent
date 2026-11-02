@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_core import PydanticCustomError
 
 from tinysoul.gateway.presentation import (
+    InterfaceLocale,
     InterfaceDensity,
     InterfaceSettingsPatch,
     MonoFont,
@@ -15,6 +16,7 @@ from tinysoul.gateway.presentation import (
 class InterfaceChangesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    locale: InterfaceLocale | None = None
     theme: ThemeMode | None = None
     font_sans: SansFont | None = None
     font_mono: MonoFont | None = None
@@ -33,6 +35,7 @@ class InterfaceChangesRequest(BaseModel):
 
     def to_patch(self) -> InterfaceSettingsPatch:
         return InterfaceSettingsPatch(
+            locale=self.locale,
             theme=self.theme,
             font_sans=self.font_sans,
             font_mono=self.font_mono,

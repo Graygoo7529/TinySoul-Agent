@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from tinysoul.gateway.presentation import InterfaceDensity, MonoFont, SansFont, ThemeMode
+from tinysoul.gateway.presentation import InterfaceDensity, InterfaceLocale, MonoFont, SansFont, ThemeMode
 from tinysoul.infra.json import JsonObject, JsonValue
 
 
@@ -24,6 +24,7 @@ class HealthResponse(ContractResponse):
 
 
 class InterfaceSettingsResponse(ContractResponse):
+    locale: InterfaceLocale
     theme: ThemeMode
     font_sans: SansFont
     font_mono: MonoFont

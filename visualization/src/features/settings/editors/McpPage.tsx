@@ -1,5 +1,5 @@
+import { t } from "../../../i18n";
 import { NetworkPolicyEditor, NetworkPolicyField } from "./NetworkPolicyEditor";
-import { settingsText } from "../i18n";
 /**
  * MCP Servers settings (config-coverage §4.5): configured servers are
  * collection objects edited atomically; the read-only runtime directory
@@ -38,8 +38,8 @@ export function McpPage() {
       limits={<>
         <NetworkPolicyField path="capabilities.expand.network" title="默认代理" />
         <FieldSection
-          title={settingsText("Shared MCP Limits")}
-          description={settingsText("Directory and call bounds shared by all servers.")}
+          title={t("settings.text.2a3d0b314dde")}
+          description={t("settings.text.4e7fb393ad84")}
           paths={[
             "capabilities.expand.timeout_seconds",
             "capabilities.expand.max_tools",
@@ -214,7 +214,7 @@ function McpServerFields({ ctx }: { ctx: ObjectEditContext }) {
           }
           tone="sunken"
         >
-          <div className="mb-1.5 text-[10.5px] leading-4 text-fg-faint">{settingsText("Exact remote tool names (dots included) map to booleans; each choice overrides the default policy. The whole map applies as one value.")}</div>
+          <div className="mb-1.5 text-[10.5px] leading-4 text-fg-faint">{t("settings.text.49807a49cb90")}</div>
           <ObjMap
             value={map("tools")}
             disabled={disabled}
@@ -255,26 +255,26 @@ function McpRuntimeSummary() {
 
   return (
     <SectionCard
-      title={settingsText("Runtime directory")}
+      title={t("settings.text.5878d0d17107")}
       description="Live connection facts of the running generation. Applying configuration does not connect servers by itself; refresh happens on activation or from Runtime Observation."
       actions={
         <button
           type="button"
           className="flex items-center gap-1 text-[12px] font-medium text-accent hover:underline"
           onClick={() => setActiveTab("runtime")}
-        >{settingsText("Runtime Observation")}<ArrowRight size={12} />
+        >{t("settings.text.d64ad07ea9d5")}<ArrowRight size={12} />
         </button>
       }
     >
       {clients === null ? (
-        <div className="text-[12px] text-fg-faint">{settingsText("No backend connection — runtime facts are unavailable.")}</div>
+        <div className="text-[12px] text-fg-faint">{t("settings.text.cfa14c0a5335")}</div>
       ) : error !== null ? (
-        <div className="text-[12px] text-fg-faint">{settingsText("The runtime directory is unavailable:")}{error}
+        <div className="text-[12px] text-fg-faint">{t("settings.text.6cefd2a012ad")}{error}
         </div>
       ) : page === null ? (
-        <div className="text-[12px] text-fg-faint">{settingsText("Loading…")}</div>
+        <div className="text-[12px] text-fg-faint">{t("settings.text.33ce417454bf")}</div>
       ) : page.items.length === 0 ? (
-        <div className="text-[12px] text-fg-faint">{settingsText("No servers are visible to the running generation yet.")}</div>
+        <div className="text-[12px] text-fg-faint">{t("settings.text.ce911d77afb3")}</div>
       ) : (
         <div className="flex flex-wrap gap-1.5">
           {page.items.map((item) => (

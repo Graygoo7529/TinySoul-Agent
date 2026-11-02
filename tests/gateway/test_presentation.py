@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from tinysoul.gateway.presentation import (
+    InterfaceLocale,
     InterfaceSettingsPatch,
     PresentationError,
     PresentationFailure,
@@ -41,6 +42,29 @@ async def test_read_is_pure_and_save_creates_then_merges_current_file(
     assert (await PresentationService(tmp_path).configuration("interface")) == saved
 
 
+async def test_locale_defaults_to_simplified_chinese_and_is_persisted(
+    tmp_path: Path,
+) -> None:
+    service = PresentationService(tmp_path)
+    assert (await service.configuration("interface")).values.locale is InterfaceLocale.ZH_CN
+    saved = await service.save_configuration(
+        "interface", InterfaceSettingsPatch(locale=InterfaceLocale.EN_US)
+    )
+    assert saved.values.locale is InterfaceLocale.EN_US
+    assert tomllib.loads(
+        (tmp_path / "presentation/configs/interface.toml").read_text(encoding="utf-8")
+    )["locale"] == "en-US"
+
+
+async def test_legacy_interface_file_without_locale_uses_default(tmp_path: Path) -> None:
+    path = tmp_path / "presentation/configs/interface.toml"
+    path.parent.mkdir(parents=True)
+    path.write_text('theme = "dark"\n', encoding="utf-8")
+    document = await PresentationService(tmp_path).configuration("interface")
+    assert document.values.locale is InterfaceLocale.ZH_CN
+    assert document.values.theme is ThemeMode.DARK
+
+
 async def test_concurrent_field_updates_preserve_each_other(tmp_path: Path) -> None:
     service = PresentationService(tmp_path)
     await asyncio.gather(
@@ -55,7 +79,14 @@ async def test_concurrent_field_updates_preserve_each_other(tmp_path: Path) -> N
 
 
 @pytest.mark.parametrize(
-    "text", ['theme = "unknown"', "font_size = true", "font_size = 30", "broken ["]
+    "text",
+    [
+        'locale = "fr-FR"',
+        'theme = "unknown"',
+        "font_size = true",
+        "font_size = 30",
+        "broken [",
+    ],
 )
 async def test_invalid_file_is_reported_and_never_overwritten(
     tmp_path: Path, text: str

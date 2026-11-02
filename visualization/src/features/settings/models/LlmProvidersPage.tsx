@@ -1,5 +1,5 @@
+import { t, translatedField as matchField } from "../../../i18n";
 import { NetworkPolicyEditor } from "../editors/NetworkPolicyEditor";
-import { settingsText } from "../i18n";
 /**
  * LLM Providers settings page (plan §16.1): the provider collection with the
  * retained left-list/right-editor object pattern, now staging every edit into
@@ -17,7 +17,6 @@ import { Badge } from "../../../components/ui/Badge";
 import { Button } from "../../../components/ui/Button";
 import { isPlainRecord } from "../draft/model";
 import { useConfigDraftStore } from "../draft/store";
-import { translatedField as matchField } from "../i18n";
 import { useSettingsUiStore } from "../uiStore";
 import {
   cloneJsonValue,
@@ -108,7 +107,7 @@ export function LlmProvidersPage() {
   return (
     <>
       <ObjectEditorLayout
-        title={settingsText("Providers")}
+        title={t("settings.text.87b7c08baed1")}
         description={
           collection?.description ??
           "API endpoints that chat models call through adapters."
@@ -153,13 +152,13 @@ export function LlmProvidersPage() {
                 disabled={!createSourceAvailable}
                 onClick={() => setDuplicateFrom(current)}
               >
-                <Copy size={13} />{settingsText("Duplicate")}</Button>
+                <Copy size={13} />{t("settings.text.972d57379db3")}</Button>
               <Button
                 size="xs"
                 variant="danger"
                 onClick={() => setDeleting(current)}
               >
-                <Trash2 size={13} />{settingsText("Delete")}</Button>
+                <Trash2 size={13} />{t("settings.text.f6fdbe48dc54")}</Button>
             </>
           )
         }
@@ -176,7 +175,7 @@ export function LlmProvidersPage() {
       <CreateObjectModal
         validateId={llmObjectIdError}
         title="New provider"
-        idTitle={settingsText("Provider ID")}
+        idTitle={t("settings.text.610992ef9948")}
         idDescription="Stable identifier referenced by model provider chains; dots, outer whitespace and numeric-only ids are not allowed."
         existing={objects.map((item) => item.id)}
         open={creating}
@@ -295,8 +294,8 @@ function ProviderEditor({
   return (
     <div>
       <FieldSection
-        title={settingsText("Availability")}
-        description={settingsText("Whether this connection is built into the running configuration. Enabled is a configuration fact — it does not prove the remote endpoint answers.")}
+        title={t("settings.text.681b5b5ae10b")}
+        description={t("settings.text.1c221ec2943d")}
       >
         <FieldRow
           title={field("enabled").meta?.title ?? "Enabled"}
@@ -318,14 +317,14 @@ function ProviderEditor({
         {enabled && missingCredential && (
           <div className="flex items-center gap-2 px-5 py-2.5 text-[11px] text-warning">
             <AlertTriangle size={13} className="shrink-0" />
-            <span>{settingsText("None of the declared credential names currently resolves to a value; the apply will be rejected until one is set.")}</span>
+            <span>{t("settings.text.e099916fdbdd")}</span>
           </div>
         )}
       </FieldSection>
 
       <FieldSection
-        title={settingsText("Connection")}
-        description={settingsText("Request behavior and endpoint of this provider.")}
+        title={t("settings.text.6512ee1541e9")}
+        description={t("settings.text.80097d66ed7d")}
       >
         <FieldRow
           title="API 入口"
@@ -369,8 +368,8 @@ function ProviderEditor({
       </FieldSection>
 
       <FieldSection
-        title={settingsText("Credentials")}
-        description={settingsText("Environment variable names checked for this provider's API key, in order. Values are edited in the shared credentials draft and never displayed.")}
+        title={t("settings.text.dd097a229701")}
+        description={t("settings.text.0031639aa4a1")}
       >
         <FieldRow
           title={field("api_key_envs").meta?.title ?? "Credential names"}
@@ -389,18 +388,18 @@ function ProviderEditor({
         </FieldRow>
         <div className="space-y-1.5 px-5 py-3">
           {apiKeyEnvs.length === 0 && (
-            <div className="text-[11px] text-fg-faint">{settingsText("No credential names declared.")}</div>
+            <div className="text-[11px] text-fg-faint">{t("settings.text.4899b60f6e59")}</div>
           )}
           {apiKeyEnvs.map((name) => (
             <CredentialValueEditor key={name} name={name} compact />
           ))}
           <div className="flex items-center justify-between pt-1">
-            <span className="text-[10px] text-fg-faint">{settingsText("Readiness reflects the saved dotenv file and the running generation — a draft value applies only after apply.")}</span>
+            <span className="text-[10px] text-fg-faint">{t("settings.text.9034fcc46fd1")}</span>
             <Button
               size="xs"
               variant="ghost"
               onClick={() => navigateTo("credentials")}
-            >{settingsText("Open Credentials")}</Button>
+            >{t("settings.text.ac66aa0c9cfa")}</Button>
           </div>
         </div>
       </FieldSection>

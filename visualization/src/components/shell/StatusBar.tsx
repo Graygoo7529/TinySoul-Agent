@@ -1,3 +1,4 @@
+import { tStatus, useI18n } from "../../i18n";
 import { useConnectionStore } from "../../store/connectionStore";
 import { useTurnStore } from "../../store/turnStore";
 
@@ -6,6 +7,7 @@ import { useTurnStore } from "../../store/turnStore";
  * day, the current turn kind/state and the connected endpoint address.
  */
 export function StatusBar() {
+  const { t } = useI18n();
   const phase = useConnectionStore((s) => s.phase);
   const eventsPhase = useConnectionStore((s) => s.eventsPhase);
   const unreachable = useConnectionStore((s) => s.unreachable);
@@ -26,22 +28,22 @@ export function StatusBar() {
         />
         {connected
           ? unreachable
-            ? "无响应…"
+            ? t("connection.unreachable")
             : eventsPhase === "reconnecting"
-              ? "重新连接中…"
-              : "已连接"
+              ? t("connection.reconnecting")
+              : t("connection.connected")
           : phase === "idle"
-            ? "未连接"
+            ? t("connection.notConnected")
             : phase === "connecting"
-              ? "连接中…"
+              ? t("connection.connecting")
               : phase === "error"
-                ? "连接失败"
+                ? t("connection.failed")
                 : phase}
       </span>
       {connected && status && (
         <>
           <span className={status.ready ? "hidden text-fg-faint sm:inline" : "hidden text-warning sm:inline"}>
-            {status.ready ? "就绪" : "启动中…"}
+            {status.ready ? tStatus("ready") : tStatus("starting")}
           </span>
           <span className="hidden text-fg-faint sm:inline">{status.active_day}</span>
           <span
@@ -52,8 +54,8 @@ export function StatusBar() {
             {snapshot !== null && status.turn_active
               ? `${snapshot.kind} turn · ${snapshot.state}`
               : status.turn_active
-                ? "进行中"
-                : "等待输入"}
+                ? t("shell.turnActive")
+                : t("connection.waitingInput")}
           </span>
         </>
       )}

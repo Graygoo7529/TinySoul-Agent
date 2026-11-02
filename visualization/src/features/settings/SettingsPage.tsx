@@ -1,4 +1,4 @@
-import { settingsText } from "./i18n";
+import { rawText, useI18n } from "../../i18n";
 import "./layout.css";
 import { useEffect, type ComponentType } from "react";
 import { Loader2, RefreshCw, Settings2, Unplug } from "lucide-react";
@@ -133,6 +133,7 @@ export function SettingsPage() {
 }
 
 function PageContent({ pageId }: { pageId: keyof typeof SETTINGS_PAGES }) {
+  const { t } = useI18n();
   const loadPhase = useConfigDraftStore((s) => s.loadPhase);
   const loadError = useConfigDraftStore((s) => s.loadError);
   const applyFailure = useConfigDraftStore((s) => s.applyFailure);
@@ -161,7 +162,7 @@ function PageContent({ pageId }: { pageId: keyof typeof SETTINGS_PAGES }) {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <EmptyState
-          title="配置加载失败"
+          title={t("settings.error.configLoad")}
           description={loadError ?? "Unknown error"}
         />
       </div>
@@ -182,6 +183,7 @@ function PageContent({ pageId }: { pageId: keyof typeof SETTINGS_PAGES }) {
 }
 
 function SettingsHeader({ connected }: { connected: boolean }) {
+  const { t } = useI18n();
   const page = useSettingsUiStore((s) => s.page);
   const def = SETTINGS_PAGES[page];
   const clients = useConnectionStore((s) => s.clients);
@@ -206,13 +208,13 @@ function SettingsHeader({ connected }: { connected: boolean }) {
           {blocker !== null && (
             <span
               className="hidden max-w-[280px] truncate text-[10px] text-warning sm:block"
-              title={settingsText(blocker)}
+              title={rawText(blocker)}
             >
-              {settingsText(blocker)}
+              {rawText(blocker)}
             </span>
           )}
           <IconButton
-            label="刷新配置"
+            label={t("settings.refreshConfig")}
             disabled={loadPhase === "loading"}
             onClick={() => clients !== null && void loadConfig(clients)}
           >
@@ -230,18 +232,19 @@ function SettingsHeader({ connected }: { connected: boolean }) {
 
 /** Shown in place of Agent settings while there is no backend connection. */
 function ConnectNotice() {
+  const { t } = useI18n();
   const info = useConnectionStore((s) => s.info);
   return (
     <div className="flex h-full items-start justify-center overflow-y-auto p-6">
       <div className="w-full max-w-md rounded-xl border border-line bg-bg-elev p-6 shadow-card">
-          <h2 className="text-base font-semibold">未连接后端</h2>
+          <h2 className="text-base font-semibold">{t("settings.connectNotice.title")}</h2>
         <p className="mt-1 text-[13px] leading-5 text-fg-muted">
-          Agent 设置从运行中的 TinySoul 后端读取并应用。请从主界面连接，或在这里修改地址。
+          {t("settings.connectNotice.description")}
         </p>
         {info !== null && (
           <div className="mt-4 border-t border-line pt-4">
             <div className="text-xs font-medium text-fg-muted">
-              上次连接
+              {t("settings.connectNotice.lastConnection")}
             </div>
             <div className="mt-1 font-mono text-[12px] break-all text-fg">
               {info.address.httpBaseUrl}
@@ -258,7 +261,7 @@ function ConnectNotice() {
                 clearStoredBrowserTarget();
               }}
             >
-              <Unplug size={13} className="mr-1" /> 断开并修改地址
+              <Unplug size={13} className="mr-1" /> {t("settings.connectNotice.disconnect")}
             </Button>
           </div>
         )}

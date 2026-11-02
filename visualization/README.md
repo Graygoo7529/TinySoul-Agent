@@ -87,7 +87,11 @@ pnpm build   # tsc + vite build
 
 - Background Context panel: the currently loaded top-level links with rendered content.
 - Maintenance dialog: daily / home / memory requests with availability hints.
-- Light/dark themes, toast notifications, connection status bar with day/revision/turn state.
+- Light/dark themes, shared Chinese/English interface language, toast notifications, connection status bar with day/revision/turn state.
+
+### Interface language
+
+The Settings → Interface page stores the project-shared `locale` in the backend Presentation configuration. `zh-CN` is the fixed default; `en-US` can be selected and takes effect immediately in the current client. Other clients use the new language after they reconnect or refresh the project presentation settings. Fixed frontend copy lives under `src/i18n/` and uses stable message IDs. ConfigCatalog translations are keyed by backend identities and unknown entries fall back to source text; user, Agent, model, provider, Action, and diagnostic content remains unchanged.
 
 ## Notes
 

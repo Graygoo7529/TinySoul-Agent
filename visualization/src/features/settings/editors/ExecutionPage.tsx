@@ -1,5 +1,5 @@
+import { t } from "../../../i18n";
 import { NetworkPolicyField } from "./NetworkPolicyEditor";
-import { settingsText } from "../i18n";
 /**
  * Execution & Jobs settings (config-coverage §4.1/§4.2): the running
  * generation's effective values are shown read-only on top; editing targets
@@ -24,8 +24,8 @@ export function ExecutionPage() {
       </details>
       <RunningStrip />
       <FieldSection
-        title={settingsText("Interpreters")}
-        description={settingsText("Which shell/script interpreters the execution domain may use.")}
+        title={t("settings.text.8d3c148819e9")}
+        description={t("settings.text.4c61fc29ec76")}
         paths={[
           "execution.enabled",
           ...INTERPRETERS.map((id) => `execution.interpreters.${id}.enabled`),
@@ -36,8 +36,8 @@ export function ExecutionPage() {
         )}
       />
       <FieldSection
-        title={settingsText("Limits")}
-        description={settingsText("Bounds of a single execution; the runtime enforces one total timeout per batch.")}
+        title={t("settings.text.61a0ae3b849d")}
+        description={t("settings.text.e0ac00adbeef")}
         paths={[
           "execution.max_runtime_seconds",
           "execution.max_output_bytes",
@@ -59,8 +59,8 @@ export function ExecutionPage() {
         ]}
       />
       <FieldSection
-        title={settingsText("Jobs")}
-        description={settingsText("Background work supervised inside a turn; live jobs never exceed the retained capacity.")}
+        title={t("settings.text.437736fdb5bb")}
+        description={t("settings.text.4bf86d664941")}
         paths={["jobs.retained_capacity", "jobs.per_turn_live_capacity"]}
         overrides={{
           "jobs.retained_capacity": { min: 1 },
@@ -81,8 +81,8 @@ function RunningStrip() {
   );
   return (
     <SectionCard
-      title={settingsText("Currently in effect")}
-      description={settingsText("Values of the running generation; changes below activate on apply.")}
+      title={t("settings.text.eb560f49da05")}
+      description={t("settings.text.939d704eac5b")}
       actions={
         enabled ? <Badge tone="green">启用</Badge> : <Badge tone="gray">禁用</Badge>
       }

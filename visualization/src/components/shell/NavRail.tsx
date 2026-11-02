@@ -1,3 +1,4 @@
+import { useI18n, type MessageId } from "../../i18n";
 import {
   Activity,
   Bot,
@@ -15,15 +16,16 @@ import { useUiPrefs, useUiPrefsStore } from "../../store/uiPrefsStore";
 import { setInterfacePref } from "../../features/settings/presentationController";
 import type { AppTab } from "../../types";
 
-const navItems: { tab: AppTab; label: string; icon: typeof MessageSquareText }[] = [
-  { tab: "chat", label: "Chat", icon: MessageSquareText },
-  { tab: "workspace", label: "Workspace", icon: FolderTree },
-  { tab: "home", label: "Home", icon: House },
-  { tab: "memory", label: "Memory", icon: Brain },
-  { tab: "runtime", label: "Runtime", icon: Activity },
+const navItems: { tab: AppTab; label: MessageId; icon: typeof MessageSquareText }[] = [
+  { tab: "chat", label: "shell.chat", icon: MessageSquareText },
+  { tab: "workspace", label: "shell.workspace", icon: FolderTree },
+  { tab: "home", label: "shell.home", icon: House },
+  { tab: "memory", label: "shell.memory", icon: Brain },
+  { tab: "runtime", label: "shell.runtime", icon: Activity },
 ];
 
 export function NavRail() {
+  const { t } = useI18n();
   const activeTab = useAppStore((s) => s.activeTab);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const { theme } = useUiPrefs();
@@ -42,7 +44,7 @@ export function NavRail() {
             key={tab}
             onClick={() => setActiveTab(tab)}
             disabled={!connected}
-            title={label}
+            title={t(label)}
             className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
               activeTab === tab
                 ? "bg-active text-accent"
@@ -60,14 +62,14 @@ export function NavRail() {
         <button
           onClick={() => setInterfacePref("theme", theme === "dark" ? "light" : "dark")}
           disabled={!connected || unreachable || !prefsReady}
-          title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          title={theme === "dark" ? t("shell.switchToLight") : t("shell.switchToDark")}
           className="flex h-9 w-9 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-35"
         >
           {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
         </button>
         <button
           onClick={() => setActiveTab("settings")}
-          title="Settings"
+          title={t("shell.settings")}
           className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
             activeTab === "settings"
               ? "bg-active text-accent"

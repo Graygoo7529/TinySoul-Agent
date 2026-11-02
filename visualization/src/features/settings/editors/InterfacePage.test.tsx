@@ -83,6 +83,14 @@ it("saves theme, typography and motion through the project client and restores s
   expect(useUiPrefsStore.getState().pending).toEqual({});
 });
 
+it("switches and persists the project-shared interface language", async () => {
+  await act(async () => root.render(<InterfacePage />));
+  await click("English");
+  expect(config.values.locale).toBe("en-US");
+  expect(useUiPrefsStore.getState().saved.locale).toBe("en-US");
+  expect(container.textContent).toContain("Interface language");
+});
+
 it("keeps disconnected controls disabled and does not upload rendering defaults", async () => {
   resetAppStores();
   await act(async () => root.render(<InterfacePage />));

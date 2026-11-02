@@ -1,3 +1,4 @@
+import { useI18n } from "../../i18n";
 import { RefreshCw } from "lucide-react";
 import { useConnectionStore } from "../../store/connectionStore";
 import { useInspectorStore } from "../../store/inspectorStore";
@@ -23,6 +24,7 @@ import { RuntimePage } from "../../features/runtime/RuntimePage";
  * screen on every tab except settings.
  */
 export function AppShell() {
+  const { t } = useI18n();
   const phase = useConnectionStore((s) => s.phase);
   const unreachable = useConnectionStore((s) => s.unreachable);
   const activeTab = useAppStore((s) => s.activeTab);
@@ -42,8 +44,7 @@ export function AppShell() {
           {connected && unreachable && (
             <div className="flex items-center gap-2 border-b border-warning/30 bg-warning-soft px-4 py-1.5 text-[12px] text-warning">
               <RefreshCw size={12} className="animate-spin-slow" />
-              The backend is not responding — the conversation stays in place
-              and reconnects automatically.
+              {t("shell.backendUnreachable")}
             </div>
           )}
           <div className="relative min-h-0 flex-1">

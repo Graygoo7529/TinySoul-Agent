@@ -1,4 +1,4 @@
-import { settingsText } from "../i18n";
+import { t } from "../../../i18n";
 /**
  * Credentials settings page (plan §16.6): the unified editor for every
  * credential reference the catalog declares (provider env names, dedicated
@@ -94,7 +94,7 @@ export function CredentialsPage() {
           disabled={dotenv !== undefined && !dotenv.writable}
           onClick={() => setAdding((open) => !open)}
         >
-          <Plus size={13} />{settingsText("Add credential")}</Button>
+          <Plus size={13} />{t("settings.text.69cfb687ff69")}</Button>
       </div>
 
       {adding && (
@@ -126,12 +126,12 @@ export function CredentialsPage() {
                 setNewValue("");
                 setAdding(false);
               }}
-            >{settingsText("Stage value")}</Button>
+            >{t("settings.text.eb5864a44e8b")}</Button>
           </div>
           {nameError !== null && (
             <div className="text-[10px] text-danger">{nameError}</div>
           )}
-          <div className="text-[10px] text-fg-faint">{settingsText("Prefer names referenced by a provider or MCP server so the entry stays connected to a use; unreferenced entries are listed at the end.")}</div>
+          <div className="text-[10px] text-fg-faint">{t("settings.text.5bc45b3e2a88")}</div>
         </div>
       )}
 
@@ -155,7 +155,7 @@ export function CredentialsPage() {
         ))
       )}
       {visible.length === 0 && credentials.length > 0 && (
-        <div className="px-1 py-3 text-[11px] text-fg-faint">{settingsText("No credential matches the filter.")}</div>
+        <div className="px-1 py-3 text-[11px] text-fg-faint">{t("settings.text.d5681de05fa0")}</div>
       )}
     </div>
   );

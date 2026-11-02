@@ -1,4 +1,4 @@
-import { settingsText } from "../i18n";
+import { t, rawText } from "../../../i18n";
 import { SettingsDisclosure } from "../SettingsDisclosure";
 /**
  * Actions & Model Uses settings page (config-coverage §3.2): the real Action
@@ -51,9 +51,9 @@ import {
 import { useActionsView } from "./useActionsView";
 
 const SCENARIOS: SelectOption[] = [
-  { value: "user", label: settingsText("User turns") },
-  { value: "home_reflection", label: settingsText("Home reflection") },
-  { value: "memory_reflection", label: settingsText("Memory reflection") },
+  { value: "user", label: t("settings.text.d2948d8ce80e") },
+  { value: "home_reflection", label: t("settings.text.9e37b4503ca3") },
+  { value: "memory_reflection", label: t("settings.text.cda3161e567d") },
 ];
 
 export function ActionsPage() {
@@ -115,14 +115,14 @@ export function ActionsPage() {
   }
   if (loading || view === null) {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-[12px] text-fg-faint">{settingsText("Loading the action catalog…")}</div>
+      <div className="flex h-full items-center justify-center p-6 text-[12px] text-fg-faint">{t("settings.text.6410430ef6ac")}</div>
     );
   }
 
   return (
     <ObjectEditorLayout
-      title={settingsText("Actions")}
-      description={settingsText("Every action registered in the running generation, with its scenario availability and model-use bindings.")}
+      title={t("settings.text.c3cd636a585b")}
+      description={t("settings.text.c9a15debe49b")}
       items={filtered.map((action) => ({
         id: action.id,
         group: action.domain,
@@ -142,7 +142,7 @@ export function ActionsPage() {
           <input
             aria-label="Search actions"
             className={inputClass}
-            placeholder={settingsText("Filter by name or description…")}
+            placeholder={t("settings.text.845df9cfc75e")}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
@@ -204,18 +204,18 @@ function BehaviorSection({
   return (
     <SettingsDisclosure title="执行策略与来源" className="m-3">
       <FieldRow
-        title={settingsText("Availability")}
-        description={settingsText("Code grants, executor support and availability in the selected scenario.")}
+        title={t("settings.text.681b5b5ae10b")}
+        description={t("settings.text.65ed769d863c")}
       >
         <span className="flex flex-wrap items-center gap-1.5">
           <Badge tone={action.granted ? "green" : "gray"}>
-            {settingsText(action.granted ? "granted" : "not granted")}
+            {rawText(action.granted ? "granted" : "not granted")}
           </Badge>
           <Badge tone={action.supported ? "green" : "gray"}>
-            {settingsText(action.supported ? "supported" : "executor unavailable")}
+            {rawText(action.supported ? "supported" : "executor unavailable")}
           </Badge>
           <Badge tone={action.available ? "green" : "yellow"}>
-            {settingsText(action.available ? "available" : "unavailable")}
+            {rawText(action.available ? "available" : "unavailable")}
           </Badge>
           {!action.available && action.unavailableReason !== null && (
             <span className="text-[11px] text-fg-faint">
@@ -225,12 +225,12 @@ function BehaviorSection({
         </span>
       </FieldRow>
       <FieldRow
-        title={settingsText("Model selection")}
-        description={settingsText("Whether Phase 1/2 may select this action in the scenario, and which configuration layer decided it.")}
+        title={t("settings.text.28eeecfcba5c")}
+        description={t("settings.text.bdfb7a3f31db")}
       >
         <span className="flex items-center gap-1.5 text-[12px] text-fg">
           <Badge tone={action.selection.enabled ? "green" : "gray"}>
-            {settingsText(action.selection.enabled ? "selectable" : "not selectable")}
+            {rawText(action.selection.enabled ? "selectable" : "not selectable")}
           </Badge>
           <span className="font-mono text-[11px] text-fg-faint">
             source: {action.selection.source}
@@ -238,8 +238,8 @@ function BehaviorSection({
         </span>
       </FieldRow>
       <FieldRow
-        title={settingsText("Visibility")}
-        description={settingsText("Declared default and per-scenario overrides from the catalog document.")}
+        title={t("settings.text.7d9ff4f0de39")}
+        description={t("settings.text.1f1b5c87792c")}
       >
         <span className="font-mono text-[11px] text-fg-muted">
           default:{" "}
@@ -255,8 +255,8 @@ function BehaviorSection({
         </span>
       </FieldRow>
       <FieldRow
-        title={settingsText("Timeout")}
-        description={settingsText("Total execution time budget and where it is declared.")}
+        title={t("settings.text.d4c45de0fe64")}
+        description={t("settings.text.4dbffc362f96")}
       >
         <span className="font-mono text-[11px] text-fg-muted">
           {action.runtime.timeoutSeconds !== null
@@ -264,31 +264,31 @@ function BehaviorSection({
             : "none"}
         </span>
       </FieldRow>
-      <FieldRow title={settingsText("Parallel policy")}>
+      <FieldRow title={t("settings.text.d206855fcdb5")}>
         <span className="font-mono text-[11px] text-fg-muted">
           {action.runtime.parallelPolicy}
         </span>
       </FieldRow>
-      <FieldRow title={settingsText("Hooks")}>
+      <FieldRow title={t("settings.text.4bd8f3f03a57")}>
         <span className="font-mono text-[11px] break-all text-fg-muted">
           normalize: {action.runtime.hooks.normalize.join(", ") || "—"} · execute:{" "}
           {action.runtime.hooks.execute.join(", ") || "—"}
         </span>
       </FieldRow>
-      <FieldRow title={settingsText("Trace mode")}>
+      <FieldRow title={t("settings.text.95168f04fba5")}>
         <span className="font-mono text-[11px] text-fg-muted">
           {action.runtime.traceMode}
         </span>
       </FieldRow>
-      <FieldRow title={settingsText("Execution")}>
+      <FieldRow title={t("settings.text.6d525b71568c")}>
         <span className="font-mono text-[11px] break-all text-fg-muted">
           {action.execution.executor}
         </span>
       </FieldRow>
       {action.source !== null && (
         <FieldRow
-          title={settingsText("Catalog document")}
-          description={settingsText("The document this definition is loaded from; editing document fields is a follow-up surface.")}
+          title={t("settings.text.f118dcbf4de5")}
+          description={t("settings.text.55e3b7ce4952")}
         >
           <span className="font-mono text-[11px] break-all text-fg-muted">
             {action.source.path}
@@ -304,8 +304,8 @@ function BehaviorSection({
 // ---------------------------------------------------------------------------
 
 function ModelUsesSection({ action }: { action: ActionEntryView }) {
-  if (action.modelUses.length === 0) return <p className="border-b border-line px-5 py-3 text-[12px] text-fg-muted">{settingsText("This action runs deterministically — no model is involved.")}</p>;
-  return <FieldSection title={settingsText("Model Uses")} description="各用途的模型绑定由所有执行情景共享。">
+  if (action.modelUses.length === 0) return <p className="border-b border-line px-5 py-3 text-[12px] text-fg-muted">{t("settings.text.501e7139efb5")}</p>;
+  return <FieldSection title={t("settings.text.d118b055730d")} description="各用途的模型绑定由所有执行情景共享。">
     {action.modelUses.map((modelUse) => <ModelUseEditor key={modelUse.consumer} modelUse={modelUse} />)}
   </FieldSection>;
 }
@@ -454,7 +454,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
           optionRules.max_output_tokens !== undefined && (
             <OptionalNumberRow
               label="Max output tokens"
-              description={settingsText("Unset inherits the task chain's own limit.")}
+              description={t("settings.text.587533e4f5c0")}
               value={maxOutputTokens}
               min={optionRules.max_output_tokens.minimum ?? 1}
               disabled={readOnly}
@@ -466,7 +466,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
         {implementation === "decision" &&
           optionRules.relevance_threshold !== undefined && (
             <>
-              <span className="text-[11px] text-fg-muted">{settingsText("Relevance threshold")}</span>
+              <span className="text-[11px] text-fg-muted">{t("settings.text.ed9132d2f602")}</span>
               <NumberInput
                 ariaLabel={`${modelUse.consumer} relevance threshold`}
                 value={relevanceThreshold}
@@ -482,7 +482,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
 
       {implementation === "embedding_similarity" &&
         modelUse.operation === "rerank" && (
-          <div className="mt-2 text-[10.5px] text-fg-faint">{settingsText("Similarity reranking cannot read the current Context; the resolved policy forces its allowed context to none.")}</div>
+          <div className="mt-2 text-[10.5px] text-fg-faint">{t("settings.text.bfba75db4ff6")}</div>
         )}
       {runningDiffers && modelUse.binding !== null && (
         <div className="mt-2 text-[10.5px] text-fg-faint">
@@ -491,10 +491,10 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
             modelUse.binding.implementation,
             modelUse.binding.taskProfile,
             modelUse.binding.use,
-          )}{" "}{settingsText("(applies after activation)")}</div>
+          )}{" "}{t("settings.text.d5097077f630")}</div>
       )}
       {readOnly && (
-        <div className="mt-2 text-[10.5px] text-warning">{settingsText("action.models.bindings is owned by a read-only source; no local edit can be staged.")}</div>
+        <div className="mt-2 text-[10.5px] text-warning">{t("settings.text.528f96e73244")}</div>
       )}
     </div>
   );
@@ -612,7 +612,7 @@ function StructuredDecisionTarget({
           size="xs"
           variant="ghost"
           onClick={() => navigateTo("dedicated-models")}
-        >{settingsText("Uses")}<ArrowRight size={11} />
+        >{t("settings.text.62be4731dedf")}<ArrowRight size={11} />
         </Button>
       </span>
     </>
@@ -736,14 +736,14 @@ function RetrievalSection({ action }: { action: ActionEntryView }) {
   if (retrieval === null) return null;
   return (
     <FieldSection
-      title={settingsText("Retrieval Policy")}
-      description={settingsText("The resolved sources, operations and budgets this search runs with. Sources, operations, contexts and budgets are edited on the Search Policies page.")}
+      title={t("settings.text.ca9937052c5b")}
+      description={t("settings.text.ea2d896a4799")}
       meta={
         <Button
           size="xs"
           variant="ghost"
           onClick={() => navigateTo("search-policies", action.id)}
-        >{settingsText("Edit in Search Policies")}<ArrowRight size={11} />
+        >{t("settings.text.495eac961b4c")}<ArrowRight size={11} />
         </Button>
       }
     >
@@ -778,10 +778,10 @@ function ProtocolSection({ action }: { action: ActionEntryView }) {
             {action.tool.description}
           </p>
         </div>
-        <SemanticList title={settingsText("Use when")} items={semantic.useWhen} />
-        <SemanticList title={settingsText("Avoid when")} items={semantic.avoidWhen} />
-        <SemanticList title={settingsText("Effects")} items={semantic.effects} />
-        <SemanticList title={settingsText("Examples")} items={semantic.examples} />
+        <SemanticList title={t("settings.text.ee36fc3bb07a")} items={semantic.useWhen} />
+        <SemanticList title={t("settings.text.cb19f3e79796")} items={semantic.avoidWhen} />
+        <SemanticList title={t("settings.text.8f25a859269c")} items={semantic.effects} />
+        <SemanticList title={t("settings.text.eb01bf04c9a0")} items={semantic.examples} />
         <div>
           <div className="text-[11px] font-medium text-fg">参数结构</div>
           <pre className="mt-1 max-h-64 overflow-auto rounded-md bg-bg-sunken p-2.5 font-mono text-[10.5px] leading-4 text-fg-muted">

@@ -1,3 +1,4 @@
+locale = "zh-CN"
 theme = "light"
 font_sans = "inter"
 font_mono = "jetbrains"

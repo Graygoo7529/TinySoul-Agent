@@ -1,10 +1,10 @@
+import { rawText } from "../../../i18n";
 import { useEffect, useState } from "react";
 import type { Preset, PresetSummary } from "../../../api/v2/types";
 import { Button } from "../../../components/ui/Button";
 import { Modal } from "../../../components/ui/Modal";
 import { useConnectionStore } from "../../../store/connectionStore";
 import { activationBlocker, selectDraftCount, useConfigDraftStore } from "../draft/store";
-import { settingsText } from "../i18n";
 import { PresetChanges } from "./PresetChanges";
 import { parseValidationIssues } from "./presetsModel";
 import { applyPreset } from "./presetsController";
@@ -59,7 +59,7 @@ function PresetApplyDialog({ preset, onReview, onClose }: {
       <PresetChanges changes={detail.changes} />
     </>}
     {draftCount > 0 && <p className="mt-4 text-[12px] text-warning">有 {draftCount} 项未应用修改，不包含在以上比较中。请先处理草稿，或丢弃后应用方案。</p>}
-    {blocker && <p className="mt-3 text-[12px] text-warning">{settingsText(blocker)}</p>}
+    {blocker && <p className="mt-3 text-[12px] text-warning">{rawText(blocker)}</p>}
     {failure && <p role="alert" className="mt-3 text-[12px] text-danger">{failure.message}</p>}
     <div className="mt-4 flex flex-wrap justify-end gap-2">
       <Button variant="ghost" size="sm" disabled={applying} onClick={onClose}>取消</Button>

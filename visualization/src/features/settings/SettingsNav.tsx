@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ChevronRight, Search, X } from "lucide-react";
 
+import { useI18n } from "../../i18n";
 import { Badge } from "../../components/ui/Badge";
 import { useConfigDraftStore } from "./draft/store";
 import {
@@ -20,6 +21,7 @@ import { SettingsPicker } from "./SettingsPicker";
  * count of local changes routed to it.
  */
 export function SettingsNav() {
+  const { t } = useI18n();
   const page = useSettingsUiStore((s) => s.page);
   const setPage = useSettingsUiStore((s) => s.setPage);
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
@@ -44,21 +46,21 @@ export function SettingsNav() {
   const searching = query.trim() !== "";
 
   return (
-    <SettingsPicker kind="pages" label="设置页面">{(close) => <nav className="flex h-full min-h-0 flex-col border-r border-line bg-bg-elev">
+    <SettingsPicker kind="pages" label={t("settings.nav.label")}>{(close) => <nav className="flex h-full min-h-0 flex-col border-r border-line bg-bg-elev">
       <div className="border-b border-line p-2.5">
         <div className="flex items-center gap-1.5 rounded-lg border border-line bg-bg px-2 py-1.5 focus-within:border-accent/50">
           <Search size={13} className="shrink-0 text-fg-faint" />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索设置…"
+            placeholder={t("settings.nav.searchPlaceholder")}
             className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-fg-faint"
           />
           {searching && (
             <button
               onClick={() => setQuery("")}
               className="shrink-0 rounded p-0.5 text-fg-faint hover:bg-hover hover:text-fg"
-              aria-label="清除搜索"
+              aria-label={t("settings.nav.clearSearch")}
             >
               <X size={12} />
             </button>
@@ -71,7 +73,7 @@ export function SettingsNav() {
           <div className="space-y-0.5">
             {hits.length === 0 && (
               <div className="px-2.5 py-3 text-[11px] text-fg-faint">
-                没有找到匹配“{query.trim()}”的配置项
+                {t("settings.nav.noMatches", { query: query.trim() })}
               </div>
             )}
             {hits.map((hit) => (
@@ -128,7 +130,7 @@ export function SettingsNav() {
                       >
                         <span className="min-w-0 flex-1 truncate">{settingsTitle(def)}</span>
                         {count > 0 && (
-                          <Badge tone="accent" title={`${count} unsaved change(s)`}>
+                          <Badge tone="accent" title={t("settings.nav.unsavedChanges", { count })}>
                             {count}
                           </Badge>
                         )}

@@ -3,6 +3,7 @@
   "path": "configs/interface.toml",
   "exists": true,
   "values": {
+    "locale": "en-US",
     "theme": "dark",
     "font_sans": "inter",
     "font_mono": "jetbrains",
@@ -12,6 +13,7 @@
     "reduced_motion": false
   },
   "defaults": {
+    "locale": "zh-CN",
     "theme": "light",
     "font_sans": "inter",
     "font_mono": "jetbrains",

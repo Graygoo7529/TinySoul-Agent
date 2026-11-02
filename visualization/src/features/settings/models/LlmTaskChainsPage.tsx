@@ -1,3 +1,4 @@
+import { t, translatedField as matchField } from "../../../i18n";
 /**
  * LLM Task Chains settings page: ordered model chains with call
  * and recovery parameters. The model order editor picks from the projected
@@ -13,7 +14,6 @@ import { Badge } from "../../../components/ui/Badge";
 import { Button } from "../../../components/ui/Button";
 import { useConfigDraftStore } from "../draft/store";
 import { ModelPicker, ModelSelectionList } from "./ModelPicker";
-import { settingsText, translatedField as matchField } from "../i18n";
 import { useSettingsUiStore } from "../uiStore";
 import {
   fieldLockReason,
@@ -97,7 +97,7 @@ export function LlmTaskChainsPage() {
   return (
     <>
       <ObjectEditorLayout
-        title={settingsText("Task chains")}
+        title={t("settings.text.601afada2eea")}
         description={
           collection?.description ??
           "Ordered model chains and call policy selected by a stable task profile."
@@ -130,7 +130,7 @@ export function LlmTaskChainsPage() {
         headerActions={
           current !== null && (
             <Button size="xs" variant="danger" onClick={() => setDeleting(current)}>
-              <Trash2 size={13} />{settingsText("Delete")}</Button>
+              <Trash2 size={13} />{t("settings.text.f6fdbe48dc54")}</Button>
           )
         }
       >
@@ -145,7 +145,7 @@ export function LlmTaskChainsPage() {
 
       <CreateObjectModal validateId={llmObjectIdError}
         title="New task chain"
-        idTitle={settingsText("Task Chain ID")}
+        idTitle={t("settings.text.0004032bad20")}
         idDescription="Stable task profile identifier used by framework tasks and Action routes; dots, outer whitespace and numeric-only ids are not allowed."
         existing={objects.map((item) => item.id)}
         open={creating}
@@ -286,8 +286,8 @@ function TaskChainEditor({
         description={field("required_capabilities").meta?.description}
       >
         <FieldRow
-          title={settingsText("Capabilities")}
-          description={settingsText("Every model used by this task profile must provide all of these.")}
+          title={t("settings.text.ca09c54bff74")}
+          description={t("settings.text.438592dd1d51")}
           dirty={field("required_capabilities").dirty}
         >
           <ChoiceToggles
@@ -302,8 +302,8 @@ function TaskChainEditor({
       </FieldSection>
 
       <FieldSection
-        title={settingsText("Call")}
-        description={settingsText("Default request shape for model calls in this chain.")}
+        title={t("settings.text.291a0a58dfa6")}
+        description={t("settings.text.d7611000e440")}
         meta={<Badge tone="gray">高级</Badge>}
       >
         <EnumRow
@@ -351,8 +351,8 @@ function TaskChainEditor({
       </FieldSection>
 
       <FieldSection
-        title={settingsText("Recovery")}
-        description={settingsText("Retry and switching behavior inside this chain. Chain cycles bound passes over the model list of one task call; they are separate from the user-turn cycle budget on the Budgets page.")}
+        title={t("settings.text.ea924f72d31e")}
+        description={t("settings.text.dd12bd6abf21")}
         meta={<Badge tone="gray">高级</Badge>}
       >
         <NumberRow
@@ -472,12 +472,12 @@ function TaskChainEditor({
       </FieldSection>
 
       <FieldSection
-        title={settingsText("Used By")}
-        description={settingsText("Where this task chain is referenced. These locations are edited on their own pages.")}
+        title={t("settings.text.fa06ca434608")}
+        description={t("settings.text.76d046007e0b")}
       >
         <div className="space-y-1.5 px-5 py-3">
           {usageEmpty && (
-            <div className="text-[11px] text-fg-faint">{settingsText("Not referenced by any phase binding or Action model use.")}</div>
+            <div className="text-[11px] text-fg-faint">{t("settings.text.0b97d382bacf")}</div>
           )}
           {usage.phases.map((phase) => {
             const path = `loop.cycle.${phase === "Phase1" ? "phase1" : "phase2"}_task_profile`;
@@ -490,7 +490,7 @@ function TaskChainEditor({
                   size="xs"
                   variant="ghost"
                   onClick={() => navigateTo("phase-bindings", path)}
-                >{settingsText("Open Phase Bindings")}</Button>
+                >{t("settings.text.b7fb36fc1211")}</Button>
               </div>
             );
           })}
@@ -501,7 +501,7 @@ function TaskChainEditor({
                 size="xs"
                 variant="ghost"
                 onClick={() => navigateTo("actions")}
-              >{settingsText("Open Actions")}</Button>
+              >{t("settings.text.741cbf1f30d8")}</Button>
             </div>
           ))}
         </div>

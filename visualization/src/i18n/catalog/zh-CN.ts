@@ -1,6 +1,35 @@
 /** Presentation text indexed by the backend's declared field path, never by a value. */
 export type FieldText = readonly [title: string, description: string];
 
+/** Catalog display metadata is keyed by the backend-declared identity. */
+export const surfaceText: Record<string, FieldText> = {
+  providers: ["提供方", "模型提供方与端点配置。"],
+  models: ["模型", "模型能力、选项和提供方绑定。"],
+  task_chains: ["任务链", "任务使用的有序模型链。"],
+  model_services: ["专用模型服务", "Embedding 与 decision model 服务。"],
+  action_catalog: ["Action 目录", "Action 的稳定描述与语义。"],
+  action_routing: ["Action 路由", "Action 的运行与模型用途绑定。"],
+  workspace: ["工作区", "Workspace 运行配置。"],
+  memory: ["记忆", "Memory 运行配置。"],
+  session: ["会话", "Session 运行配置。"],
+  network: ["网络", "网络代理与连接配置。"],
+};
+
+export const fieldGroupText: Record<string, FieldText> = {
+  "models.adapter_options": ["适配器选项", "所选适配器提供的请求选项。"],
+  "providers.connection": ["连接", "提供方连接与端点设置。"],
+  "action.runtime": ["运行时", "Action 的执行限制和策略。"],
+  "action.semantic": ["语义", "Action 面向模型的语义说明。"],
+};
+
+export const collectionText: Record<string, FieldText> = {
+  "llm.providers": ["LLM 提供方", "可供模型调用的对话模型提供方。"],
+  "llm.models": ["LLM 模型", "具有 TinySoul 能力声明的模型。"],
+  "llm.tasks": ["LLM 任务链", "任务使用的模型调用顺序。"],
+  "infra.model_services.providers": ["专用模型提供方", "Embedding 与 decision model 提供方。"],
+  "infra.model_services.models": ["专用模型", "专用模型能力与绑定。"],
+};
+
 export const fieldText: Record<string, FieldText> = {
   "llm.providers.*.cache_key_header": ["缓存路由 key 请求头", "把当前调用的 PromptCache.key 写入指定 HTTP 请求头；无 key 时省略。"],
   "agent.interactive": ["终端交互", "未启用 Endpoint 时，是否接收终端输入。"],
@@ -289,26 +318,26 @@ for (const [prefix, fields] of Object.entries(capabilityFields)) {
 
 /** Document paths are scoped by document kind; editable descriptions remain values. */
 export const documentText: Record<string, FieldText> = {
-  "domain:name": ["行动域 ID", "供 Action、提示与 Skill 挂载引用的稳定标识。"],
-  "domain:description": ["行动域说明", "向模型概述此域内 Actions 的共同职责。"],
-  "domain:selection_hint": ["选择提示", "帮助 Phase 1 判断何时选择此行动域。"],
-  "domain:visibility.default": ["默认 Action 可见性", "域内没有单独覆盖的 Action 继承此设置。"],
-  "domain:runtime.timeout_seconds": ["默认执行超时", "没有单独超时设置的 Action 继承此秒数。"],
-  "action:name": ["Action ID", "作为工具名称暴露的稳定 Action 标识。"],
-  "action:domain": ["所属行动域", "拥有此 Action 的稳定域标识。"],
-  "action:tool.description": ["工具说明", "提供给模型的主要工具描述。"],
-  "action:semantic.use_when": ["适用情景", "模型应当选择此 Action 的情况。"],
-  "action:semantic.avoid_when": ["避免使用", "应当选择其它 Action 或不采取行动的情况。"],
-  "action:semantic.effects": ["行为影响", "向模型说明此 Action 对环境可能造成的影响。"],
-  "action:semantic.examples": ["使用示例", "帮助模型理解选择意图的简短示例。"],
-  "action:visibility.default": ["Action 可见性", "在运行能力可用时，是否向 Agent 提供此 Action。"],
-  "action:runtime.timeout_seconds": ["Action 执行超时", "此 Action 的执行秒数上限；移除后继承默认设置。"],
-  "action:tool.schema": ["参数 Schema", "用于校验模型工具参数的 JSON Schema。"],
-  "action:execution": ["执行实现", "已登记的 Action executor 与实现选项。"],
+  "action.catalog:domain:name": ["行动域 ID", "供 Action、提示与 Skill 挂载引用的稳定标识。"],
+  "action.catalog:domain:description": ["行动域说明", "向模型概述此域内 Actions 的共同职责。"],
+  "action.catalog:domain:selection_hint": ["选择提示", "帮助 Phase 1 判断何时选择此行动域。"],
+  "action.catalog:domain:visibility.default": ["默认 Action 可见性", "域内没有单独覆盖的 Action 继承此设置。"],
+  "action.catalog:domain:runtime.timeout_seconds": ["默认执行超时", "没有单独超时设置的 Action 继承此秒数。"],
+  "action.catalog:action:name": ["Action ID", "作为工具名称暴露的稳定 Action 标识。"],
+  "action.catalog:action:domain": ["所属行动域", "拥有此 Action 的稳定域标识。"],
+  "action.catalog:action:tool.description": ["工具说明", "提供给模型的主要工具描述。"],
+  "action.catalog:action:semantic.use_when": ["适用情景", "模型应当选择此 Action 的情况。"],
+  "action.catalog:action:semantic.avoid_when": ["避免使用", "应当选择其它 Action 或不采取行动的情况。"],
+  "action.catalog:action:semantic.effects": ["行为影响", "向模型说明此 Action 对环境可能造成的影响。"],
+  "action.catalog:action:semantic.examples": ["使用示例", "帮助模型理解选择意图的简短示例。"],
+  "action.catalog:action:visibility.default": ["Action 可见性", "在运行能力可用时，是否向 Agent 提供此 Action。"],
+  "action.catalog:action:runtime.timeout_seconds": ["Action 执行超时", "此 Action 的执行秒数上限；移除后继承默认设置。"],
+  "action.catalog:action:tool.schema": ["参数 Schema", "用于校验模型工具参数的 JSON Schema。"],
+  "action.catalog:action:execution": ["执行实现", "已登记的 Action executor 与实现选项。"],
 };
 for (const kind of ["domain", "action"]) {
-  documentText[`${kind}:runtime.parallel_policy`] = ["并行策略", "框架执行此域或 Action 时使用的调度策略。"];
-  documentText[`${kind}:runtime.hooks`] = ["执行钩子", "参数归一化与执行时应用的框架钩子。"];
-  documentText[`${kind}:runtime.result.trace_mode`] = ["结果轨迹模式", "控制成功的 Action 结果如何保留在执行轨迹中。"];
-  documentText[`${kind}:visibility.scenarios`] = ["情景可见性", "按情景覆盖可见性；优先采用 Action 情景设置，再采用域情景与默认设置。"];
+  documentText[`action.catalog:${kind}:runtime.parallel_policy`] = ["并行策略", "框架执行此域或 Action 时使用的调度策略。"];
+  documentText[`action.catalog:${kind}:runtime.hooks`] = ["执行钩子", "参数归一化与执行时应用的框架钩子。"];
+  documentText[`action.catalog:${kind}:runtime.result.trace_mode`] = ["结果轨迹模式", "控制成功的 Action 结果如何保留在执行轨迹中。"];
+  documentText[`action.catalog:${kind}:visibility.scenarios`] = ["情景可见性", "按情景覆盖可见性；优先采用 Action 情景设置，再采用域情景与默认设置。"];
 }

@@ -1,5 +1,5 @@
+import { t } from "../../../i18n";
 import { NetworkPolicyEditor, NetworkPolicyField } from "./NetworkPolicyEditor";
-import { settingsText } from "../i18n";
 /**
  * ACP Subagents settings (config-coverage §4.6): delegation targets are
  * collection objects edited atomically; live connections are read-only and
@@ -36,8 +36,8 @@ export function AcpPage() {
       limits={<>
         <NetworkPolicyField path="capabilities.subagent.network" title="默认代理" />
         <FieldSection
-          title={settingsText("Delegation Limits")}
-          description={settingsText("Connection and delegation bounds shared by all targets.")}
+          title={t("settings.text.75f00ee0fba1")}
+          description={t("settings.text.453d5b12c5ce")}
           paths={[
             "capabilities.subagent.max_connections",
             "capabilities.subagent.connect_timeout_seconds",
@@ -121,7 +121,7 @@ function AcpTargetFields({ ctx }: { ctx: ObjectEditContext }) {
             disabled={disabled}
             onChange={(next) => ctx.update({ auto_approve: next })}
           />
-          <span className="text-[11px] text-fg-faint">{settingsText("On: the adapter approves its own requests; off: requests come back to this Agent.")}</span>
+          <span className="text-[11px] text-fg-faint">{t("settings.text.261118a7146e")}</span>
         </div>
       </ObjRow>
       <ObjRow path={at("env")} label="env">
@@ -190,24 +190,24 @@ function AcpRuntimeSummary() {
 
   return (
     <SectionCard
-      title={settingsText("Runtime connections")}
+      title={t("settings.text.7f9e5198aa9f")}
       description="Live connections of the running generation. Configuration changes activate on apply; they never start a connection by themselves."
       actions={
         <button
           type="button"
           className="flex items-center gap-1 text-[12px] font-medium text-accent hover:underline"
           onClick={() => setActiveTab("runtime")}
-        >{settingsText("Runtime Observation")}<ArrowRight size={12} />
+        >{t("settings.text.d64ad07ea9d5")}<ArrowRight size={12} />
         </button>
       }
     >
       {clients === null ? (
-        <div className="text-[12px] text-fg-faint">{settingsText("No backend connection — runtime facts are unavailable.")}</div>
+        <div className="text-[12px] text-fg-faint">{t("settings.text.cfa14c0a5335")}</div>
       ) : error !== null ? (
-        <div className="text-[12px] text-fg-faint">{settingsText("The runtime directory is unavailable:")}{error}
+        <div className="text-[12px] text-fg-faint">{t("settings.text.6cefd2a012ad")}{error}
         </div>
       ) : directory === null ? (
-        <div className="text-[12px] text-fg-faint">{settingsText("Loading…")}</div>
+        <div className="text-[12px] text-fg-faint">{t("settings.text.33ce417454bf")}</div>
       ) : (
         <div className="flex flex-col gap-1.5">
           <div className="text-[12px] text-fg-muted">

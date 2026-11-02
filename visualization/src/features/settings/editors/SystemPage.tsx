@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 /**
  * System & Diagnostics settings (config-coverage §7): read-only process items
  * (endpoint listener, agent/config process fields) with their ownership
@@ -10,7 +11,6 @@ import { Badge } from "../../../components/ui/Badge";
 import { SectionCard } from "../../../components/ui/Card";
 import { isPlainRecord, savedValue } from "../draft/model";
 import { useConfigDraftStore } from "../draft/store";
-import { settingsText } from "../i18n";
 import { useSettingsUiStore } from "../uiStore";
 import { ReadOnlyValue, SettingsPageBody } from "./controls";
 
@@ -34,11 +34,11 @@ export function SystemPage() {
   return (
     <SettingsPageBody>
       <SectionCard
-        title={settingsText("Network proxy")}
-        description={settingsText("Edit the root policy and inspect effective routes on the dedicated network page.")}
+        title={t("settings.text.f9e45e2faadc")}
+        description={t("settings.text.b593c6d3e714")}
         actions={
           <button type="button" className="rounded-md bg-hover px-2 py-1 text-xs text-accent hover:bg-line-strong/60" onClick={() => navigateTo("network")}>
-            {settingsText("Open network settings")}
+            {t("settings.text.be306d24b463")}
           </button>
         }
       >
@@ -47,8 +47,8 @@ export function SystemPage() {
       <ProcessShellCard />
       <SourcesCard />
       <SectionCard
-        title={settingsText("Process-owned fields")}
-        description={settingsText("Declared by the process itself — the CLI launch, environment or overrides; they are never writable through the endpoint.")}
+        title={t("settings.text.be3124bbce14")}
+        description={t("settings.text.180cb8915259")}
       >
         <div className="flex flex-col divide-y divide-line">
           {PROCESS_FIELDS.map((path) => (
@@ -76,8 +76,8 @@ function ProcessShellCard() {
   );
   return (
     <SectionCard
-      title={settingsText("Endpoint listener")}
-      description={settingsText("Where this backend listens; the listener belongs to the process and never comes from configuration files.")}
+      title={t("settings.text.1efee9ea71b1")}
+      description={t("settings.text.5cedcebb9d42")}
       actions={<Badge tone="gray">进程管理</Badge>}
     >
       <dl className="grid grid-cols-[140px_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[12px]">
@@ -104,8 +104,8 @@ function SourcesCard() {
   const sources = useConfigDraftStore((s) => s.saved?.sources ?? []);
   return (
     <SectionCard
-      title={settingsText("Configuration sources")}
-      description={settingsText("Every source the saved view was projected from, in precedence order.")}
+      title={t("settings.text.e084fefa1f60")}
+      description={t("settings.text.679970e7e5df")}
     >
       <div className="space-y-1">
         {sources.map((source) => (

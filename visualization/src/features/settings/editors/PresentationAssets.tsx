@@ -1,7 +1,7 @@
+import { t } from "../../../i18n";
 import { useEffect, useState } from "react";
 import type { PresentationAsset } from "../../../api/v2/presentation";
 import { useConnectionStore } from "../../../store/connectionStore";
-import { settingsText } from "../i18n";
 import { usePresentationAssetUrl } from "../presentationAssets";
 
 const PREVIEW_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/bmp"]);
@@ -9,7 +9,7 @@ const PREVIEW_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/we
 export function PresentationAssets() {
   const [open, setOpen] = useState(false);
   return <details className="rounded-lg border border-line bg-bg-elev p-4" onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary className="cursor-pointer text-sm font-medium">{settingsText("Project shared assets")}</summary>
+    <summary className="cursor-pointer text-sm font-medium">{t("settings.text.7f79a2f20a7c")}</summary>
     {open && <AssetList />}
   </details>;
 }
@@ -44,13 +44,13 @@ function AssetList() {
 
   return <div className="mt-3 flex flex-col gap-3 text-xs">
     <div className="flex items-center gap-3 text-fg-muted">
-      <span>{settingsText("Files in this project's presentation/assets directory.")}</span>
-      <button type="button" className="text-accent disabled:opacity-40" disabled={!connected || loading} onClick={() => setAttempt((value) => value + 1)}>{settingsText("Refresh")}</button>
+      <span>{t("settings.text.8ac77be18723")}</span>
+      <button type="button" className="text-accent disabled:opacity-40" disabled={!connected || loading} onClick={() => setAttempt((value) => value + 1)}>{t("settings.text.56e3badc4e6c")}</button>
     </div>
-    {!connected && <p>{settingsText("Connect to read project assets.")}</p>}
-    {loading && <p>{settingsText("Loading assets…")}</p>}
+    {!connected && <p>{t("settings.text.e8ffbcd04836")}</p>}
+    {loading && <p>{t("settings.text.9bad486d23b0")}</p>}
     {error && <p role="alert" className="text-danger">{error}</p>}
-    {connected && !loading && !error && items.length === 0 && <p className="text-fg-muted">{settingsText("No shared assets. Place files in presentation/assets and refresh.")}</p>}
+    {connected && !loading && !error && items.length === 0 && <p className="text-fg-muted">{t("settings.text.af94e053b8d3")}</p>}
     <ul className="flex flex-col gap-1">
       {items.map((asset) => <li key={asset.path}>
         <button type="button" className={`flex w-full items-center justify-between gap-3 rounded px-2 py-2 text-left hover:bg-hover ${selected?.path === asset.path ? "bg-active" : ""}`}
@@ -59,11 +59,11 @@ function AssetList() {
         </button>
       </li>)}
     </ul>
-    {blob.loading && <p>{settingsText("Loading asset…")}</p>}
+    {blob.loading && <p>{t("settings.text.c30d1929edcc")}</p>}
     {blob.error && <p role="alert" className="text-danger">{blob.error}</p>}
     {selected && blob.url && <div className="flex flex-col items-start gap-2 rounded border border-line p-3">
       {PREVIEW_TYPES.has(blob.mediaType ?? "") && <img className="max-h-64 max-w-full object-contain" src={blob.url} alt={selected.path} />}
-      <a className="text-accent" href={blob.url} download={selected.path.split("/").pop()}>{settingsText("Download")}</a>
+      <a className="text-accent" href={blob.url} download={selected.path.split("/").pop()}>{t("settings.text.a479c9c34e87")}</a>
     </div>}
   </div>;
 }

@@ -1,4 +1,4 @@
-import { settingsText } from "./i18n";
+import { rawText, useI18n } from "../../i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ChevronUp, Loader2, RotateCcw, Trash2, UploadCloud } from "lucide-react";
 
@@ -22,6 +22,7 @@ import { useSettingsUiStore } from "./uiStore";
  * from `activity.can_reload`, never a guessed one.
  */
 export function SettingsBottomBar() {
+  const { t } = useI18n();
   const clients = useConnectionStore((s) => s.clients);
   const page = useSettingsUiStore((s) => s.page);
   const draftCount = useConfigDraftStore(selectDraftCount);
@@ -54,36 +55,36 @@ export function SettingsBottomBar() {
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-[12px] text-fg-muted">
         {draftCount > 0 ? (
           <span className="font-medium text-fg">
-            {draftCount} 项未保存修改
+            {t("settings.bottom.unsaved", { count: draftCount })}
           </span>
         ) : (
-          <span>没有本地修改</span>
+          <span>{t("settings.bottom.noChanges")}</span>
         )}
         {staleCount > 0 && (
           <span
             className="inline-flex items-center gap-1 text-warning"
-            title="The saved baseline changed while these entries were being edited"
+            title={t("settings.bottom.staleTitle")}
           >
-            <AlertTriangle size={12} /> {staleCount} 项基线已变化
+            <AlertTriangle size={12} /> {t("settings.bottom.stale", { count: staleCount })}
           </span>
         )}
         {issueCount > 0 && (
           <span
             className="inline-flex items-center gap-1 text-warning"
-            title="Local validation issues; apply performs the authoritative check"
+            title={t("settings.bottom.issuesTitle")}
           >
-            <AlertTriangle size={12} /> {issueCount} 项字段问题
+            <AlertTriangle size={12} /> {t("settings.bottom.issues", { count: issueCount })}
           </span>
         )}
         {blocker !== null && (draftCount > 0 || pendingReload) && (
-          <span className="text-fg-faint">{settingsText(blocker)}</span>
+          <span className="text-fg-faint">{rawText(blocker)}</span>
         )}
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
         {draftCount > 0 && <div ref={menu} className="settings-secondary-menu relative" data-open={moreOpen}>
           <button type="button" className="settings-more-actions focus-ring rounded-md px-2 py-1.5 text-[12px] text-fg-muted hover:bg-hover"
-            aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>更多操作 <ChevronUp size={12} className="inline" /></button>
+            aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>{t("settings.bottom.more")} <ChevronUp size={12} className="inline" /></button>
           <div className="settings-secondary-actions">
         <Button
           variant="ghost"
@@ -91,12 +92,12 @@ export function SettingsBottomBar() {
           disabled={pageKeys.length === 0 || busy}
           title={
             pageKeys.length === 0
-              ? "This page has no local changes to withdraw"
-              : `撤销此页面负责的 ${pageKeys.length} 项修改`
+              ? t("settings.bottom.noChanges")
+              : t("settings.bottom.withdraw", { count: pageKeys.length })
           }
           onClick={() => { resetEntries(pageKeys); setMoreOpen(false); }}
         >
-          <RotateCcw size={13} /> 重置此页
+          <RotateCcw size={13} /> {t("settings.bottom.resetPage")}
         </Button>
         <Button
           variant="ghost"
@@ -104,7 +105,7 @@ export function SettingsBottomBar() {
           disabled={draftCount === 0 || busy}
           onClick={() => { discardAll(); setMoreOpen(false); }}
         >
-          <Trash2 size={13} /> 放弃全部
+          <Trash2 size={13} /> {t("settings.bottom.discardAll")}
         </Button>
           </div>
         </div>}
@@ -114,10 +115,10 @@ export function SettingsBottomBar() {
             size="sm"
             disabled={!canApply}
             loading={applyPhase === "applying"}
-            title={settingsText(blocker ?? "保存并激活全部本地修改")}
+            title={rawText(blocker ?? t("settings.bottom.applyTitle"))}
             onClick={() => clients !== null && void applyDrafts(clients)}
           >
-            <UploadCloud size={13} /> 应用配置
+            <UploadCloud size={13} /> {t("settings.bottom.apply")}
           </Button>
         ) : (
           pendingReload && (
@@ -126,7 +127,7 @@ export function SettingsBottomBar() {
               size="sm"
               disabled={!canReload}
               loading={applyPhase === "reloading"}
-              title={settingsText(blocker ?? "激活已保存配置")}
+              title={rawText(blocker ?? t("settings.bottom.reload"))}
               onClick={() => clients !== null && void reloadSaved(clients)}
             >
               {applyPhase === "reloading" ? (
@@ -134,7 +135,7 @@ export function SettingsBottomBar() {
               ) : (
                 <UploadCloud size={13} />
               )}
-              激活已保存配置
+              {t("settings.bottom.reload")}
             </Button>
           )
         )}

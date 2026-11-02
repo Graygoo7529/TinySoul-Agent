@@ -23,7 +23,9 @@ def test_presentation_works_without_agent_binding_and_preserves_values(
         assert initial.status_code == 200
         assert not initial.json()["exists"]
         response = client.patch(
-            path, headers=_auth(), json={"changes": {"theme": "dark"}}
+            path,
+            headers=_auth(),
+            json={"changes": {"locale": "en-US", "theme": "dark"}},
         )
         assert response.status_code == 200
         parsed = PresentationConfigResponse.model_validate_json(
@@ -31,6 +33,7 @@ def test_presentation_works_without_agent_binding_and_preserves_values(
         )
         assert parsed.exists
         assert parsed.values.theme == "dark"
+        assert parsed.values.locale == "en-US"
         assert (tmp_path / "presentation/configs/interface.toml").is_file()
         second = client.patch(
             path, headers=_auth(), json={"changes": {"font_size": 16}}
@@ -42,6 +45,7 @@ def test_presentation_works_without_agent_binding_and_preserves_values(
             == 404
         )
         for changes in (
+            {"locale": "fr-FR"},
             {"theme": None},
             {"font_size": True},
             {"font_size": 30},

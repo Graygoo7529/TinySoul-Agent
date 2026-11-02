@@ -1,5 +1,6 @@
 /** Project-scoped presentation contracts; independent of Agent generation/day. */
 export interface InterfaceSettings {
+  locale: "zh-CN" | "en-US";
   theme: "light" | "dark";
   font_sans: "inter" | "system" | "serif";
   font_mono: "jetbrains" | "system" | "cascadia";

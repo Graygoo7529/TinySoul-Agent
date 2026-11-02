@@ -41,6 +41,11 @@ class ThemeMode(StrEnum):
     DARK = "dark"
 
 
+class InterfaceLocale(StrEnum):
+    ZH_CN = "zh-CN"
+    EN_US = "en-US"
+
+
 class SansFont(StrEnum):
     INTER = "inter"
     SYSTEM = "system"
@@ -78,6 +83,7 @@ def _enum[E: StrEnum](kind: type[E], value: object, field: str) -> E:
 
 @dataclass(frozen=True)
 class InterfaceSettings:
+    locale: InterfaceLocale = InterfaceLocale.ZH_CN
     theme: ThemeMode = ThemeMode.LIGHT
     font_sans: SansFont = SansFont.INTER
     font_mono: MonoFont = MonoFont.JETBRAINS
@@ -88,6 +94,7 @@ class InterfaceSettings:
 
     def __post_init__(self) -> None:
         for name, kind in (
+            ("locale", InterfaceLocale),
             ("theme", ThemeMode),
             ("font_sans", SansFont),
             ("font_mono", MonoFont),
@@ -122,6 +129,7 @@ class InterfaceSettings:
         if not isinstance(motion, bool):
             raise _invalid("reduced_motion")
         return cls(
+            locale=_enum(InterfaceLocale, data.get("locale", defaults.locale), "locale"),
             theme=_enum(ThemeMode, data.get("theme", defaults.theme), "theme"),
             font_sans=_enum(
                 SansFont, data.get("font_sans", defaults.font_sans), "font_sans"
@@ -139,6 +147,7 @@ class InterfaceSettings:
 
     def to_json(self) -> JsonObject:
         return {
+            "locale": self.locale.value,
             "theme": self.theme.value,
             "font_sans": self.font_sans.value,
             "font_mono": self.font_mono.value,
@@ -151,6 +160,7 @@ class InterfaceSettings:
 
 @dataclass(frozen=True)
 class InterfaceSettingsPatch:
+    locale: InterfaceLocale | None = None
     theme: ThemeMode | None = None
     font_sans: SansFont | None = None
     font_mono: MonoFont | None = None
@@ -165,6 +175,7 @@ class InterfaceSettingsPatch:
     def apply(self, settings: InterfaceSettings) -> InterfaceSettings:
         return replace(
             settings,
+            locale=self.locale if self.locale is not None else settings.locale,
             theme=self.theme if self.theme is not None else settings.theme,
             font_sans=self.font_sans
             if self.font_sans is not None

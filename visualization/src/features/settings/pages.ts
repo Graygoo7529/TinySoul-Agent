@@ -1,3 +1,4 @@
+import { localizeCollection, localizeDocument, localizeField } from "../../i18n";
 /**
  * Settings page registry (implementation plan §15, P10): the six Agent
  * settings groups plus the interface entry, every page's ownership of config
@@ -21,7 +22,6 @@
 import { isFieldDraft, type DraftEntry } from "./draft/model";
 import type { SettingsCatalog } from "./draft/catalog";
 import { DOTENV_SOURCE_ID } from "./draft/fields";
-import { localizeDocument, localizeField, settingsText } from "./i18n";
 
 export type SettingsGroupId =
   | "overview"
@@ -427,7 +427,8 @@ export function searchConfig(
     });
   }
   for (const collection of catalog.collections) {
-    if (!matches(collection.id, collection.root, collection.title, collection.description, settingsText(collection.title), settingsText(collection.description))) {
+    const localized = localizeCollection(collection);
+    if (!matches(collection.id, collection.root, collection.title, collection.description, localized.title, localized.description)) {
       continue;
     }
     const page = pageForPath(collection.root) ?? pageForSurface(collection.surface);
@@ -435,7 +436,7 @@ export function searchConfig(
     hits.push({
       id: `collection:${collection.id}`,
       kind: "collection",
-      title: settingsText(collection.title),
+      title: localized.title,
       path: collection.root,
       subtitle: collection.root,
       page: page.id,

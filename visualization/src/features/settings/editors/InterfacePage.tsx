@@ -1,4 +1,4 @@
-import { settingsText } from "../i18n";
+import { rawText, useI18n } from "../../../i18n";
 /** Shared project interface settings, saved independently of Agent configuration. */
 
 import { useEffect, useState, type ReactNode } from "react";
@@ -10,6 +10,7 @@ import {
   LINE_HEIGHT_RANGE,
   useUiPrefsStore,
   useUiPrefs,
+  type LocaleChoice,
   type ThemeMode,
   type DensityChoice,
   type MonoFontChoice,
@@ -25,7 +26,7 @@ import {
 import { PresentationAssets } from "./PresentationAssets";
 
 const SANS_OPTIONS: { value: SansFontChoice; label: string }[] = [
-  { value: "inter", label: "Inter (default)" },
+  { value: "inter", label: "Inter" },
   { value: "system", label: "System" },
   { value: "serif", label: "Serif" },
 ];
@@ -48,6 +49,7 @@ const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
 ];
 
 export function InterfacePage() {
+  const { t } = useI18n();
   const prefs = useUiPrefs();
   const state = useUiPrefsStore();
   const connected = useConnectionStore((s) => s.phase === "connected" && !s.unreachable);
@@ -58,30 +60,46 @@ export function InterfacePage() {
   return (
     <SettingsPageBody>
       <div className="rounded-lg border border-line bg-bg-elev px-3.5 py-2.5 text-[12px] leading-5 text-fg-muted">
-        {settingsText("Saved in this project. This interface updates immediately; other clients update when they read the settings again.")}
+        {t("settings.text.29310f302509")}
         <div className="mt-2 flex flex-wrap items-center gap-3" aria-live="polite">
-          <span>{settingsText(!connected ? "Connect to edit shared interface settings."
-            : state.phase === "loading" ? "Loading interface settings…"
-            : state.loadError ? "Interface settings could not be loaded."
-            : state.saving ? "Saving interface settings…"
-            : state.saveError ? "Interface settings could not be saved."
-            : state.phase === "ready" ? "Saved to project" : "Waiting for interface settings…")}</span>
+          <span>{!connected ? t("settings.text.d02b78ed97cc")
+            : state.phase === "loading" ? t("settings.text.1a0c4ca8917a")
+            : state.loadError ? t("settings.text.24446863c2dc")
+            : state.saving ? t("settings.text.de70e750bd54")
+            : state.saveError ? t("settings.text.6dfc76c8b8cc")
+            : state.phase === "ready" ? t("settings.text.bc46e103d1fe") : t("settings.text.1eaed6a80143")}</span>
           <button type="button" className="text-accent disabled:opacity-40" disabled={!connected || state.saving || state.phase === "loading"}
             onClick={() => void refreshInterface(Object.keys(state.pending).length > 0)}>
-            {settingsText(Object.keys(state.pending).length > 0 ? "Discard changes and reload" : "Refresh")}
+            {Object.keys(state.pending).length > 0 ? t("settings.text.abf21fc0bb51") : t("settings.text.56e3badc4e6c")}
           </button>
           {state.saveError && <button type="button" className="text-accent disabled:opacity-40" disabled={disabled || state.saving}
-            onClick={() => void retryInterfaceSave()}>{settingsText("Retry saving")}</button>}
+            onClick={() => void retryInterfaceSave()}>{t("settings.text.71e1aa94f815")}</button>}
         </div>
         {(state.loadError || state.saveError) && <p className="mt-1 text-danger" role="alert">{state.loadError ?? state.saveError}</p>}
       </div>
 
       <fieldset disabled={disabled} className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0 disabled:opacity-50">
 
-        <SectionCard title={settingsText("Appearance")} description={settingsText("Theme of the whole interface.")}>
-          <PrefRow label={settingsText("Theme")}>
+        <SectionCard title={t("settings.language")} description={t("settings.languageDescription")}>
+          <PrefRow label={t("settings.language")}>
             <Segmented
-              options={THEME_OPTIONS}
+              options={[
+                { value: "zh-CN" as LocaleChoice, label: t("settings.locale.zhCN") },
+                { value: "en-US" as LocaleChoice, label: t("settings.locale.enUS") },
+              ]}
+              value={prefs.locale}
+              onChange={(next) => setInterfacePref("locale", next)}
+            />
+          </PrefRow>
+        </SectionCard>
+
+        <SectionCard title={t("settings.text.41def7a0febe")} description={t("settings.text.95c25478805a")}>
+          <PrefRow label={t("settings.text.a797e30923ac")}>
+            <Segmented
+              options={THEME_OPTIONS.map((option) => ({
+                ...option,
+                label: option.value === "light" ? t("settings.theme.light") : t("settings.theme.dark"),
+              }))}
               value={prefs.theme}
               onChange={(next) => setInterfacePref("theme", next)}
             />
@@ -89,20 +107,23 @@ export function InterfacePage() {
         </SectionCard>
 
         <SectionCard
-          title={settingsText("Typography")}
-          description={settingsText("Reading fonts, size and line height across the app.")}
+          title={t("settings.text.f4beb9af58f7")}
+          description={t("settings.text.f8f238985db4")}
         >
           <PrefRow
-            label={settingsText("Interface font")}
+            label={t("settings.text.30c49d756643")}
             preview={<FontPreview family="var(--font-sans)" mono={false} />}
           >
             <SelectControl
-              options={SANS_OPTIONS}
+              options={SANS_OPTIONS.map((option) => ({
+                ...option,
+                label: t(`settings.font.${option.value}` as "settings.font.inter" | "settings.font.system" | "settings.font.serif"),
+              }))}
               value={prefs.fontSans}
               onChange={(next) => setInterfacePref("fontSans", next as SansFontChoice)}
             />
           </PrefRow>
-          <PrefRow label={settingsText("Font size")} description={`${FONT_SIZE_RANGE.min}–${FONT_SIZE_RANGE.max}px`}>
+          <PrefRow label={t("settings.text.83ca9e48c37c")} description={`${FONT_SIZE_RANGE.min}–${FONT_SIZE_RANGE.max}px`}>
             <NumberControl
               value={prefs.fontSize}
               min={FONT_SIZE_RANGE.min}
@@ -112,7 +133,7 @@ export function InterfacePage() {
             />
           </PrefRow>
           <PrefRow
-            label={settingsText("Line height")}
+            label={t("settings.text.65be5133e74b")}
             description={`${LINE_HEIGHT_RANGE.min}–${LINE_HEIGHT_RANGE.max}`}
           >
             <NumberControl
@@ -124,11 +145,14 @@ export function InterfacePage() {
             />
           </PrefRow>
           <PrefRow
-            label={settingsText("Code font")}
+            label={t("settings.text.fd3f96571839")}
             preview={<FontPreview family="var(--font-mono)" mono />}
           >
             <SelectControl
-              options={MONO_OPTIONS}
+              options={MONO_OPTIONS.map((option) => ({
+                ...option,
+                label: option.value === "jetbrains" ? t("settings.font.jetbrains") : option.value === "system" ? t("settings.font.monoSystem") : t("settings.font.cascadia"),
+              }))}
               value={prefs.fontMono}
               onChange={(next) => setInterfacePref("fontMono", next as MonoFontChoice)}
             />
@@ -136,19 +160,22 @@ export function InterfacePage() {
         </SectionCard>
 
         <SectionCard
-          title={settingsText("Layout & Motion")}
-          description={settingsText("Spacing density and animation behavior.")}
+          title={t("settings.text.d7da6355bb6b")}
+          description={t("settings.text.a306fe6bfa67")}
         >
-          <PrefRow label={settingsText("Density")}>
+          <PrefRow label={t("settings.text.f9160c22f517")}>
             <Segmented
-              options={DENSITY_OPTIONS}
+              options={DENSITY_OPTIONS.map((option) => ({
+                ...option,
+                label: t(`settings.density.${option.value}` as "settings.density.compact" | "settings.density.comfortable" | "settings.density.roomy"),
+              }))}
               value={prefs.density}
               onChange={(next) => setInterfacePref("density", next)}
             />
           </PrefRow>
           <PrefRow
-            label={settingsText("Reduce motion")}
-            description={settingsText("Minimizes animations and transitions across the interface.")}
+            label={t("settings.text.25a5aef56243")}
+            description={t("settings.text.34634c2542e0")}
           >
             <PreferenceSwitch
               on={prefs.reducedMotion}
@@ -162,7 +189,7 @@ export function InterfacePage() {
             type="button"
             className="h-8 rounded-lg border border-line bg-bg-elev px-3 text-[13px] font-medium text-fg hover:border-line-strong hover:bg-hover"
             onClick={resetInterfaceDefaults}
-          >{settingsText("Reset project interface defaults")}</button>
+          >{t("settings.text.05420d7f6eb5")}</button>
         </div>
       </fieldset>
       <PresentationAssets />
@@ -184,7 +211,7 @@ function PrefRow({
   return (
     <div className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
       <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium text-fg">{settingsText(label)}</div>
+        <div className="text-[13px] font-medium text-fg">{rawText(label)}</div>
         {description !== undefined && (
           <div className="mt-0.5 text-[11px] text-fg-muted">{description}</div>
         )}
@@ -228,7 +255,7 @@ function Segmented<T extends string>({
               : "bg-bg-elev text-fg-muted hover:bg-hover hover:text-fg"
           }`}
         >
-          {settingsText(option.label)}
+          {rawText(option.label)}
         </button>
       ))}
     </span>
@@ -252,7 +279,7 @@ function SelectControl<T extends string>({
     >
       {options.map((option) => (
         <option key={option.value} value={option.value}>
-          {settingsText(option.label)}
+          {rawText(option.label)}
         </option>
       ))}
     </select>

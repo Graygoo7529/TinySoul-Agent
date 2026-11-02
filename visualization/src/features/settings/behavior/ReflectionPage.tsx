@@ -1,4 +1,4 @@
-import { settingsText } from "../i18n";
+import { t } from "../../../i18n";
 /**
  * Reflection Schedule settings page (config-coverage §3.5): the daily
  * reflection switch, its local wall-clock time, the business timezone and the
@@ -20,14 +20,14 @@ export function ReflectionPage() {
   return (
     <SettingsPageBody>
       <SectionCard
-        title={settingsText("Manual Reflections")}
-        description={settingsText("Reviewing and accepting Home or Memory changes on demand.")}
+        title={t("settings.text.dd93a5c7b77e")}
+        description={t("settings.text.ccf610176e56")}
       >
-        <div className="px-4 py-3 text-[12px] leading-5 text-fg-muted">{settingsText("To start one reflection right away, use the Home or Memory page, where the pending review scope is visible. This page only configures when the scheduler may enqueue the daily reflection work.")}</div>
+        <div className="px-4 py-3 text-[12px] leading-5 text-fg-muted">{t("settings.text.01758597f026")}</div>
       </SectionCard>
       <FieldSection
-        title={settingsText("Daily Schedule")}
-        description={settingsText("When the daily Home and Memory reflections run, in the business timezone.")}
+        title={t("settings.text.81b507f7c2b9")}
+        description={t("settings.text.15fe4e96ea47")}
         paths={[
           "reflection.schedule.enabled",
           "reflection.schedule.daily_time",
@@ -95,7 +95,7 @@ function DailyTimeControl({ api }: { api: DraftFieldApi }) {
         }}
       />
       {invalid && (
-        <span className="text-[11px] whitespace-nowrap text-danger">{settingsText("Use HH:MM (24-hour).")}</span>
+        <span className="text-[11px] whitespace-nowrap text-danger">{t("settings.text.4af7e0177b20")}</span>
       )}
     </span>
   );

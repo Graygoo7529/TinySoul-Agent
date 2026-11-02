@@ -50,8 +50,10 @@ Action 页面先显示情景下的可用状态、用途和模型绑定，再显�
 
 扩展分组折叠时保持输入挂载，标题显示本地修改或字段问题；错误及字段定位自动展开对应分组。搜索定位先展开再滚动，定位高亮随后消退。配置标识、完整路径、只读原因和原始诊断仍可按需查看。
 
-## 中文呈现
+## 共享语言与本地化
 
-页面分组与用途说明由 `labels.ts` 提供，`i18n/` 维护中文 UI 文案和 catalog 字段映射。先匹配后端实际声明的字段，再翻译标题、说明和枚举显示标签；Action 文档按 document kind/path 映射。映射不增加字段、默认值或校验规则。
+界面页同时维护项目共享的 `locale`、主题、字体、字号、行高、密度及减少动画设置。`locale` 只有 `zh-CN` 和 `en-US` 两个值，默认固定为 `zh-CN`，保存到 PresentationService 的 `presentation/configs/interface.toml`；它不进入 Agent 配置、连接凭据或浏览器本地连接目标。修改后当前客户端立即预览，其它客户端在重新读取项目展示配置后更新。
 
-搜索同时索引中文、后端原文与稳定路径。没有翻译的新字段回退为原文；后端动态错误保留原始诊断。协议 ID、路径、provider/model/action 名称、枚举 value 和用户输入均不翻译。增加字段时可在 `catalog.zh-CN.ts` 补充标题与说明；页面固定文案在 `ui.zh-CN.ts` 维护。
+前端固定文案集中在 `visualization/src/i18n/`，以稳定 message ID 组织双语字典；Settings 页面和导航通过页面/分组 ID 找到对应文案。ConfigCatalog 的字段、文档字段、surface、field group、collection 和 choice 使用后端声明的稳定 path/id/value 做中文显示投影。英文直接使用后端当前 source catalog，中文没有登记的身份回退 source 文本。搜索同时索引源文本、本地化文本与稳定路径。
+
+Action semantic、模型/provider/action 名称、配置值、路径、引用、用户输入、Agent 回答和后端错误详情都是动态内容，保持原样。稳定协议 code/value 可以显示前端固定摘要；未知 code 使用后端原始 message。字典不生成配置 schema、默认值或校验规则；新增 catalog 条目可以先回退，不需要为可编辑内容更新测试快照。

@@ -16,6 +16,7 @@ GET 返回：
 
 | values/defaults 字段 | 允许值 |
 | --- | --- |
+| `locale` | `zh-CN` / `en-US`（默认 `zh-CN`） |
 | `theme` | `light` / `dark` |
 | `font_sans` | `inter` / `system` / `serif` |
 | `font_mono` | `jetbrains` / `system` / `cascadia` |

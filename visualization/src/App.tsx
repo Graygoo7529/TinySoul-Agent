@@ -19,6 +19,7 @@ export default function App() {
   // Project interface values and pending edits share the same CSS projection.
   useEffect(() => {
     applyUiPrefsToDocument(uiPrefs);
+    document.documentElement.lang = uiPrefs.locale;
   }, [uiPrefs]);
 
   useEffect(() => {

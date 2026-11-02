@@ -1,3 +1,4 @@
+import { t, rawText } from "../../../i18n";
 import { useEffect, useState } from "react";
 import { Pencil, Plus, Trash2, UploadCloud } from "lucide-react";
 import { isTinySoulApiError } from "../../../api/v2/errors";
@@ -10,7 +11,6 @@ import { useConnectionStore } from "../../../store/connectionStore";
 import { activationBlocker, selectDraftCount, useConfigDraftStore } from "../draft/store";
 import { useSettingsUiStore } from "../uiStore";
 import { pageForPath } from "../pages";
-import { settingsText } from "../i18n";
 import { createPreset, deletePreset, recapturePreset, renamePreset } from "./presetsController";
 import { usePresetApplyFlow } from "./PresetApplyDialog";
 import { PresetChanges, PresetContent } from "./PresetChanges";
@@ -82,7 +82,7 @@ function PlanDetail({ preset }: { preset: PresetSummary }) {
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="primary" size="sm" disabled={!clients || blocker !== null || applying} loading={applying} onClick={() => requestApply(preset)}><UploadCloud size={13} />应用方案</Button>
         {preset.matches_current && <Badge tone="green">匹配当前配置</Badge>}
-        {blocker && <span className="text-[11px] text-warning">{settingsText(blocker)}</span>}
+        {blocker && <span className="text-[11px] text-warning">{rawText(blocker)}</span>}
       </div>
       {issues.map((issue, index) => {
         const owner = issue.key ? pageForPath(issue.key) : null;
@@ -160,7 +160,7 @@ function RenameDialog({
   return (
     <Modal title={`重命名 · ${preset.name}`} onClose={onClose}>
       <div className="flex flex-col gap-3">
-        <label className="flex flex-col gap-1 text-[12px] text-fg-muted">{settingsText("Name")}<input
+        <label className="flex flex-col gap-1 text-[12px] text-fg-muted">{t("settings.text.709a23220f2c")}<input
             type="text"
             autoFocus
             aria-label="Plan name"
@@ -169,7 +169,7 @@ function RenameDialog({
             onChange={(event) => setName(event.target.value)}
           />
         </label>
-        <label className="flex flex-col gap-1 text-[12px] text-fg-muted">{settingsText("Description")}<span className="text-fg-faint">{settingsText("(optional)")}</span>
+        <label className="flex flex-col gap-1 text-[12px] text-fg-muted">{t("settings.text.55f8ebc805e6")}<span className="text-fg-faint">{t("settings.text.b16c7ac6faff")}</span>
           <input
             type="text"
             className="h-8 rounded-md border border-line bg-bg px-2 text-[12.5px] text-fg outline-none focus:border-accent"
@@ -177,9 +177,9 @@ function RenameDialog({
             onChange={(event) => setDescription(event.target.value)}
           />
         </label>
-        <div className="text-[11px] leading-4 text-fg-faint">{settingsText("Renaming never re-captures: the stored definition stays as it is.")}</div>
+        <div className="text-[11px] leading-4 text-fg-faint">{t("settings.text.e212bfe39c3b")}</div>
         <div className="mt-1 flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={onClose}>{settingsText("Cancel")}</Button>
+          <Button variant="ghost" size="sm" onClick={onClose}>{t("settings.text.77dfd2135f4d")}</Button>
           <Button
             variant="primary"
             size="sm"
@@ -195,7 +195,7 @@ function RenameDialog({
                 },
               );
             }}
-          >{settingsText("Save")}</Button>
+          >{t("settings.text.efc007a393f6")}</Button>
         </div>
       </div>
     </Modal>
@@ -218,7 +218,7 @@ function DeleteDialog({
         确认删除方案“{preset.name}”？此操作只删除方案记录。
       </div>
       <div className="mt-4 flex justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={onClose}>{settingsText("Cancel")}</Button>
+        <Button variant="ghost" size="sm" onClick={onClose}>{t("settings.text.77dfd2135f4d")}</Button>
         <Button
           variant="danger"
           size="sm"
@@ -232,7 +232,7 @@ function DeleteDialog({
               if (ok) onClose();
             });
           }}
-        >{settingsText("Delete plan")}</Button>
+        >{t("settings.text.9c83b6616fbf")}</Button>
       </div>
     </Modal>
   );

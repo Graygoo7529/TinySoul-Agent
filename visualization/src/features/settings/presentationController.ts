@@ -1,3 +1,5 @@
+import { t, tError } from "../../i18n";
+import { isTinySoulApiError } from "../../api/v2/errors";
 /** One project-scoped read/save flow shared by the shell and settings page. */
 import { useAppStore } from "../../store/appStore";
 import { useConnectionStore } from "../../store/connectionStore";
@@ -8,7 +10,6 @@ import {
   useUiPrefsStore,
   type UiPrefs,
 } from "../../store/uiPrefsStore";
-import { settingsText } from "./i18n";
 
 let readRequest: AbortController | null = null;
 let writeRequest: AbortController | null = null;
@@ -18,6 +19,7 @@ function current(epoch: number, request: AbortController): boolean {
 }
 
 function errorMessage(error: unknown): string {
+  if (isTinySoulApiError(error)) return tError(error.code, error.message);
   return error instanceof Error ? error.message : String(error);
 }
 
@@ -101,8 +103,8 @@ async function savePendingInterface(): Promise<void> {
     if (!current(epoch, request)) return;
     const message = errorMessage(error);
     useUiPrefsStore.setState({ saveError: message });
-    useAppStore.getState().pushToast("error", `${settingsText("Interface settings could not be saved.")} ${message}`, {
-      label: settingsText("Retry saving"),
+    useAppStore.getState().pushToast("error", `${t("settings.text.6dfc76c8b8cc")} ${message}`, {
+      label: t("settings.text.71e1aa94f815"),
       onClick: () => {
         if (useConnectionStore.getState().epoch === epoch) void retryInterfaceSave();
       },

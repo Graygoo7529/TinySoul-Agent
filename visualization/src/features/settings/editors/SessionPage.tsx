@@ -1,4 +1,4 @@
-import { settingsText } from "../i18n";
+import { t } from "../../../i18n";
 /**
  * Session settings (config-coverage §5.2): the daily session root and inspect
  * limits. The background budget is owned by Data & Knowledge → Context; this
@@ -19,7 +19,7 @@ export function SessionPage() {
       <BackgroundBudgetRow />
       <FieldSection
         title="Session"
-        description={settingsText("Daily session facts and the semantic map.")}
+        description={t("settings.text.518280d91783")}
         paths={["session.root", "session.max_inspect_chars"]}
         overrides={{
           "session.max_inspect_chars": { min: 1 },
@@ -34,14 +34,14 @@ function BackgroundBudgetRow() {
   const active = useConfigDraftStore((s) => s.active);
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
   return (
-    <SectionCard title={settingsText("Background Budget")} description={settingsText("The Context page owns the shared Session background projection budget.")}>
+    <SectionCard title={t("settings.text.56b8d2c86025")} description={t("settings.text.138cadb51397")}>
       <div className="flex items-center gap-3">
         <span className="text-[13px] font-medium text-fg">session.max_background_chars</span>
         <Badge tone="gray">由 Context 管理</Badge>
         <span className="ml-auto flex items-center gap-3">
           <span className="font-mono text-[12px] text-fg-muted">saved {valuePreview(savedValue(saved, "session.max_background_chars"))}{" · "}running {valuePreview(activeValue(active, "session.max_background_chars"))}</span>
           <button type="button" className="flex items-center gap-1 text-[12px] font-medium text-accent hover:underline" onClick={() => navigateTo("context", "session.max_background_chars")}>
-            {settingsText("Edit in Context")}<ArrowRight size={12} />
+            {t("settings.text.7bc633796227")}<ArrowRight size={12} />
           </button>
         </span>
       </div>

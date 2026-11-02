@@ -1,7 +1,8 @@
 # Project presentation
 
-`configs/interface.toml` stores the project's shared theme, typography, density,
-and motion preferences. The interface saves these settings through the backend
+`configs/interface.toml` stores the project's shared language (`zh-CN` by
+default or `en-US`), theme, typography, density, and motion preferences. The
+interface saves these settings through the backend
 and applies them immediately. Other clients read the shared settings when they
 connect, reopen the interface settings, or refresh. Agent reload is unnecessary.
 

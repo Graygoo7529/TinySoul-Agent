@@ -1,5 +1,5 @@
+import { t, rawText, translatedField as matchField } from "../../../i18n";
 import { ModelSelectionList } from "./ModelPicker";
-import { settingsText } from "../i18n";
 import { SettingsDisclosure } from "../SettingsDisclosure";
 import { useConnectionStore } from "../../../store/connectionStore";
 /**
@@ -33,7 +33,6 @@ import {
   type CatalogField,
   type SettingsCatalog,
 } from "../draft/catalog";
-import { translatedField as matchField } from "../i18n";
 import { useSettingsUiStore } from "../uiStore";
 import {
   cloneJsonValue,
@@ -145,7 +144,7 @@ export function LlmModelsPage() {
   return (
     <>
       <ObjectEditorLayout
-        title={settingsText("Models")}
+        title={t("settings.text.f3798f81c7b6")}
         description={
           collection?.description ??
           "Provider models with capabilities and request options."
@@ -186,7 +185,7 @@ export function LlmModelsPage() {
                 }
                 onClick={() => setRenaming(current)}
               >
-                <Pencil size={13} />{settingsText("Rename")}</Button>
+                <Pencil size={13} />{t("settings.text.d3f4cb898fbe")}</Button>
               <Button
                 size="xs"
                 variant="danger"
@@ -198,14 +197,14 @@ export function LlmModelsPage() {
                 }
                 onClick={() => setDeleting(current)}
               >
-                <Trash2 size={13} />{settingsText("Delete")}</Button>
+                <Trash2 size={13} />{t("settings.text.f6fdbe48dc54")}</Button>
             </>
           )
         }
       >
         {current !== null && (
           <fieldset disabled={writeSource === null}>
-            {writeSource === null && <p className="p-3 text-xs text-fg-muted">{settingsText("No writable project source holds this model.")}</p>}
+            {writeSource === null && <p className="p-3 text-xs text-fg-muted">{t("settings.text.d713d9d0123b")}</p>}
             <ModelEditor object={current} providers={providers} writeSource={writeSource} />
           </fieldset>
         )}
@@ -330,17 +329,17 @@ function NewModelModal({
       <div className="space-y-3">
         <TextInput ariaLabel="Model ID" value={id} onCommit={setId} placeholder="gpt-latest" mono />
         {idError !== null && <div className="text-[10px] text-danger">{idError}</div>}
-        <SelectInput ariaLabel="Family" value={family} options={[{ value: "", label: settingsText("Choose existing family") }, ...families.map((item) => ({ value: item, label: item })), { value: "__new__", label: settingsText("New family?") }]} onChange={(value) => { setFamily(value); setNewFamilyFile(""); }} />
+        <SelectInput ariaLabel="Family" value={family} options={[{ value: "", label: t("settings.text.0fe3b8a9c6a2") }, ...families.map((item) => ({ value: item, label: item })), { value: "__new__", label: t("settings.text.a6c00876825b") }]} onChange={(value) => { setFamily(value); setNewFamilyFile(""); }} />
         {family === "__new__" && <TextInput ariaLabel="New family" value={newFamily} onCommit={setNewFamily} placeholder="Qwen" />}
         {target.usesFileName && <TextInput ariaLabel="Family TOML file" value={newFamilyFile} onCommit={setNewFamilyFile} placeholder={familyFileName(chosenFamily) || "qwen"} mono />}
-        {target.kind === "invalid" && <div className="text-[10px] text-danger">{settingsText(target.message)}</div>}
-        <SelectInput ariaLabel="Adapter" value={adapter} options={[{ value: "", label: settingsText("Choose adapter") }, ...adapterChoices]} onChange={setAdapter} />
-        <SelectInput ariaLabel="Provider" value={providerId} options={[{ value: "", label: settingsText("Choose provider") }, ...matchingProviders.map((item) => ({ value: item.id, label: item.id }))]} onChange={(value) => { setProviderId(value); setProviderModel(""); }} />
-        {adapter !== "" && matchingProviders.length === 0 && <div className="text-[10px] text-fg-muted">{settingsText("Add a compatible provider on the Providers page.")}</div>}
+        {target.kind === "invalid" && <div className="text-[10px] text-danger">{rawText(target.message)}</div>}
+        <SelectInput ariaLabel="Adapter" value={adapter} options={[{ value: "", label: t("settings.text.f322ba4e158f") }, ...adapterChoices]} onChange={setAdapter} />
+        <SelectInput ariaLabel="Provider" value={providerId} options={[{ value: "", label: t("settings.text.135a38f77646") }, ...matchingProviders.map((item) => ({ value: item.id, label: item.id }))]} onChange={(value) => { setProviderId(value); setProviderModel(""); }} />
+        {adapter !== "" && matchingProviders.length === 0 && <div className="text-[10px] text-fg-muted">{t("settings.text.dd50eda219a3")}</div>}
         <TextInput ariaLabel="Provider model" value={providerModel} onCommit={setProviderModel} placeholder="Remote model name" mono />
         {target.kind === "ready" && <div className="text-[11px] text-fg-faint">配置文件：{target.sourceId.replace(/^project:/, "")}</div>}
         <div className="flex justify-end gap-2 border-t border-line pt-3">
-          <Button size="xs" variant="ghost" onClick={onClose}>{settingsText("Cancel")}</Button>
+          <Button size="xs" variant="ghost" onClick={onClose}>{t("settings.text.77dfd2135f4d")}</Button>
           <Button size="xs" variant="primary" disabled={!valid} onClick={() => {
             if (target.kind !== "ready") return;
             const value = blankModelValue(adapter, providerId, template, catalog);
@@ -431,8 +430,8 @@ function ModelEditor({
   return (
     <div>
       <FieldSection
-        title={settingsText("Identity")}
-        description={settingsText("How this model is reached and where it appears in the model list.")}
+        title={t("settings.text.7e5a975b6add")}
+        description={t("settings.text.9fd28be0ef27")}
       >
         <FieldRow
           title={adapterField.meta?.title ?? "Adapter"}
@@ -477,8 +476,8 @@ function ModelEditor({
       />
 
       <FieldSection
-        title={settingsText("Capabilities")}
-        description={settingsText("What TinySoul may rely on when routing tasks to this model.")}
+        title={t("settings.text.ca09c54bff74")}
+        description={t("settings.text.c940c4b62970")}
       >
         <FieldRow
           title={field("context_window_tokens").meta?.title ?? "Context Window"}
@@ -508,10 +507,10 @@ function ModelEditor({
           />
         </FieldRow>
         <Button variant="ghost" size="sm" onClick={() => navigateTo("context")}>
-          {settingsText("Configure the global window limit")}
+          {t("settings.text.b17eda836406")}
         </Button>
         <FieldRow
-          title={settingsText("Feature capabilities")}
+          title={t("settings.text.b7141c4a25c0")}
           description={field("capabilities").meta?.description}
           dirty={field("capabilities").dirty}
         >
@@ -683,7 +682,7 @@ function ProviderChainSection({
   return (
     <FieldSection
       title={meta?.title ?? "Provider Chain"}
-      description={settingsText("Try providers in order for this model. A successful backup provider is preferred temporarily before returning to the chain head.")}
+      description={t("settings.text.71aaa0036e64")}
       meta={<Badge>{rows.length}</Badge>}
     >
       <div className="space-y-1.5 px-5 py-3">
@@ -747,7 +746,7 @@ function ProviderChainSection({
           </OrderableRow>
         ))}
         {rows.length === 0 && (
-          <div className="text-[11px] text-danger">{settingsText("The chain is empty — this model cannot be called.")}</div>
+          <div className="text-[11px] text-danger">{t("settings.text.986e941a64fe")}</div>
         )}
         {available.length === 0 && (
           <div className="flex items-center gap-1.5 text-[11px] text-danger">
@@ -762,7 +761,7 @@ function ProviderChainSection({
               lock !== null || available.length <= rows.length || available.length === 0
             }
             onClick={addRow}
-          >{settingsText("Add provider")}</Button>
+          >{t("settings.text.519221629b8c")}</Button>
         </OrderableListFooter>
       </div>
     </FieldSection>
@@ -827,8 +826,8 @@ function AdapterOptionsSection({
 
   return (
     <FieldSection
-      title={settingsText("Adapter Options")}
-      description={settingsText("Adapter-specific request behavior. Only options the selected adapter and variant understand are offered; unset options keep the adapter default.")}
+      title={t("settings.text.5bd1d1d5b687")}
+      description={t("settings.text.581ab50dbcbc")}
     >
       {rule === null ? (
         <div className="px-5 py-3 text-[11px] text-fg-faint">
@@ -956,7 +955,7 @@ function AdapterOptionsSection({
                 }}
                 className={`${selectClass} max-w-56`}
               >
-                <option value="">{settingsText("Select option…")}</option>
+                <option value="">{t("settings.text.e1935f1e0c47")}</option>
                 {addable.map((key) => (
                   <option key={key} value={key}>
                     {optionMeta(key)?.title ?? key}
@@ -1033,7 +1032,7 @@ function AdapterOptionRow({
           {meta?.title ?? optionKey}
           {rule && <Badge tone="gray">{rule.source === "api-mode" ? "API" : rule.source === "variant" ? "变体" : "专属"}</Badge>}
           {unknown && (
-            <Badge tone="yellow" title="Not used by the current adapter/variant">{settingsText("unused")}</Badge>
+            <Badge tone="yellow" title="Not used by the current adapter/variant">{t("settings.text.ce7501007f04")}</Badge>
           )}
         </span>
       }
@@ -1221,14 +1220,14 @@ function RequestOverridesSection({
               />
             ) : (
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] text-fg-faint">{settingsText("Inherits the task chain")}</span>
+                <span className="text-[11px] text-fg-faint">{t("settings.text.dc89ba8d40b0")}</span>
                 <Button
                   size="xs"
                   variant="outline"
                   onClick={() =>
                     setObjectField(ROOT, object, subpath, fallback, writeSource)
                   }
-                >{settingsText("Set override")}</Button>
+                >{t("settings.text.6986f84deb75")}</Button>
               </div>
             )}
           </FieldRow>
@@ -1284,7 +1283,7 @@ function AdapterChangeModal({
           兼容的提供方绑定会保留；没有可保留的绑定时，使用下方选择的提供方。
         </p>
         <label className="block">
-          <span className="mb-1.5 block text-[11px] font-medium text-fg-muted">{settingsText("Provider")}</span>
+          <span className="mb-1.5 block text-[11px] font-medium text-fg-muted">{t("settings.text.7ceee3f3615a")}</span>
           <select
             aria-label="Provider for target adapter"
             value={providerId}
@@ -1299,7 +1298,7 @@ function AdapterChangeModal({
           </select>
         </label>
         <div className="flex justify-end gap-2 border-t border-line pt-3">
-          <Button size="xs" variant="ghost" onClick={onClose}>{settingsText("Cancel")}</Button>
+          <Button size="xs" variant="ghost" onClick={onClose}>{t("settings.text.77dfd2135f4d")}</Button>
           <Button
             size="xs"
             variant="primary"

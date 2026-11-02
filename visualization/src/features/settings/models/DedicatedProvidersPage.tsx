@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 /**
  * Dedicated Providers settings page (plan §16.4): the
  * `infra.model_services.providers` object_list atom — embedding and
@@ -16,7 +17,6 @@ import { EmptyState } from "../../../components/ui/EmptyState";
 import { useConfigDraftStore } from "../draft/store";
 import { CredentialValueEditor } from "../editors/controls";
 import { NetworkPolicyEditor } from "../editors/NetworkPolicyEditor";
-import { settingsText } from "../i18n";
 import { useSettingsUiStore } from "../uiStore";
 import {
   cloneJsonValue,
@@ -110,8 +110,8 @@ export function DedicatedProvidersPage() {
   return (
     <>
       <ObjectEditorLayout
-        title={settingsText("Dedicated providers")}
-        description={settingsText("Connections and credentials for specialized inference (embedding and decision model).")}
+        title={t("settings.text.9ae94d672c2c")}
+        description={t("settings.text.40f27745bbd9")}
         items={[
           ...effective.map((entry) => ({
             id: entry.id,
@@ -149,7 +149,7 @@ export function DedicatedProvidersPage() {
         headerActions={
           current !== null && (
             <Button size="xs" variant="danger" onClick={() => setDeleting(current.id)}>
-              <Trash2 size={13} />{settingsText("Delete")}</Button>
+              <Trash2 size={13} />{t("settings.text.f6fdbe48dc54")}</Button>
           )
         }
       >
@@ -174,7 +174,7 @@ export function DedicatedProvidersPage() {
                   onClick={() =>
                     commit([...effectiveValues(), cloneJsonValue(entry.value)])
                   }
-                >{settingsText("Restore")}</Button>
+                >{t("settings.text.3cbe6d6b9a8d")}</Button>
               </div>
             ))}
           </div>
@@ -183,7 +183,7 @@ export function DedicatedProvidersPage() {
 
       <CreateObjectModal
         title="New dedicated provider"
-        idTitle={settingsText("Provider ID")}
+        idTitle={t("settings.text.610992ef9948")}
         idDescription="Stable identifier referenced by specialized model bindings; dots, outer whitespace and numeric-only ids are not allowed."
         existing={atom.entries.map((entry) => entry.id)}
         open={creating}
@@ -255,10 +255,10 @@ function DedicatedProviderEditor({
   return (
     <div>
       <FieldSection
-        title={settingsText("Availability")}
-        description={settingsText("Whether this connection is built into the running configuration. Enabled is a configuration fact — it does not prove the remote endpoint answers.")}
+        title={t("settings.text.681b5b5ae10b")}
+        description={t("settings.text.1c221ec2943d")}
       >
-        <FieldRow title={settingsText("Enabled")}>
+        <FieldRow title={t("settings.text.df174a3f2faa")}>
           <Toggle
             ariaLabel="Enabled"
             checked={entry.enabled === true}
@@ -267,12 +267,12 @@ function DedicatedProviderEditor({
         </FieldRow>
       </FieldSection>
       <FieldSection
-        title={settingsText("Connection")}
-        description={settingsText("Protocol adapter, endpoint and request limits of this provider.")}
+        title={t("settings.text.6512ee1541e9")}
+        description={t("settings.text.0f2e606c11c6")}
       >
         <FieldRow
-          title={settingsText("Adapter")}
-          description={settingsText("Embedding providers serve vector models; decision model providers serve evaluation calls.")}
+          title={t("settings.text.e6b4616c0b93")}
+          description={t("settings.text.0c60f9a868a3")}
         >
           <SelectInput
             ariaLabel="Adapter"
@@ -281,7 +281,7 @@ function DedicatedProviderEditor({
             onChange={(value) => onPatch({ adapter: value })}
           />
         </FieldRow>
-        <FieldRow title={settingsText("Base URL")}>
+        <FieldRow title={t("settings.text.1dbd61f556fe")}>
           <TextInput
             ariaLabel="Base URL"
             value={stringField(entry, "base_url")}
@@ -291,8 +291,8 @@ function DedicatedProviderEditor({
           />
         </FieldRow>
         <FieldRow
-          title={settingsText("Timeout")}
-          description={settingsText("Request timeout in seconds.")}
+          title={t("settings.text.d4c45de0fe64")}
+          description={t("settings.text.ad4ee7c9aa04")}
         >
           <NumberInput
             ariaLabel="Timeout"
@@ -303,8 +303,8 @@ function DedicatedProviderEditor({
           />
         </FieldRow>
         <FieldRow
-          title={settingsText("Max Retries")}
-          description={settingsText("Additional attempts after a retryable failure (0–5).")}
+          title={t("settings.text.5e540587d087")}
+          description={t("settings.text.8b2fe961d515")}
         >
           <NumberInput
             ariaLabel="Max retries"
@@ -321,10 +321,10 @@ function DedicatedProviderEditor({
         </FieldRow>
       </FieldSection>
       <FieldSection
-        title={settingsText("Credential")}
-        description={settingsText("The dotenv variable holding this provider's API key. The value is edited in the shared credentials draft and never displayed.")}
+        title={t("settings.text.8bede3eae88d")}
+        description={t("settings.text.e2410079065e")}
       >
-        <FieldRow title={settingsText("Credential name")}>
+        <FieldRow title={t("settings.text.b6d1e0390f4b")}>
           <TextInput
             ariaLabel="Credential name"
             value={apiKeyEnv}
@@ -336,7 +336,7 @@ function DedicatedProviderEditor({
         <div className="px-5 py-3">
           {apiKeyEnv === "" ? (
             <div className="flex items-center gap-1.5 text-[11px] text-warning">
-              <AlertTriangle size={13} />{settingsText("No credential name declared.")}</div>
+              <AlertTriangle size={13} />{t("settings.text.531e02e7f35a")}</div>
           ) : (
             <CredentialValueEditor name={apiKeyEnv} compact />
           )}
