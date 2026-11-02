@@ -122,7 +122,7 @@ export function HomeContentView({
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           <IconButton
-            label="References and backlinks"
+            label="引用与反链"
             active={rightPanel === "references"}
             onClick={() =>
               useHomePage
@@ -136,7 +136,7 @@ export function HomeContentView({
             <Copy size={15} />
           </IconButton>
           <IconButton
-            label="Quote in conversation"
+            label="引用到对话"
             onClick={() => quoteReference(ref, { ref, homeView: view })}
           >
             <MessageSquareQuote size={15} />
@@ -155,7 +155,7 @@ export function HomeContentView({
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
             icon={<FileWarning size={24} />}
-            title="Not readable as text"
+            title="无法按文本读取"
             description={
               <>
                 <span className="font-mono text-[11px]">{ref}</span> is not a
@@ -191,7 +191,7 @@ export function HomeContentView({
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
             icon={<AlertTriangle size={24} />}
-            title="The document could not be read"
+            title="文档读取失败"
             description={errorMessage}
             action={
               <Button variant="outline" size="sm" onClick={page.reload}>
@@ -205,7 +205,7 @@ export function HomeContentView({
         // Empty is a fact of the document, distinct from missing above.
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
-            title="This document is empty"
+            title="文档内容为空"
             description={
               <>
                 <span className="font-mono text-[11px]">{ref}</span> exists in
@@ -245,7 +245,7 @@ export function HomeContentView({
             loading={page.loadingMore}
             onClick={page.loadMore}
           >
-            Show more
+            显示更多
           </Button>
         </div>
       )}

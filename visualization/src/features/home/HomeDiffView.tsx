@@ -88,7 +88,7 @@ export function HomeDiffView({
         <Button
           variant="ghost"
           size="xs"
-          aria-label="Back to changes"
+          aria-label="返回变更列表"
           onClick={() => useHomePage.getState().closeDiff()}
         >
           <ArrowLeft size={12} />
@@ -106,8 +106,8 @@ export function HomeDiffView({
         </Badge>
         <Tabs<DiffMode>
           items={[
-            { value: "unified", label: "Unified" },
-            { value: "side", label: "Side by side" },
+            { value: "unified", label: "统一" },
+            { value: "side", label: "并排" },
           ]}
           value={mode}
           onChange={setMode}
@@ -125,34 +125,33 @@ export function HomeDiffView({
         <div className="flex items-start gap-2 border-b border-line bg-warning-soft px-4 py-2 text-[12px] text-warning">
           <AlertTriangle size={12} className="mt-0.5 shrink-0" />
           <span className="min-w-0 flex-1">
-            The accepted baseline changed after this overlay change was
-            recorded, so this diff is against an older baseline. Re-read the
-            effective content, or start a Home reflection to settle it.
+            记录此 overlay 变更后，已接受基线又发生了变化——当前差异是相对
+            旧基线计算的。可重新读取生效内容，或发起一次 Home 整理来收敛。
           </span>
         </div>
       )}
 
       {metadata !== null && (
         <div className="border-b border-line px-4 py-1.5 text-[11px] text-fg-faint">
-          actual {metadata.actual_chars} chars · effective {metadata.effective_chars} chars
+          actual {metadata.actual_chars} 字符 · effective {metadata.effective_chars} 字符
         </div>
       )}
 
       {page.loading ? (
         <div className="flex flex-1 items-center justify-center gap-2 text-[12px] text-fg-faint">
           <Loader2 size={15} className="animate-spin-slow" />
-          Reading the diff…
+          正在读取差异…
         </div>
       ) : page.error !== null && page.items.length === 0 ? (
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
             icon={<AlertTriangle size={24} />}
-            title="The diff could not be read"
+            title="差异读取失败"
             description={errorMessage}
             action={
               <Button variant="outline" size="sm" onClick={page.reload}>
                 <RotateCcw size={13} />
-                Retry
+                重试
               </Button>
             }
           />
@@ -161,8 +160,8 @@ export function HomeDiffView({
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
             icon={<GitCompareArrows size={24} />}
-            title="No difference"
-            description="The effective content matches the accepted baseline for this entry."
+            title="无差异"
+            description="该条目的生效内容与已接受基线一致。"
           />
         </div>
       ) : mode === "unified" ? (
@@ -181,7 +180,7 @@ export function HomeDiffView({
           <span className="min-w-0 flex-1">{errorMessage}</span>
           <Button variant="ghost" size="xs" onClick={page.reload}>
             <RotateCcw size={12} />
-            Retry
+            重试
           </Button>
         </div>
       )}
@@ -194,7 +193,7 @@ export function HomeDiffView({
             loading={page.loadingMore}
             onClick={page.loadMore}
           >
-            Show more
+            显示更多
           </Button>
         </div>
       )}

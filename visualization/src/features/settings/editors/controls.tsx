@@ -440,7 +440,7 @@ export function SliderField({
       <DraftNumber api={api} min={min} max={max} unit={unit} />
       <IconButton
         label="Restore the owner default"
-        title="Delete the override and restore the owner default"
+        title="删除覆盖并恢复所有者默认值"
         disabled={readOnly || value === undefined}
         onClick={() => api.clear()}
       >

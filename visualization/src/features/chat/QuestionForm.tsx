@@ -110,7 +110,7 @@ export function QuestionForm({
                   setOtherText(event.target.value);
                   if (event.target.value.trim()) setSelected(null);
                 }}
-                placeholder="Other answer…"
+                placeholder="其它回答…"
                 className="mt-3 h-8 w-full rounded-lg border border-line bg-bg-elev px-3 text-[13px] outline-none focus-ring focus:border-accent"
               />
             )}
@@ -118,19 +118,19 @@ export function QuestionForm({
               <input
                 value={comment}
                 onChange={(event) => setComment(event.target.value)}
-                placeholder="Additional thoughts (optional)…"
+                placeholder="补充想法（可选）…"
                 className="mt-3 h-8 w-full rounded-lg border border-line bg-bg-elev px-3 text-[13px] outline-none focus-ring focus:border-accent"
               />
             )}
             {mode === "expired" && (otherText || comment) && (
               <div className="mt-2 space-y-1">
-                {otherText && <DraftLine label="Other" value={otherText} />}
-                {comment && <DraftLine label="Comment" value={comment} />}
+                {otherText && <DraftLine label="其它" value={otherText} />}
+                {comment && <DraftLine label="补充" value={comment} />}
               </div>
             )}
             {mode === "expired" && (
               <div className="mt-2 text-[12px] text-fg-faint">
-                This question is no longer awaiting a reply.
+                此问题已不再等待回复。
               </div>
             )}
             {/* Readonly: 自行输入的选项（带字母编号） */}
@@ -166,7 +166,7 @@ export function QuestionForm({
                   disabled={!canSubmit}
                   loading={submitting}
                 >
-                  Reply
+                  回复
                 </Button>
               </div>
             )}

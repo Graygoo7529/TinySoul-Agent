@@ -174,13 +174,13 @@ function DraftList({
                 <Button
                   variant="ghost"
                   size="xs"
-                  title="Drop the local change and use the new baseline"
+                  title="丢弃本地修改并使用新基线"
                   onClick={() => onResolveStale(entry.key, "adopt")}
                 >{settingsText("Adopt")}</Button>
                 <Button
                   variant="ghost"
                   size="xs"
-                  title="Keep the local change"
+                  title="保留本地修改"
                   onClick={() => onResolveStale(entry.key, "keep")}
                 >{settingsText("Keep")}</Button>
               </span>
@@ -215,7 +215,7 @@ function PresetRow({
           {issueCount > 0 && (
             <Badge
               tone="yellow"
-              title="Dependencies of this plan are currently missing"
+              title="此方案的依赖当前缺失"
             >
               {issueCount} {issueCount === 1 ? "issue" : "issues"}
             </Badge>

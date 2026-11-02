@@ -47,20 +47,20 @@ export function Composer() {
     finally { setStopping(false); }
   };
 
-  const placeholder = readOnly ? "Read-only history — replies and edits are disabled"
-    : intent.kind === "append" ? "Append to the current turn…"
-    : intent.kind === "new-turn" ? "Message TinySoul…"
+  const placeholder = readOnly ? "只读历史——不能回复或编辑"
+    : intent.kind === "append" ? "追加到当前轮次…"
+    : intent.kind === "new-turn" ? "向 TinySoul 发送消息…"
     : {
-        "offline": "Connect to a running TinySoul backend first",
-        "not-ready": "The backend is starting…",
-        "syncing": "Connecting to the current turn…",
-        "finishing": "The current turn is finishing…",
+        "offline": "请先连接一个运行中的 TinySoul 后端",
+        "not-ready": "后端正在启动…",
+        "syncing": "正在连接当前轮次…",
+        "finishing": "当前轮次正在收尾…",
       }[intent.reason];
-  const hint = readOnly ? "Back to today to send a message"
-    : intent.kind === "unavailable" && intent.reason === "finishing" ? "Your draft is kept until the turn finishes"
-    : intent.kind === "unavailable" && intent.reason === "syncing" ? "Your draft is kept while the turn synchronizes"
-    : intent.kind === "append" ? "Enter to send · Shift+Enter for newline · sent as input to the current turn"
-    : "Enter to send · Shift+Enter for newline";
+  const hint = readOnly ? "回到今天才能发送消息"
+    : intent.kind === "unavailable" && intent.reason === "finishing" ? "草稿会保留到轮次结束"
+    : intent.kind === "unavailable" && intent.reason === "syncing" ? "草稿在轮次同步期间保留"
+    : intent.kind === "append" ? "Enter 发送 · Shift+Enter 换行 · 作为当前轮次的输入"
+    : "Enter 发送 · Shift+Enter 换行";
 
   return (
     <div className="border-t border-line bg-bg px-4 pt-3 pb-4">
@@ -91,12 +91,12 @@ export function Composer() {
               {!readOnly && <PresetEntry />}
               {intent.kind === "append" && !text.trim() && !readOnly ? (
                 <button onClick={() => void stop()} disabled={stopping}
-                  title={stopping ? "Stopping…" : "Stop the current turn"}
+                  title={stopping ? "正在停止…" : "停止当前轮次"}
                   className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-danger text-white shadow-sm transition-colors hover:bg-danger/90 disabled:opacity-60">
                   <Square size={13} />
                 </button>
               ) : (
-                <button onClick={() => void send()} disabled={!canSend} title="Send"
+                <button onClick={() => void send()} disabled={!canSend} title="发送"
                   className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-accent-grad text-white shadow-brand transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">
                   <Send size={14} className={sending ? "animate-pulse-dot" : ""} />
                 </button>

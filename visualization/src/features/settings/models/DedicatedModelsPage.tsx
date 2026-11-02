@@ -124,7 +124,7 @@ function MissingSourceNotice({ path }: { path: string }) {
   return (
     <div className="flex h-full items-center justify-center p-6">
       <EmptyState
-        title="No writable source for this list"
+        title="此列表没有可写来源"
         description={`The ${path} list is owned by a read-only source or no model-services include exists yet. Add configs/infra/model_services.toml to the project includes to manage it here.`}
       />
     </div>
@@ -216,7 +216,7 @@ function ServiceModelsTab() {
       </ObjectEditorLayout>
 
       <CreateObjectModal
-        title="New dedicated model"
+        title="新建专用模型"
         idTitle={settingsText("Model ID")}
         idDescription="Stable identifier referenced by uses; dots, outer whitespace and numeric-only ids are not allowed."
         existing={effective.map((entry) => entry.id)}
@@ -238,7 +238,7 @@ function ServiceModelsTab() {
         }}
       />
       <DeleteObjectModal
-        title="Delete dedicated model"
+        title="删除专用模型"
         objectId={deleting ?? ""}
         references={
           deleting !== null
@@ -578,7 +578,7 @@ function ServiceUsesTab() {
       </ObjectEditorLayout>
 
       <CreateObjectModal
-        title="New use"
+        title="新建用途"
         idTitle={settingsText("Use ID")}
         idDescription="Stable capability identifier selected by consumers; dots, outer whitespace and numeric-only ids are not allowed."
         existing={effective.map((entry) => entry.id)}
@@ -601,7 +601,7 @@ function ServiceUsesTab() {
         }}
       />
       <DeleteObjectModal
-        title="Delete use"
+        title="删除用途"
         objectId={deleting ?? ""}
         references={deleting !== null ? useReferences(state, deleting) : []}
         open={deleting !== null}

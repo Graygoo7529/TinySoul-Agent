@@ -76,7 +76,7 @@ function ActiveNav({ days }: { days: DayEntry[] | null }): ReactElement {
                 .getState()
                 .setActiveDay(event.target.value === "" ? null : event.target.value)
             }
-            aria-label="Memory day"
+            aria-label="记忆日期"
             className="h-7 w-full rounded-lg border border-line bg-bg-elev px-2 text-[12px] outline-none focus:border-accent"
           >
             {days === null && <option value="">Active day</option>}
@@ -166,8 +166,8 @@ function KnowledgeNav({
         <input
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
-          placeholder="Filter knowledge…"
-          aria-label="Filter knowledge"
+          placeholder="筛选知识…"
+          aria-label="筛选知识"
           className="h-7 w-full rounded-lg border border-line bg-bg-elev px-2.5 text-[12px] outline-none focus:border-accent"
         />
       </div>
@@ -179,7 +179,7 @@ function KnowledgeNav({
           </div>
         ) : catalog.error !== null && items.length === 0 ? (
           <EmptyState
-            title="The catalog could not be read"
+            title="目录读取失败"
             description={String(catalog.error)}
             action={
               <Button variant="outline" size="sm" onClick={catalog.reload}>
@@ -192,8 +192,8 @@ function KnowledgeNav({
           unfiltered ? (
             <EmptyState
               icon={<BookOpen size={22} />}
-              title="No persistent knowledge yet"
-              description="Knowledge settles when a Memory reflection organizes a day. You can also just keep talking — the active memory records as you go."
+              title="还没有持久知识"
+              description="知识会在 Memory 整理某个日期后沉淀。也可以继续对话——活动记忆会随手记录。"
               action={
                 <div className="flex flex-col items-center gap-2">
                   <Button
@@ -213,7 +213,7 @@ function KnowledgeNav({
             />
           ) : (
             <EmptyState
-              title="No matches"
+              title="没有匹配项"
               description={`No knowledge documents match this filter.`}
             />
           )
@@ -255,7 +255,7 @@ function KnowledgeNav({
                 loading={catalog.loadingMore}
                 onClick={catalog.loadMore}
               >
-                Show more
+                显示更多
               </Button>
             )}
           </div>

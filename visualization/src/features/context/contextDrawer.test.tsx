@@ -234,7 +234,7 @@ describe("openContextDrawer", () => {
     act(() => openContextDrawer(epoch));
     renderTop();
     await flush();
-    expect(container.textContent).toContain("This turn's context is closed");
+    expect(container.textContent).toContain("本轮语境已关闭");
   });
 
   it("pushes the selected segment and reads its body only then", async () => {
@@ -282,7 +282,7 @@ describe("TopBar integration", () => {
       root.render(<TopBar />);
     });
     const button = Array.from(container.querySelectorAll("button")).find(
-      (candidate) => candidate.getAttribute("aria-label") === "Context",
+      (candidate) => candidate.getAttribute("aria-label") === "语境",
     );
     expect(button).toBeDefined();
     expect(button!.disabled).toBe(true);
@@ -294,7 +294,7 @@ describe("TopBar integration", () => {
       root.render(<TopBar />);
     });
     const button = Array.from(container.querySelectorAll("button")).find(
-      (candidate) => candidate.getAttribute("aria-label") === "Context",
+      (candidate) => candidate.getAttribute("aria-label") === "语境",
     )!;
     expect(button.disabled).toBe(false);
     act(() => {
@@ -309,20 +309,20 @@ describe("TopBar integration", () => {
     act(() => {
       root.render(<TopBar />);
     });
-    expect(container.textContent).toContain("connecting…");
-    expect(container.textContent).not.toContain("reconnecting…");
+    expect(container.textContent).toContain("连接中…");
+    expect(container.textContent).not.toContain("重新连接中…");
 
     // A dropped live stream is the real reconnect.
     act(() => {
       useConnectionStore.getState().setEventsPhase("reconnecting");
     });
-    expect(container.textContent).toContain("reconnecting…");
+    expect(container.textContent).toContain("重新连接中…");
 
     // Live again: no indicator at all.
     act(() => {
       useConnectionStore.getState().setEventsPhase("live");
     });
-    expect(container.textContent).not.toContain("connecting…");
-    expect(container.textContent).not.toContain("reconnecting…");
+    expect(container.textContent).not.toContain("连接中…");
+    expect(container.textContent).not.toContain("重新连接中…");
   });
 });

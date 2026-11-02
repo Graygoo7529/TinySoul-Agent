@@ -72,7 +72,7 @@ export function ContextInspectorPanel({
           <SessionMapPanel epoch={epoch} day={(mapDay ?? activeDay)!} /></div>
       )}
       {tab === "session" && activeDay === null && (
-        <EmptyState title="No active day" description="The Session map is available after the Agent establishes a calendar day." />
+        <EmptyState title="尚无活动日期" description="Agent 建立日历日后即可使用会话图。" />
       )}
       {(visited.has("home") || visited.has("memory")) && <div hidden={tab !== "home" && tab !== "memory"}>
         {targetId && targetDay ? <BackgroundPanel key={targetId} epoch={epoch} turnId={targetId} day={targetDay} active={active} committed={committed} reflection={kind !== "user"} owner={tab === "memory" ? "memory" : "home"} />

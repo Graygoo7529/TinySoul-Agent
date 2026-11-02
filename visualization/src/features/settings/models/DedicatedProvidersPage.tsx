@@ -100,7 +100,7 @@ export function DedicatedProvidersPage() {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <EmptyState
-          title="No writable source for specialized providers"
+          title="专用供应商没有可写来源"
           description={`The ${PROVIDERS_PATH} list is owned by a read-only source or no model-services include exists yet. Add configs/infra/model_services.toml to the project includes to manage these providers here.`}
         />
       </div>

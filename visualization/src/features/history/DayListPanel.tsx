@@ -31,8 +31,8 @@ export function DayListPanel({ epoch }: { epoch: number }) {
     return (
       <EmptyState
         icon={<MessageSquareText size={26} />}
-        title="No recorded days yet"
-        description="Finished conversations are committed to the Session record of their day."
+        title="还没有已记录的日期"
+        description="完成的对话会提交到当日的会话记录。"
       />
     );
   }
@@ -67,7 +67,7 @@ function DayRow({ epoch, entry }: { epoch: number; entry: DayEntry }) {
         </span>
       </button>
       <IconButton
-        label="Session map of this day"
+        label="当日的会话图"
         onClick={() => openSessionMap(epoch, entry.day)}
       >
         <Network size={14} />

@@ -102,7 +102,7 @@ describe("history entries", () => {
     await act(async () => {
       root.render(<ChatView />);
     });
-    expect(container.textContent).toContain("Start a conversation");
+    expect(container.textContent).toContain("开始会话");
     await act(async () => {
       buttonByText("Browse earlier days").click();
     });
@@ -130,7 +130,7 @@ describe("history entries", () => {
       root.render(<TopBar />);
     });
     const history = container.querySelector(
-      'button[aria-label="History"]',
+      'button[aria-label="历史"]',
     ) as HTMLButtonElement;
     expect(history.disabled).toBe(false);
     await act(async () => {
@@ -147,7 +147,7 @@ describe("history entries", () => {
       root.render(<TopBar />);
     });
     const history = container.querySelector(
-      'button[aria-label="History"]',
+      'button[aria-label="历史"]',
     ) as HTMLButtonElement;
     expect(history.disabled).toBe(true);
   });
@@ -170,7 +170,7 @@ describe("history banner", () => {
       "Read-only history · 2026-09-28 · archived day — current resources may differ",
     );
     // Another turn is live: the back action returns to it, not to a day list.
-    expect(container.textContent).toContain("Back to the live turn");
+    expect(container.textContent).toContain("回到进行中的轮次");
 
     await act(async () => {
       buttonByText("Session map").click();
@@ -193,9 +193,9 @@ describe("history banner", () => {
     expect(container.textContent).not.toContain("archived day");
 
     await act(async () => {
-      buttonByText("Back to today").click();
+      buttonByText("回到今天").click();
     });
     expect(useTurnStore.getState().turnId).toBeNull();
-    expect(container.textContent).toContain("Start a conversation");
+    expect(container.textContent).toContain("开始会话");
   });
 });

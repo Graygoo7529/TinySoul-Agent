@@ -259,7 +259,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
       <header className="flex items-center gap-2 border-b border-line bg-bg-elev px-3 py-2.5">
         <Search size={14} className="shrink-0 text-fg-faint" />
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</h2>
-        <IconButton label="Close search" onClick={onClose}>
+        <IconButton label="关闭搜索" onClick={onClose}>
           <X size={15} />
         </IconButton>
       </header>
@@ -268,13 +268,13 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
         {caps === "loading" && (
           <div className="flex items-center gap-2 px-1 py-2 text-[12px] text-fg-faint">
             <Loader2 size={13} className="animate-spin-slow" />
-            Reading search capabilities…
+            正在读取检索能力…
           </div>
         )}
         {caps === "error" && (
           <div className="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-[12px] text-danger">
             <AlertTriangle size={12} className="shrink-0" />
-            Search is not declared for this owner in the current generation.
+            当前世代未为此所有者声明检索。
           </div>
         )}
 
@@ -291,14 +291,14 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder={placeholder}
-                aria-label="Search query"
+                aria-label="检索内容"
                 className="h-8 w-full rounded-lg border border-line bg-bg-elev px-3 text-[13px] outline-none focus-ring focus:border-accent"
               />
               <div className="flex items-center gap-2">
                 <select
                   value={scopeChoice?.id ?? ""}
                   onChange={(event) => setScopeId(event.target.value)}
-                  aria-label="Search scope"
+                  aria-label="检索范围"
                   className="h-7 min-w-0 flex-1 rounded-lg border border-line bg-bg-elev px-2 text-[12px] outline-none focus:border-accent"
                 >
                   {scopes.map((choice) => (
@@ -314,7 +314,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                   loading={busy === "search"}
                   disabled={query.trim() === "" || staleResults}
                 >
-                  Search
+                  搜索
                 </Button>
               </div>
 
@@ -324,9 +324,9 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                 className="flex items-center gap-1 text-[11px] text-fg-faint hover:text-fg"
               >
                 {advancedOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-                Conditions
+                条件
                 {capabilities.lexicalSyntax && (
-                  <span className="text-fg-faint/70">· literal/regex</span>
+                  <span className="text-fg-faint/70">· 精确/正则</span>
                 )}
                 {capabilities.whereFields.length > 0 && (
                   <span className="text-fg-faint/70">
@@ -339,7 +339,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                   {capabilities.lexicalSyntax && (
                     <div className="flex flex-wrap items-center gap-3 text-[12px] text-fg-muted">
                       <CheckField
-                        label="Literal"
+                        label="精确文本"
                         checked={lexical.literal}
                         onChange={(value) =>
                           setLexical((current) => ({
@@ -350,7 +350,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                         }
                       />
                       <CheckField
-                        label="Regex"
+                        label="正则"
                         checked={lexical.regex}
                         onChange={(value) =>
                           setLexical((current) => ({
@@ -361,7 +361,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                         }
                       />
                       <CheckField
-                        label="Case sensitive"
+                        label="区分大小写"
                         checked={lexical.caseSensitive}
                         onChange={(value) =>
                           setLexical((current) => ({ ...current, caseSensitive: value }))
@@ -385,17 +385,17 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                             [field.name]: event.target.value,
                           }))
                         }
-                        placeholder="any"
+                        placeholder="任意"
                         className="h-6.5 min-w-0 flex-1 rounded-md border border-line bg-bg-elev px-2 text-[12px] outline-none focus:border-accent"
                       />
                     </label>
                   ))}
                   <label className="flex items-center gap-2 text-[12px] text-fg-muted">
-                    <span className="w-16 shrink-0">Exclude</span>
+                    <span className="w-16 shrink-0">排除</span>
                     <input
                       value={excludeText}
                       onChange={(event) => setExcludeText(event.target.value)}
-                      placeholder="refs, space separated"
+                      placeholder="多个引用以空格分隔"
                       className="h-6.5 min-w-0 flex-1 rounded-md border border-line bg-bg-elev px-2 font-mono text-[11px] outline-none focus:border-accent"
                     />
                   </label>
@@ -414,7 +414,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                     title={documentAnchor.ref}
                   >
                     <Search size={11} />
-                    Find documents related to {documentAnchor.label}
+                    查找与 {documentAnchor.label} 相关的文档
                   </Button>
                 )}
             </form>
@@ -429,7 +429,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                     onClick={startSearch}
                     className="shrink-0 font-medium hover:underline"
                   >
-                    Re-search
+                    重新检索
                   </button>
                 )}
               </div>
@@ -439,21 +439,21 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
               <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-[12px] text-warning">
                 <AlertTriangle size={12} className="shrink-0" />
                 <span className="min-w-0 flex-1">
-                  The page context changed — these results are frozen.
+                  页面上下文已变化——这些结果已冻结。
                 </span>
                 <button
                   type="button"
                   onClick={startSearch}
                   className="shrink-0 font-medium hover:underline"
                 >
-                  Re-search
+                  重新检索
                 </button>
               </div>
             )}
 
             {appliedSteps.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[11px] text-fg-faint">Steps:</span>
+                <span className="text-[11px] text-fg-faint">步骤：</span>
                 {appliedSteps.map((step, index) => (
                   <Badge key={index} tone="blue" title={stepTitle(step)}>
                     {step.op}
@@ -480,7 +480,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                 </div>
                 {results.items.length === 0 && busy === null && error === null && (
                   <div className="rounded-lg border border-line bg-bg-elev px-3 py-3 text-[12px] text-fg-faint">
-                    No results — nothing matched, or the steps excluded everything.
+                    没有结果——没有匹配项，或步骤排除了全部候选。
                   </div>
                 )}
                 {results.items.map((item, index) => (
@@ -502,7 +502,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                       submit({ continuation: results.continuation }, "page")
                     }
                   >
-                    Show more
+                    显示更多
                   </Button>
                 )}
               </div>
@@ -524,15 +524,15 @@ function coverageNoteOf(page: SearchPage): string {
   const coverage = page.coverage;
   const parts: string[] = [];
   if (typeof coverage.final_count === "number") {
-    parts.push(`${coverage.final_count} result${coverage.final_count === 1 ? "" : "s"}`);
+    parts.push(`${coverage.final_count} 条结果`);
   } else {
-    parts.push(`${page.items.length} shown`);
+    parts.push(`显示 ${page.items.length} 条`);
   }
-  if (typeof coverage.scanned === "number") parts.push(`scanned ${coverage.scanned}`);
+  if (typeof coverage.scanned === "number") parts.push(`已扫描 ${coverage.scanned}`);
   if (typeof coverage.omitted_candidates === "number" && coverage.omitted_candidates > 0) {
-    parts.push(`${coverage.omitted_candidates} omitted by budget`);
+    parts.push(`${coverage.omitted_candidates} 个因预算省略`);
   }
-  if (coverage.source_complete === false) parts.push("source not fully scanned");
+  if (coverage.source_complete === false) parts.push("来源未完整扫描");
   return parts.join(" · ");
 }
 
@@ -587,8 +587,8 @@ function RefineRow({
           <input
             value={criterion}
             onChange={(event) => onCriterionChange(event.target.value)}
-            placeholder="Refine criterion…"
-            aria-label="Refine criterion"
+            placeholder="优化条件…"
+            aria-label="优化条件"
             className="h-7 min-w-0 flex-1 rounded-md border border-line bg-bg-elev px-2 text-[12px] outline-none focus:border-accent"
           />
           {selectAvailable && (
@@ -600,7 +600,7 @@ function RefineRow({
               onClick={() => onRefine("select")}
             >
               <ListFilter size={11} />
-              Filter by meaning
+              按语义筛选
             </Button>
           )}
           {rerankAvailable && (
@@ -611,7 +611,7 @@ function RefineRow({
               disabled={criterion.trim() === ""}
               onClick={() => onRefine("rerank")}
             >
-              Re-rank
+              重新排序
             </Button>
           )}
         </div>
@@ -624,7 +624,7 @@ function RefineRow({
           onClick={() => onRefine("filter")}
         >
           <Filter size={11} />
-          Apply attribute filter to results
+          对结果应用属性筛选
         </Button>
       )}
     </div>
@@ -663,11 +663,11 @@ function SearchResultRow({
             {item.content_coverage}
           </Badge>
         )}
-        <IconButton label="Copy reference" className="h-6 w-6" onClick={() => copyReference(item.ref)}>
+        <IconButton label="复制引用" className="h-6 w-6" onClick={() => copyReference(item.ref)}>
           <Copy size={12} />
         </IconButton>
         <IconButton
-          label="Quote in conversation"
+          label="引用到对话"
           className="h-6 w-6"
           onClick={() => quoteReference(item.ref, {})}
         >

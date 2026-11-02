@@ -161,7 +161,7 @@ function PageContent({ pageId }: { pageId: keyof typeof SETTINGS_PAGES }) {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <EmptyState
-          title="Configuration could not be loaded"
+          title="配置加载失败"
           description={loadError ?? "Unknown error"}
         />
       </div>

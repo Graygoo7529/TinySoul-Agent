@@ -73,7 +73,7 @@ async function flush(rounds = 8): Promise<void> {
 
 function cancelButtons(): HTMLButtonElement[] {
   return Array.from(container.querySelectorAll("button")).filter((button) =>
-    button.textContent?.includes("Cancel"),
+    button.textContent?.includes("取消"),
   ) as HTMLButtonElement[];
 }
 
@@ -103,7 +103,7 @@ describe("ExecutionTab", () => {
 
     expect(container.textContent).toContain("waiting for a budget grant");
     expect(container.textContent).toContain("cycle 3 needs a grant");
-    expect(container.textContent).toContain("Open in conversation");
+    expect(container.textContent).toContain("在对话中打开");
   });
 
   it("keeps an execution failure apart from after-finish diagnostics", async () => {
@@ -123,18 +123,18 @@ describe("ExecutionTab", () => {
     );
     await flush();
 
-    expect(container.textContent).toContain("Execution failure");
-    expect(container.textContent).toContain("Finish and cleanup diagnostics");
+    expect(container.textContent).toContain("执行失败");
+    expect(container.textContent).toContain("收尾与清理诊断");
     // The failure body is open; the after-finish diagnostics stay collapsed
     // until asked for — related, but never one merged red box.
     expect(container.textContent).toContain("turn.budget_exhausted");
     expect(container.textContent).not.toContain("session.commit_failed");
 
     const header = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Finish and cleanup diagnostics"),
+      (button) => button.textContent?.includes("收尾与清理诊断"),
     );
     await act(async () => (header as HTMLButtonElement).click());
-    expect(container.textContent).toContain("Raised while finishing");
+    expect(container.textContent).toContain("在收尾或清理阶段产生");
   });
 
   it("shows the empty state without an active turn, keeping the queue", async () => {
@@ -149,8 +149,8 @@ describe("ExecutionTab", () => {
     await renderTab({ turnId: null, snapshot: null, error: null, settled: true });
     await flush();
 
-    expect(container.textContent).toContain("No turn is running");
-    expect(container.textContent).toContain("Queued turns");
+    expect(container.textContent).toContain("当前没有运行中的轮次");
+    expect(container.textContent).toContain("排队的轮次");
     expect(cancelButtons()).toHaveLength(2);
   });
 });

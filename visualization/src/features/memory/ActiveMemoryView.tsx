@@ -138,7 +138,7 @@ export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
             <Copy size={15} />
           </IconButton>
           <IconButton
-            label="Quote in conversation"
+            label="引用到对话"
             onClick={() =>
               quoteReference("memory:current", {
                 ref: "memory:current",
@@ -160,7 +160,7 @@ export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
             icon={<FileWarning size={24} />}
-            title="No archived memory for this day"
+            title="这一天没有归档记忆"
             description={
               activeDay !== null
                 ? `${activeDay} has no archived Memory.md. Days without one are simply not archived — pick another day.`
@@ -190,8 +190,8 @@ export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
         // Empty is a fact of the document, distinct from missing above.
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
-            title="Nothing recorded yet"
-            description="The active Memory.md exists but has no content for this day."
+            title="还没有记录内容"
+            description="活动 Memory.md 存在，但这一天还没有内容。"
           />
         </div>
       ) : (
@@ -225,7 +225,7 @@ export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
             loading={page.loadingMore}
             onClick={page.loadMore}
           >
-            Show more
+            显示更多
           </Button>
         </div>
       )}

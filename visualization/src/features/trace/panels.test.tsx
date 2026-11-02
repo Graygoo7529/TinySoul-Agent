@@ -145,11 +145,11 @@ describe("ActivityTimeline", () => {
     // Phase group headers show in the unfiltered view…
     expect(container.textContent).toContain("更新语境");
     expect(container.textContent).toContain("规划动作");
-    clickButton("Thinking");
+    clickButton("思考");
     // …and disappear under a single-kind filter.
     expect(container.textContent).not.toContain("更新语境");
     expect(container.textContent).toContain("First intent");
-    expect(container.textContent).not.toContain("Task guidance");
+    expect(container.textContent).not.toContain("任务指导");
     const nextCycle = { level: "cycle", name: "cycle_2" };
     render(<ActivityTimeline events={[...events,
       event("llm.model.response", 5, {
@@ -169,8 +169,8 @@ describe("ActivityTimeline", () => {
     expect(container.textContent).toContain("Selected domains");
     clickButton("Second intent");
     expect(container.textContent).not.toContain("Verify the result against the source.");
-    clickButton("Context");
-    expect(container.textContent).toContain("Task guidance");
+    clickButton("语境");
+    expect(container.textContent).toContain("任务指导");
     expect(container.textContent).not.toContain("Second intent");
     clickButton("Milestone");
     expect(container.textContent).toContain("Its section on testing explains the decision.");
@@ -321,7 +321,7 @@ describe("ActionDetailPanel", () => {
     expect(text).toContain("hook_rejected");
     expect(text).toContain("write rejected by hook");
     // The second call's params are the ones shown.
-    clickButton("Call params");
+    clickButton("调用参数");
     await flush();
     expect(container.textContent).toContain("workspace:b.md");
   });
@@ -761,7 +761,7 @@ describe("JobPanel", () => {
     await flush();
     expect(container.textContent).toContain("notice");
 
-    clickButton("Show more output");
+    clickButton("显示更多输出");
     await flush();
     expect(queryOf(endpoint.calls(`/v2/requests/${TURN_ID}/jobs/job_1/output`)[1]!, "continuation")).toBe("continuation_2");
     expect(container.textContent).toContain("more");

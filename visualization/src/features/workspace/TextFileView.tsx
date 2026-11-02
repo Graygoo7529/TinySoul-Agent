@@ -293,7 +293,7 @@ export function TextFileView({
             loading={text.loadingMore}
             onClick={text.loadMore}
           >
-            Show more
+            显示更多
           </Button>
         </div>
       )}

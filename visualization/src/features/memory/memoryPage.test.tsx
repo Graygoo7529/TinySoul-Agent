@@ -204,7 +204,7 @@ describe("MemoryPage active memory", () => {
     expect(queryOf(reads[0], "day")).toBeNull();
 
     // Binding an archive day re-reads with the day parameter.
-    const selector = container.querySelector('select[aria-label="Memory day"]') as HTMLSelectElement;
+    const selector = container.querySelector('select[aria-label="记忆日期"]') as HTMLSelectElement;
     const setter = Object.getOwnPropertyDescriptor(
       window.HTMLSelectElement.prototype,
       "value",
@@ -229,13 +229,13 @@ describe("MemoryPage active memory", () => {
     );
     await renderPage();
     // The active day reads fine but is empty — a fact, not a failure.
-    expect(container.textContent).toContain("Nothing recorded yet");
+    expect(container.textContent).toContain("还没有记录内容");
 
     await act(async () => {
       useMemoryPage.getState().setActiveDay(ARCHIVE);
     });
     await flush();
-    expect(container.textContent).toContain("No archived memory for this day");
+    expect(container.textContent).toContain("这一天没有归档记忆");
   });
 });
 
@@ -257,7 +257,7 @@ describe("MemoryPage knowledge catalog", () => {
     );
     await renderPage();
     await act(async () => {
-      buttonByText("Knowledge").click();
+      buttonByText("知识库").click();
     });
     expect(container.textContent).toContain("project");
     expect(container.textContent).toContain("tinysoul");
@@ -274,7 +274,7 @@ describe("MemoryPage knowledge catalog", () => {
     expect(reads).toHaveLength(2);
     expect(queryOf(reads[1], "kind")).toBe("entity");
 
-    const filter = container.querySelector('input[aria-label="Filter knowledge"]') as HTMLInputElement;
+    const filter = container.querySelector('input[aria-label="筛选知识"]') as HTMLInputElement;
     const setter = Object.getOwnPropertyDescriptor(
       window.HTMLInputElement.prototype,
       "value",
@@ -303,7 +303,7 @@ describe("MemoryPage knowledge catalog", () => {
     );
     await renderPage();
     await act(async () => {
-      buttonByText("Knowledge").click();
+      buttonByText("知识库").click();
     });
     await act(async () => {
       buttonByText("tinysoul").click();
@@ -330,7 +330,7 @@ describe("MemoryPage knowledge catalog", () => {
     }));
     await renderPage();
     await act(async () => {
-      buttonByText("Knowledge").click();
+      buttonByText("知识库").click();
     });
     const row = (ref: string) => container.querySelector(`button[title="${ref}"]`);
     expect(row("memory:entity/project")?.textContent).not.toContain("active");
@@ -365,11 +365,11 @@ describe("MemoryPage knowledge catalog", () => {
     );
     await renderPage();
     await act(async () => {
-      buttonByText("Knowledge").click();
+      buttonByText("知识库").click();
     });
-    expect(container.textContent).toContain("No persistent knowledge yet");
+    expect(container.textContent).toContain("还没有持久知识");
     buttonByText("Start a conversation");
-    buttonByText("Organize Memory");
+    buttonByText("整理 Memory");
   });
 });
 
@@ -441,13 +441,13 @@ describe("MemoryPage documents", () => {
     useMemoryPage.setState({ section: "persistent", ref: "memory:entity/gone" });
     await renderPage();
     await flush();
-    expect(container.textContent).toContain("This document is missing");
+    expect(container.textContent).toContain("文档不存在");
 
     await act(async () => {
       (container.querySelector('button[title="memory:entity/empty"]') as HTMLButtonElement).click();
     });
-    expect(container.textContent).toContain("This document is empty");
-    expect(container.textContent).not.toContain("This document is missing");
+    expect(container.textContent).toContain("文档内容为空");
+    expect(container.textContent).not.toContain("文档不存在");
   });
 
   it("lists direct refs and runs backlinks only on an explicit request", async () => {
@@ -493,7 +493,7 @@ describe("MemoryPage documents", () => {
     await flush();
 
     await act(async () => {
-      (container.querySelector('button[aria-label="References and backlinks"]') as HTMLButtonElement).click();
+      (container.querySelector('button[aria-label="引用与反链"]') as HTMLButtonElement).click();
     });
     await flush();
     // Direct refs are read with the document — no search call yet; the owner
@@ -555,7 +555,7 @@ describe("MemoryPage documents", () => {
     await renderPage();
     await flush();
     await act(async () => {
-      (container.querySelector('button[aria-label="References and backlinks"]') as HTMLButtonElement).click();
+      (container.querySelector('button[aria-label="引用与反链"]') as HTMLButtonElement).click();
     });
     await flush();
     expect(endpoint.calls("/v2/memory/search", "POST")).toHaveLength(0);
@@ -620,16 +620,16 @@ describe("MemoryPage documents", () => {
     );
     await renderPage();
     await act(async () => {
-      buttonByText("Search knowledge").click();
+      buttonByText("检索知识").click();
     });
     await flush();
-    const input = container.querySelector('input[aria-label="Search query"]') as HTMLInputElement;
+    const input = container.querySelector('input[aria-label="检索内容"]') as HTMLInputElement;
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
     await act(async () => {
       setter?.call(input, "Context");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    const submit = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.trim() === "Search")!;
+    const submit = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.trim() === "搜索")!;
     await act(async () => {
       submit.click();
     });
@@ -671,7 +671,7 @@ describe("MemoryPage organize", () => {
     );
     await renderPage();
     await act(async () => {
-      buttonByText("Organize Memory").click();
+      buttonByText("整理 Memory").click();
     });
     await flush();
 
@@ -682,16 +682,16 @@ describe("MemoryPage organize", () => {
     expect(checked).not.toBeNull();
     const chosenLabel = checked!.closest("label");
     expect(chosenLabel?.textContent).toContain("2026-09-27");
-    expect(chosenLabel?.textContent).toContain("no daily yet");
+    expect(chosenLabel?.textContent).toContain("尚无日记");
 
     await act(async () => {
-      buttonByText("Start Memory reflection").click();
+      buttonByText("开始 Memory 整理").click();
     });
     const posts = endpoint.calls("/v2/reflection", "POST");
     expect(posts).toHaveLength(1);
     expect(bodyJson(posts[0])).toMatchObject({ kind: "memory", target_day: "2026-09-27" });
     expect(useAppStore.getState().activeTab).toBe("chat");
-    expect(container.querySelector('textarea[aria-label="Reflection instructions"]')).toBeNull();
+    expect(container.querySelector('textarea[aria-label="整理说明"]')).toBeNull();
   });
 
   it("pages further back through next_before instead of trusting the first page", async () => {
@@ -710,14 +710,14 @@ describe("MemoryPage organize", () => {
     );
     await renderPage();
     await act(async () => {
-      buttonByText("Organize Memory").click();
+      buttonByText("整理 Memory").click();
     });
     await flush();
     expect(container.textContent).toContain("2026-09-28");
     expect(container.textContent).not.toContain("2026-09-20");
 
     await act(async () => {
-      buttonByText("Look further back").click();
+      buttonByText("继续向前查找").click();
     });
     const reads = endpoint.calls("/v2/reflection");
     expect(reads).toHaveLength(2);

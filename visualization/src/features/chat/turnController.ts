@@ -706,7 +706,7 @@ export async function replyToQuestion(
     const code = apiErrorCode(error);
     if (code === "turn.command_rejected" || code === "turn.not_found") {
       refreshCommandTarget(epoch, requestId);
-      throw new Error("This question is no longer awaiting a reply");
+      throw new Error("此问题已不再等待回复。");
     }
     throw error;
   }

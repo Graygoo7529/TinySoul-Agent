@@ -95,7 +95,7 @@ export function WaitingResponseDock() {
           ${collapsed ? "" : "max-h-[min(72vh,38rem)]"}
         `}
         role="dialog"
-        aria-label="Waiting for your reply"
+        aria-label="等待你的回复"
         aria-live="polite"
         aria-expanded={!collapsed}
       >

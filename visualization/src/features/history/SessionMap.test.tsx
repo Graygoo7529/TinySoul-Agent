@@ -241,7 +241,7 @@ describe("SessionMapPanel", () => {
     // The card body opens the conversation (chevron); the adjacent button
     // drills into the recorded facts and carries a distinct panel icon.
     const inspect = container.querySelector(
-      'button[aria-label="Inspect the recorded facts"]',
+      'button[aria-label="查看已记录的事实"]',
     ) as HTMLButtonElement | null;
     expect(inspect).not.toBeNull();
     expect(inspect!.querySelector("svg.lucide-panel-right-open")).not.toBeNull();
@@ -305,7 +305,7 @@ describe("SessionMapPanel", () => {
     await renderAndSettle(<SessionMapPanel epoch={epoch} day={DAY} />);
     expect(container.textContent).not.toContain("An older conversation");
     await act(async () => {
-      buttonByText("Show more").click();
+      buttonByText("显示更多").click();
     });
     expect(container.textContent).toContain("An older conversation");
     const calls = endpoint
@@ -361,9 +361,9 @@ describe("SessionRefPanel", () => {
     expect(text).toContain("thread");
     expect(text).toContain("interpretation");
     expect(text).toContain("covers");
-    expect(text).toContain("Contents");
+    expect(text).toContain("内容");
     expect(text).toContain("History fact");
-    expect(text).toContain("Evidence");
+    expect(text).toContain("依据");
     // The evidence chip carries the compact ref and opens its own page.
     await act(async () => {
       buttonByText("2026-09-28/1#output").click();
@@ -492,18 +492,18 @@ describe("SessionRefPanel", () => {
     );
 
     const text = container.textContent ?? "";
-    expect(text).toContain("Committed turn");
+    expect(text).toContain("已提交轮次");
     expect(text).toContain("answered");
     expect(text).toContain("You");
     expect(text).toContain("Summarize the release plan");
     expect(text).toContain("Here is the summary…");
     expect(text).toContain("shell.exec");
     expect(text).toContain("success");
-    expect(text).toContain("Relations");
+    expect(text).toContain("关系");
     expect(text).toContain("contains");
 
     await act(async () => {
-      buttonByText("Open conversation").click();
+      buttonByText("打开会话").click();
     });
     expect(useTurnStore.getState().turnId).toBe("2026-09-28/1");
     expect(useTurnStore.getState().historyView).toBe(true);

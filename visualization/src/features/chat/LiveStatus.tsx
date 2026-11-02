@@ -228,7 +228,7 @@ export function LiveStatus({ activity, mode = "live", status, epoch, turnId, day
   const elapsedFormatted = formatDuration(startMs / 1000, live ? Date.now() / 1000 : (startMs + activity.timing.elapsedMs) / 1000);
 
   const stopping = live && activity.stopping === true;
-  const headlineLabel = stopping ? "Stopping turn…" : activity.waitingToStart ? "Waiting to start…" : waiting ? "Waiting for you" : headline.label;
+  const headlineLabel = stopping ? "正在停止轮次…" : activity.waitingToStart ? "等待开始…" : waiting ? "等待你的回复" : headline.label;
   const headlineDomain = headline.domain;
 
   const settled = live ? undefined : settledHeadline(status);
@@ -316,7 +316,7 @@ export function LiveStatus({ activity, mode = "live", status, epoch, turnId, day
           </div>
           {activity.timing.startedAt !== null && !activity.waitingToStart && <div className="shrink-0 space-y-0.5 text-right font-mono text-[11px] text-fg-faint tabular-nums">
             <div>{elapsedFormatted}</div>
-            {live && headline.startedAt && <div className="text-[10px] opacity-70" title="Current phase elapsed time">
+            {live && headline.startedAt && <div className="text-[10px] opacity-70" title="当前阶段用时">
               {headline.phase} {formatDuration(headline.startedAt / 1000, (headline.finishedAt ?? Date.now()) / 1000)}</div>}
           </div>}
           {!live && releasedNewestFirst.length > 0 && (

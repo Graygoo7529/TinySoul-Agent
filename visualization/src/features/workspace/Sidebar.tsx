@@ -143,13 +143,13 @@ export function Sidebar({
             onChange={(event) =>
               setDay(event.target.value === "" ? null : event.target.value)
             }
-            aria-label="Workspace day"
+            aria-label="工作区日期"
             className="h-7 min-w-0 flex-1 rounded-lg border border-line bg-bg-elev px-2 text-[12px] outline-none focus:border-accent"
           >
-            {days === null && <option value="">Active workspace</option>}
+            {days === null && <option value="">活动工作区</option>}
             {days?.map((entry) => (
               <option key={entry.day} value={entry.active ? "" : entry.day}>
-                {entry.active ? `Active · ${entry.day}` : `${entry.day} (archived)`}
+                {entry.active ? `活动 · ${entry.day}` : `${entry.day}（已归档）`}
               </option>
             ))}
             {days !== null &&
@@ -158,14 +158,14 @@ export function Sidebar({
                 <option value={viewDay}>{viewDay} (archived)</option>
               )}
           </select>
-          <IconButton label="Search workspace" onClick={openSearch}>
+          <IconButton label="检索工作区" onClick={openSearch}>
             <Search size={15} />
           </IconButton>
         </div>
         <Tabs
           items={[
-            { value: "files", label: "Files" },
-            { value: "trash", label: "Trash" },
+            { value: "files", label: "文件" },
+            { value: "trash", label: "回收站" },
           ]}
           value={panel}
           onChange={setPanel}
@@ -178,28 +178,28 @@ export function Sidebar({
             <input
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
-              placeholder="Filter…"
-              aria-label="Filter files"
+              placeholder="筛选…"
+              aria-label="筛选文件"
               className="h-6.5 min-w-0 flex-1 rounded-md border border-line bg-bg-elev px-2 text-[12px] outline-none focus:border-accent"
             />
             {isActive && (
               <>
                 <IconButton
-                  label="New file"
+                  label="新建文件"
                   className="h-6.5 w-6.5"
                   onClick={() => setCreateModal("file")}
                 >
                   <FilePlus2 size={13} />
                 </IconButton>
                 <IconButton
-                  label="New folder"
+                  label="新建文件夹"
                   className="h-6.5 w-6.5"
                   onClick={() => setCreateModal("folder")}
                 >
                   <FolderPlus size={13} />
                 </IconButton>
                 <IconButton
-                  label="Upload files"
+                  label="上传文件"
                   className="h-6.5 w-6.5"
                   onClick={() => uploadInputRef.current?.click()}
                 >
@@ -249,7 +249,7 @@ export function Sidebar({
           {isActive && (
             <div className="border-t border-line px-3 py-1.5 text-[10.5px] text-fg-faint">
               <Upload size={10} className="mr-1 inline" />
-              Drop files to upload (existing names are refused)
+              拖入文件即可上传（同名文件会被拒绝）
             </div>
           )}
         </>
@@ -259,9 +259,9 @@ export function Sidebar({
 
       {createModal === "file" && (
         <PathInputModal
-          title="New file"
-          label="Path (e.g. notes/todo.md)"
-          submitLabel="Create file"
+          title="新建文件"
+          label="路径（如 notes/todo.md）"
+          submitLabel="创建文件"
           busy={mutations.busy}
           onSubmit={(path) => {
             void mutations.createFile(path).then((created) => {
@@ -276,9 +276,9 @@ export function Sidebar({
       )}
       {createModal === "folder" && (
         <PathInputModal
-          title="New folder"
-          label="Path (e.g. notes/assets)"
-          submitLabel="Create folder"
+          title="新建文件夹"
+          label="路径（如 notes/assets）"
+          submitLabel="创建文件夹"
           busy={mutations.busy}
           onSubmit={(path) => {
             void mutations.createDirectory(path).then((created) => {
@@ -414,7 +414,7 @@ function TreeNodeRow({
       {dirtyLinks.has(ref) && (
         <span
           className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
-          title="Unsaved edits"
+          title="未保存的修改"
         />
       )}
       {tags.map((tag) => (
@@ -482,15 +482,15 @@ function TrashPanel({
     return (
       <EmptyState
         icon={<Trash2 size={22} />}
-        title="Trash is empty"
+        title="回收站为空"
         description={
-          trash.error !== null ? trash.error : "Trashed resources stay restorable here."
+          trash.error !== null ? trash.error : "回收的资源保留在这里，可以恢复。"
         }
         action={
           trash.error !== null ? (
             <Button variant="outline" size="xs" onClick={trash.reload}>
               <RotateCcw size={12} />
-              Retry
+              重试
             </Button>
           ) : undefined
         }
@@ -554,7 +554,7 @@ function TrashPanel({
           loading={trash.loadingMore}
           onClick={trash.loadMore}
         >
-          Show more
+          显示更多
         </Button>
       )}
       {trash.error !== null && (

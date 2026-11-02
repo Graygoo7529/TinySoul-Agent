@@ -575,7 +575,7 @@ function WebView({ action, result, params, nav }: ResultViewProps) {
           External content — shown as fetched, not trusted instructions.
         </div>
       )}
-      <LinksBlock payload={result} onOpen={nav.openReference} title="Produced resources" />
+      <LinksBlock payload={result} onOpen={nav.openReference} title="产出资源" />
       {result.truncated === true && asString(result.see_more_at) !== null && (
         <ReferenceButton
           reference={asString(result.see_more_at)!}
@@ -871,7 +871,7 @@ function AnalysisView({ action, result, params, nav }: ResultViewProps) {
               })}
             </div>
           )}
-          <LinksBlock payload={result} onOpen={nav.openReference} title="Output resources" />
+          <LinksBlock payload={result} onOpen={nav.openReference} title="输出资源" />
           {visualRefs.length > 0 && (
             <div className="space-y-0.5">
               <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
@@ -1023,7 +1023,7 @@ function ExecutionView({ result, params, nav }: ResultViewProps) {
           Bounded read — the full output stays on the Job.
         </div>
       )}
-      <LinksBlock payload={result} onOpen={nav.openReference} title="Result resources" />
+      <LinksBlock payload={result} onOpen={nav.openReference} title="结果资源" />
     </div>
   );
 }
@@ -1130,7 +1130,7 @@ function AcpView({ action, result, nav }: ResultViewProps) {
           <Excerpt text={outputText} max={4000} />
         </div>
       )}
-      <LinksBlock payload={result} onOpen={nav.openReference} title="Result resources" />
+      <LinksBlock payload={result} onOpen={nav.openReference} title="结果资源" />
       {jobId === null && connectionId === null && agents === null && (
         <GenericView result={result} params={null} nav={nav} />
       )}
@@ -1172,7 +1172,7 @@ function McpView({ result, params, nav }: ResultViewProps) {
         </Collapsible>
       )}
       {content !== undefined && content !== null && (
-        <Collapsible title="Tool result content" defaultOpen>
+        <Collapsible title="工具结果内容" defaultOpen>
           <JsonTree value={content as JsonValue} defaultExpanded={false} />
         </Collapsible>
       )}

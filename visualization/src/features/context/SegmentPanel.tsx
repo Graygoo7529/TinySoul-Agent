@@ -150,13 +150,13 @@ export function SegmentPanel({
           empty={
             closed ? (
               <EmptyState
-                title="Closed before this segment was read"
-                description="The turn ended before this body was captured; the day history holds the committed record."
+                title="此语境段在被读取前已关闭"
+                description="轮次在该正文被捕获前就已结束；已提交的记录保存在日历史中。"
               />
             ) : (
               <EmptyState
-                title="Empty segment"
-                description="This segment installed no body content."
+                title="空语境段"
+                description="该语境段没有安装正文内容。"
               />
             )
           }
@@ -352,7 +352,7 @@ function RootRefs({
 
 function SegmentDetails({ segment }: { segment: SegmentView }): ReactElement {
   return (
-    <Collapsible title="Details" tone="sunken">
+    <Collapsible title="详情" tone="sunken">
       <DetailGrid
         facts={[
           ["segment id", segment.id],

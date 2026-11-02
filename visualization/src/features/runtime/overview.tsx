@@ -148,7 +148,7 @@ export function OverviewStrip({
             <span className="font-medium" title={read.turnId}>
               {shortTurnId(read.turnId)}
             </span>
-            <CopyButton text={() => read.turnId ?? ""} label="Copy turn id" />
+            <CopyButton text={() => read.turnId ?? ""} label="复制轮次 ID" />
             {snapshot !== null && (
               <>
                 <Badge tone="accent">{snapshot.kind}</Badge>

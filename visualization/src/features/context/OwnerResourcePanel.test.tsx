@@ -157,7 +157,7 @@ describe("OwnerResourcePanel", () => {
     });
     await flush();
 
-    expect(container.textContent).toContain("original binding");
+    expect(container.textContent).toContain("原始绑定");
     // No owner read is attempted for an unbound reference.
     expect(endpoint.calls("/v2/memory/document")).toHaveLength(0);
     expect(endpoint.calls("/v2/memory/active")).toHaveLength(0);

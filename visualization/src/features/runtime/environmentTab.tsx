@@ -156,7 +156,7 @@ export function EnvironmentTab({ epoch }: { epoch: number }): ReactElement {
             onClick={() => setNonce((n) => n + 1)}
           >
             <RefreshCw size={12} />
-            Re-read
+            重新读取
           </Button>
         </div>
         {window_.kind === "loading" && (

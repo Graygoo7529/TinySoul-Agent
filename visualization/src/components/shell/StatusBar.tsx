@@ -26,18 +26,24 @@ export function StatusBar() {
         />
         {connected
           ? unreachable
-            ? "not responding…"
+            ? "无响应…"
             : eventsPhase === "reconnecting"
-              ? "reconnecting…"
-              : "connected"
-          : phase}
+              ? "重新连接中…"
+              : "已连接"
+          : phase === "idle"
+            ? "未连接"
+            : phase === "connecting"
+              ? "连接中…"
+              : phase === "error"
+                ? "连接失败"
+                : phase}
       </span>
       {connected && status && (
         <>
           <span className={status.ready ? "hidden text-fg-faint sm:inline" : "hidden text-warning sm:inline"}>
-            {status.ready ? "ready" : "starting…"}
+            {status.ready ? "就绪" : "启动中…"}
           </span>
-          <span className="hidden text-fg-faint sm:inline">day {status.active_day}</span>
+          <span className="hidden text-fg-faint sm:inline">{status.active_day}</span>
           <span
             className={`hidden sm:inline ${
               status.turn_active ? "text-accent" : "text-fg-faint"
@@ -46,8 +52,8 @@ export function StatusBar() {
             {snapshot !== null && status.turn_active
               ? `${snapshot.kind} turn · ${snapshot.state}`
               : status.turn_active
-                ? "turn active"
-                : "waiting for input"}
+                ? "进行中"
+                : "等待输入"}
           </span>
         </>
       )}

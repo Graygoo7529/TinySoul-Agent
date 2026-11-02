@@ -297,8 +297,8 @@ export function ContextInspectPanel({
         closed={closed}
         empty={
           <EmptyState
-            title="Nothing disclosed here"
-            description="This ref currently expands to no readable items."
+            title="这里没有可披露内容"
+            description="该引用当前展开后没有可读条目。"
           />
         }
       />

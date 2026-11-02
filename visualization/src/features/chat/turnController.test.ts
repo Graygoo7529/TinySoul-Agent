@@ -557,7 +557,7 @@ describe("questions", () => {
         { kind: "choice", option_id: "a" },
         "Execute",
       ),
-    ).rejects.toThrow("no longer awaiting a reply");
+    ).rejects.toThrow("此问题已不再等待回复");
     expect(turnState().outgoing).toEqual([]);
   });
 });

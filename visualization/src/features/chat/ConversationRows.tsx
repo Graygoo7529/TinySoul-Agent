@@ -47,8 +47,8 @@ export function TurnFooter({ epoch, turnId, day, status, items, elapsedMs }: {
     <div className="flex flex-wrap items-center gap-2 px-1 text-[11px] text-fg-faint">
       {status !== null && <>
         <Badge tone={tone}>{turnStatusText(status)}</Badge>
-        {elapsedMs !== undefined && <span title="Elapsed time of the captured activity">{formatDuration(0, elapsedMs / 1000)}</span>}
-        {outcomes.length > 0 && <span title="Actions represented in the retained interaction record">
+        {elapsedMs !== undefined && <span title="所捕获活动的用时">{formatDuration(0, elapsedMs / 1000)}</span>}
+        {outcomes.length > 0 && <span title="保留交互记录中表示的动作">
           {outcomes.length} 个动作{failed > 0 ? ` ${failed} 失败` : ""}{timeout > 0 ? ` ${timeout} 超时` : ""}
         </span>}
       </>}

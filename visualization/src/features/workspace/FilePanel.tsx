@@ -197,13 +197,13 @@ export function FilePanel({
           {isActive && isText && (
             <>
               <IconButton
-                label="Append text"
+                label="追加文本"
                 onClick={() => setModal("append")}
               >
                 <FilePlus2 size={15} />
               </IconButton>
               <IconButton
-                label="Find and replace"
+                label="查找替换"
                 onClick={() => setModal("replace")}
               >
                 <Replace size={15} />
@@ -212,17 +212,17 @@ export function FilePanel({
           )}
           {isActive && (
             <>
-              <IconButton label="Move or rename" onClick={() => setModal("move")}>
+              <IconButton label="移动或重命名" onClick={() => setModal("move")}>
                 <FolderInput size={15} />
               </IconButton>
-              <IconButton label="Tags" onClick={() => setModal("tags")}>
+              <IconButton label="标签" onClick={() => setModal("tags")}>
                 <TagsIcon size={15} />
               </IconButton>
             </>
           )}
           {record.kind !== "directory" && (
             <IconButton
-              label="Download"
+              label="下载"
               onClick={() =>
                 void downloadWorkspaceBlob(record.ref, apiDay, fileName)
               }
@@ -231,13 +231,13 @@ export function FilePanel({
             </IconButton>
           )}
           <IconButton
-            label="Copy reference"
+            label="复制引用"
             onClick={() => copyReference(record.ref)}
           >
             <Copy size={15} />
           </IconButton>
           <IconButton
-            label="Quote in conversation"
+            label="引用到对话"
             onClick={() =>
               quoteReference(record.ref, {
                 ref: record.ref,
@@ -248,7 +248,7 @@ export function FilePanel({
             <MessageSquareQuote size={15} />
           </IconButton>
           {isActive && (
-            <IconButton label="Move to trash" onClick={() => setModal("trash")}>
+            <IconButton label="移入回收站" onClick={() => setModal("trash")}>
               <Trash2 size={15} />
             </IconButton>
           )}
@@ -341,10 +341,10 @@ export function FilePanel({
 
       {modal === "move" && (
         <PathInputModal
-          title="Move or rename"
-          label="Target path"
+          title="移动或重命名"
+          label="目标路径"
           initial={record.relative_path}
-          submitLabel="Move"
+          submitLabel="移动"
           busy={mutations.busy}
           onSubmit={(path) => void runMove(path)}
           onClose={closeModal}
@@ -373,26 +373,25 @@ export function FilePanel({
         />
       )}
       {modal === "trash" && (
-        <Modal title="Move to trash" onClose={closeModal} width="max-w-sm">
+        <Modal title="移入回收站" onClose={closeModal} width="max-w-sm">
           <div className="space-y-3">
             <p className="text-[13px] text-fg-muted">
-              Move{" "}
+              将{" "}
               <span className="font-mono text-[12px] text-fg">
                 {record.relative_path}
               </span>{" "}
-              to the trash? It stays restorable from the Trash tab — there is
-              no permanent delete here.
+              移入回收站？回收的资源可以在「回收站」页签恢复——这里没有永久删除。
             </p>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={closeModal}>
-                Cancel
+                取消
               </Button>
               <Button
                 variant="danger"
                 loading={mutations.busy}
                 onClick={() => void runTrash()}
               >
-                Move to trash
+                移入回收站
               </Button>
             </div>
           </div>

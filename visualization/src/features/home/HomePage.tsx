@@ -34,9 +34,9 @@ import { HomeContentView } from "./HomeContentView";
 import { HomeDiffView } from "./HomeDiffView";
 
 const SEARCH_SCOPES: SearchScopeChoice[] = [
-  { id: "all", label: "All of Home", value: "all" },
-  { id: "agent", label: "Agent space", value: "agent" },
-  { id: "skills", label: "Skills", value: "skills" },
+  { id: "all", label: "整个 Home", value: "all" },
+  { id: "agent", label: "Agent 空间", value: "agent" },
+  { id: "skills", label: "技能", value: "skills" },
 ];
 
 export function HomePage(): ReactElement {
@@ -114,14 +114,14 @@ export function HomePage(): ReactElement {
       <header className="flex flex-wrap items-center gap-2 border-b border-line bg-bg-elev/60 px-3 py-2">
         <Tabs
           items={[
-            { value: "effective", label: "Effective" },
-            { value: "actual", label: "Actual" },
+            { value: "effective", label: "生效中" },
+            { value: "actual", label: "基线" },
           ]}
           value={view}
           onChange={(value) => useHomePage.getState().setView(value)}
         />
         <span className="text-[11px] text-fg-faint">
-          {view === "effective" ? "What the next run uses" : "The accepted baseline"}
+          {view === "effective" ? "下一轮运行使用的内容" : "已接受的基线"}
         </span>
         <div className="flex-1" />
         <Button
@@ -132,7 +132,7 @@ export function HomePage(): ReactElement {
           }
         >
           <ListChecks size={12} />
-          Changes{changes !== null && <span className="font-mono text-[10px]">{changes.length}</span>}
+          变更{changes !== null && <span className="font-mono text-[10px]">{changes.length}</span>}
         </Button>
         <Button
           variant={rightPanel === "search" ? "secondary" : "ghost"}
@@ -140,11 +140,11 @@ export function HomePage(): ReactElement {
           onClick={openSearch}
         >
           <Search size={12} />
-          Search content
+          检索内容
         </Button>
         <Button variant="outline" size="xs" onClick={() => setOrganizeOpen(true)}>
           <Sparkles size={12} />
-          Organize Home
+          整理 Home
         </Button>
       </header>
 
@@ -159,11 +159,11 @@ export function HomePage(): ReactElement {
                 title="Home"
                 description={
                   view === "effective"
-                    ? "The identity, preferences, skills and guidance the next run uses. Pick an entry from the directory."
-                    : "The accepted baseline. Switch back to effective to see the content runs actually use."
+                    ? "下一轮运行使用的身份、偏好、技能与指导。从目录选择一项查看。"
+                    : "已接受的基线。切回「生效中」可查看运行实际使用的内容。"
                 }
                 action={
-                  <Badge tone="purple">{view} view</Badge>
+                  <Badge tone="purple">{view === "effective" ? "生效中视图" : "基线视图"}</Badge>
                 }
               />
             </div>
@@ -186,8 +186,8 @@ export function HomePage(): ReactElement {
           epoch={epoch}
           actionId="home.search"
           identityKey={`home|effective`}
-          title="Search Home"
-          placeholder="Search effective Home…"
+          title="检索 Home"
+          placeholder="检索生效中的 Home…"
           scopes={SEARCH_SCOPES}
           run={runSearch}
           onOpenRef={(ref) => void openSearchRef(ref)}

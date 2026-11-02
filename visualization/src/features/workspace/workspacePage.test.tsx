@@ -199,14 +199,14 @@ describe("WorkspacePage reading", () => {
     expect(container.textContent).not.toContain("line3");
 
     await act(async () => {
-      buttonByText("Show more").click();
+      buttonByText("显示更多").click();
     });
     await flush();
     expect(container.textContent).toContain("line3");
     const reads = endpoint.calls("/v2/workspace/resource");
     expect(reads).toHaveLength(2);
     expect(queryOf(reads[1], "continuation")).toBe("tok1");
-    expect(container.textContent).not.toContain("Show more");
+    expect(container.textContent).not.toContain("显示更多");
   });
 
   it("locates a #L fragment in the line view and highlights the real line", async () => {
@@ -337,7 +337,7 @@ describe("WorkspacePage archived day", () => {
     // No write affordances in an archived view.
     expect(container.textContent).not.toContain("Edit");
     expect(container.querySelector('button[aria-label="New file"]')).toBeNull();
-    expect(container.querySelector('button[aria-label="Move to trash"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="移入回收站"]')).toBeNull();
   });
 });
 
@@ -371,10 +371,10 @@ describe("WorkspacePage trash", () => {
       fileRow("a.md").click();
     });
     await act(async () => {
-      (container.querySelector('button[aria-label="Move to trash"]') as HTMLButtonElement).click();
+      (container.querySelector('button[aria-label="移入回收站"]') as HTMLButtonElement).click();
     });
     await act(async () => {
-      buttonByText("Move to trash").click();
+      buttonByText("移入回收站").click();
     });
     const trashed = endpoint.calls("/v2/workspace/trash", "POST");
     expect(trashed).toHaveLength(1);
@@ -416,7 +416,7 @@ describe("WorkspacePage trash", () => {
     );
     await renderPage();
     await act(async () => {
-      buttonByText("Trash").click();
+      buttonByText("回收站").click();
     });
     expect(container.textContent).toContain("a.md");
 
@@ -428,7 +428,7 @@ describe("WorkspacePage trash", () => {
     expect(bodyJson(restores[0])).toEqual({ trash_ref: "trash:1" });
     // The trash list re-read and is now empty; the file is back in the index.
     await act(async () => {
-      buttonByText("Files").click();
+      buttonByText("文件").click();
     });
     expect(container.textContent).toContain("a.md");
   });
@@ -569,10 +569,10 @@ describe("WorkspacePage search", () => {
     await renderPage();
 
     await act(async () => {
-      (container.querySelector('button[aria-label="Search workspace"]') as HTMLButtonElement).click();
+      (container.querySelector('button[aria-label="检索工作区"]') as HTMLButtonElement).click();
     });
     await flush();
-    const input = container.querySelector('input[aria-label="Search query"]') as HTMLInputElement;
+    const input = container.querySelector('input[aria-label="检索内容"]') as HTMLInputElement;
     expect(input).not.toBeNull();
     const setter = Object.getOwnPropertyDescriptor(
       window.HTMLInputElement.prototype,
@@ -583,7 +583,7 @@ describe("WorkspacePage search", () => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => {
-      buttonByText("Search").click();
+      buttonByText("搜索").click();
     });
     const searches = endpoint.calls("/v2/workspace/search", "POST");
     expect(searches).toHaveLength(1);
@@ -595,7 +595,7 @@ describe("WorkspacePage search", () => {
     expect(container.querySelector("mark")?.textContent).toBe("hello");
 
     // Open the hit from inside the panel (the tree row shows the same name).
-    const panel = container.querySelector('aside[aria-label="Search workspace"]');
+    const panel = container.querySelector('aside[aria-label="检索工作区"]');
     expect(panel).not.toBeNull();
     const resultButton = Array.from(panel!.querySelectorAll("button")).find(
       (candidate) => candidate.textContent === "a.md",
@@ -738,7 +738,7 @@ describe("WorkspacePage upload entry", () => {
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     expect(input).not.toBeNull();
     expect(input.multiple).toBe(true);
-    const button = container.querySelector('button[aria-label="Upload files"]') as HTMLButtonElement;
+    const button = container.querySelector('button[aria-label="上传文件"]') as HTMLButtonElement;
     expect(button).not.toBeNull();
 
     // The button opens the picker (input.click()); the choice arrives as change.
@@ -768,12 +768,12 @@ describe("WorkspacePage upload entry", () => {
         : jsonResponse(manifest(ACTIVE, [textRecord("today.md")])),
     );
     await renderPage();
-    expect(container.querySelector('button[aria-label="Upload files"]')).not.toBeNull();
+    expect(container.querySelector('button[aria-label="上传文件"]')).not.toBeNull();
     await act(async () => {
       useWorkspacePage.getState().setDay(ARCHIVE);
     });
     await flush();
-    expect(container.querySelector('button[aria-label="Upload files"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="上传文件"]')).toBeNull();
     expect(container.querySelector('button[aria-label="New file"]')).toBeNull();
   });
 });

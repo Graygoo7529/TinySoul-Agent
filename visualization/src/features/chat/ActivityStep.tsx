@@ -113,7 +113,7 @@ function StepBody({ item }: { item: ActivityStepType }) {
     case "domain_select":
       return <DomainSelectBody {...content} />;
     case "skill_mount":
-      return <ResourceBody label="Task guidance" refs={content.refs} />;
+      return <ResourceBody label="任务指导" refs={content.refs} />;
     case "background":
       return <ResourceBody label={content.operation === "load" ? "Loaded" : "Evicted"} refs={content.refs} />;
     case "control_failure":

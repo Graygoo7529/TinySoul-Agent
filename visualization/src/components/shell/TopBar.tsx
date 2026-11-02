@@ -30,7 +30,7 @@ export function TopBar() {
       </div>
       {connected && status?.turn_active && (
         <Badge tone="accent">
-          <span className="animate-pulse-dot">●</span> turn active
+          <span className="animate-pulse-dot">●</span> 进行中
         </Badge>
       )}
       {connected && (
@@ -39,7 +39,7 @@ export function TopBar() {
         </span>
       )}
       <IconButton
-        label="History"
+        label="历史"
         onClick={() => openHistoryBrowser(epoch)}
         disabled={!connected}
       >
@@ -49,20 +49,20 @@ export function TopBar() {
         <Wrench size={14} /><span className="hidden sm:inline">整理</span>
       </Button>
       <IconButton
-        label="Context"
+        label="语境"
         onClick={() => openContextDrawer(epoch)}
         disabled={!connected}
       >
         <Layers size={15} />
       </IconButton>
       <IconButton
-        label="Restart backend"
+        label="重启后端"
         onClick={() => setConfirmingRestart(true)}
         disabled={!connected}
       >
         <Power size={15} />
       </IconButton>
-      <IconButton label="Log out" onClick={logout}>
+      <IconButton label="退出登录" onClick={logout}>
         <LogOut size={15} />
       </IconButton>
       <ReconnectIndicator />
@@ -77,15 +77,14 @@ export function TopBar() {
 function RestartConfirm({ onClose }: { onClose: () => void }) {
   const restartPending = useConnectionStore((s) => s.restartPending);
   return (
-    <Modal title="Restart the backend?" onClose={onClose} width="max-w-md">
+    <Modal title="重启后端？" onClose={onClose} width="max-w-md">
       <p className="text-[13px] leading-5 text-fg-muted">
-        The host rebuilds the current Agent generation. The running turn is
-        stopped and the view re-synchronizes afterwards. The endpoint itself
-        keeps its address and event history.
+        宿主将重建当前 Agent 世代：正在运行的轮次会停止，随后视图自动重新同步。
+        Endpoint 本身的地址与事件历史保持不变。
       </p>
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>
-          Cancel
+          取消
         </Button>
         <Button
           variant="danger"
@@ -94,7 +93,7 @@ function RestartConfirm({ onClose }: { onClose: () => void }) {
             void restartBackend().finally(onClose);
           }}
         >
-          Restart
+          重启
         </Button>
       </div>
     </Modal>
@@ -109,12 +108,12 @@ function ReconnectIndicator() {
   // "reconnecting" is reserved for a dropped stream the client is recovering.
   const label =
     phase === "connecting"
-      ? "connecting…"
+      ? "连接中…"
       : phase === "connected"
         ? eventsPhase === "reconnecting"
-          ? "reconnecting…"
-          : "connecting…"
-        : "disconnected";
+          ? "重新连接中…"
+          : "连接中…"
+        : "已断开";
   return (
     <span className="inline-flex items-center gap-1.5 text-[11px] text-fg-faint">
       <RefreshCw size={12} className="animate-spin-slow" />

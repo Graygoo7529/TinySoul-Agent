@@ -74,7 +74,7 @@ export function SequenceStatus({
           className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-fg-muted transition-colors hover:border-line-strong hover:text-fg disabled:opacity-50"
         >
           {seq.loadingMore && <Loader2 size={12} className="animate-spin-slow" />}
-          Show more
+          显示更多
         </button>
       )}
     </>
@@ -133,7 +133,7 @@ export function HintRow({
         )}
       </button>
       {turnId !== null && onOpenTurn !== undefined && (
-        <IconButton label="Inspect the recorded facts" onClick={openDetail}>
+        <IconButton label="查看已记录的事实" onClick={openDetail}>
           <PanelRightOpen size={14} />
         </IconButton>
       )}

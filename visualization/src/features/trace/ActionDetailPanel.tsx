@@ -197,7 +197,7 @@ function ActionDetail({
       )}
 
       {trace.call !== null && Object.keys(trace.call.params).length > 0 && (
-        <Collapsible title="Call params">
+        <Collapsible title="调用参数">
           <JsonTree value={trace.call.params} defaultExpanded={false} />
         </Collapsible>
       )}
@@ -245,7 +245,7 @@ function ActionDetail({
       )}
 
       {trace.result !== null && (
-        <Collapsible title="Raw result payload">
+        <Collapsible title="原始结果负载">
           <JsonTree
             value={{
               status: trace.result.status,

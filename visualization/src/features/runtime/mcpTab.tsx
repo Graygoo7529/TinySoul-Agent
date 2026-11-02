@@ -82,11 +82,11 @@ export function McpTab({ epoch }: { epoch: number }): ReactElement {
     return (
       <EmptyState
         icon={<Plug size={26} />}
-        title="No MCP servers configured"
-        description="Servers are configuration facts — configure one in settings before its directory can be discovered."
+        title="没有已配置的 MCP 服务器"
+        description="服务器是配置事实——先在设置中配置，才能发现其目录。"
         action={
           <Button variant="outline" size="sm" onClick={() => openMcpSettings()}>
-            Configure servers
+            配置服务器
           </Button>
         }
       />
@@ -98,7 +98,7 @@ export function McpTab({ epoch }: { epoch: number }): ReactElement {
         <input
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
-          placeholder="Filter by name or description…"
+          placeholder="按名称或描述筛选…"
           className="h-8 w-64 rounded-lg border border-line bg-bg-elev px-2.5 text-[13px] outline-none placeholder:text-fg-faint focus:border-line-strong"
         />
         <span className="text-[11px] text-fg-faint">
@@ -208,8 +208,8 @@ function ServerRow({
         </Badge>
         <Badge tone={server.discovered ? "teal" : "gray"}>
           {server.discovered
-            ? `discovered · ${server.tool_count} tools`
-            : "not discovered"}
+            ? `已发现 · ${server.tool_count} 个工具`
+            : "未发现"}
         </Badge>
         {server.stale && <Badge tone="yellow">stale</Badge>}
         {server.error !== null && (
@@ -230,7 +230,7 @@ function ServerRow({
           onClick={() => void refresh()}
         >
           <RefreshCw size={12} />
-          Refresh directory
+          刷新目录
         </Button>
       </div>
       {refreshNote !== null && (
@@ -280,7 +280,7 @@ function ServerTools({
   );
 
   if (tools.loading) {
-    return <LoadingRow text="Reading the discovered tools…" />;
+    return <LoadingRow text="正在读取已发现的工具…" />;
   }
   return (
     <div className="space-y-1.5 rounded-lg border border-line bg-bg-sunken px-3 py-3">
@@ -293,8 +293,8 @@ function ServerTools({
       {tools.items.length === 0 && tools.error === null ? (
         <div className="flex flex-wrap items-center gap-2 text-[12px] text-fg-faint">
           {discoveredRef.current === false
-            ? "This server's directory was never discovered — use its explicit refresh to read the tools."
-            : "The discovered directory has no tools."}
+            ? "尚未发现该服务器的目录——使用显式刷新读取工具。"
+            : "已发现的目录中没有工具。"}
         </div>
       ) : (
         tools.items.map((tool) => (
@@ -414,7 +414,7 @@ function ToolDetail({
             </Button>
           </div>
           {read.value.definition !== null && (
-            <Collapsible title="Definition">
+            <Collapsible title="定义">
               <JsonTree value={read.value.definition} defaultExpanded={false} />
             </Collapsible>
           )}

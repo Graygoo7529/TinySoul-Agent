@@ -5,7 +5,7 @@ import { requestIdForTurn } from "../../store/turnStore";
  * The owner projection (state/kind/pending inputs/result links/details)
  * plus bounded output reads. Job output pages always carry a
  * `next_continuation` — it is a polling position, never an end marker — so
- * further output is read only when the user asks ("Show more"), and a
+ * further output is read only when the user asks ("显示更多输出"), and a
  * running Job can be refreshed explicitly. Stopping a Job is the Agent's
  * business, not this read-only panel's.
  */
@@ -169,7 +169,7 @@ export function JobPanel({
           className="inline-flex items-center gap-1 text-[12px] text-accent hover:underline disabled:opacity-50"
         >
           {loadingMore && <Loader2 size={11} className="animate-spin-slow" />}
-          Show more output
+          显示更多输出
         </button>
         {moreError !== null && (
           <span className="text-[12px] text-danger">
@@ -254,8 +254,7 @@ function JobChannels({
       ))}
       {truncated && (
         <div className="text-[11px] text-fg-faint">
-          Output reads are bounded; "Show more" continues from the last
-          position.
+          输出读取是有界的；「显示更多输出」从上次位置继续。
         </div>
       )}
     </div>

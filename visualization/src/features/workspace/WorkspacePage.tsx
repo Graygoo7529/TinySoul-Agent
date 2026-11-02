@@ -175,12 +175,12 @@ export function WorkspacePage(): ReactElement {
     () => [
       {
         id: "all",
-        label: "Everything",
+        label: "全部",
         value: { kind: "workspace" },
       },
       ...topLevelDirectories(manifest?.records ?? []).map((dir) => ({
         id: `dir:${dir}`,
-        label: `Folder: ${dir}`,
+        label: `目录：${dir}`,
         value: { kind: "directory", ref: `workspace:${dir}` },
       })),
     ],
@@ -240,8 +240,8 @@ export function WorkspacePage(): ReactElement {
         {manifestStatus === "error" && manifest === null ? (
           <div className="flex flex-1 items-center justify-center p-6">
             <EmptyState
-              title="The manifest could not be read"
-              description="The Workspace index is unavailable right now."
+              title="无法读取工作区索引"
+              description="工作区索引当前不可用。"
               action={
                 <Button
                   variant="outline"
@@ -266,7 +266,7 @@ export function WorkspacePage(): ReactElement {
         ) : ref !== null && manifestStatus === "ready" ? (
           <div className="flex flex-1 items-center justify-center p-6">
             <EmptyState
-              title="Not in the manifest"
+              title="不在索引中"
               description={
                 <>
                   <span className="font-mono text-[11px]">{ref}</span> is not
@@ -275,7 +275,7 @@ export function WorkspacePage(): ReactElement {
               }
               action={
                 <Button variant="outline" size="sm" onClick={() => select(null)}>
-                  Back to the tree
+                  返回目录树
                 </Button>
               }
             />
@@ -291,8 +291,8 @@ export function WorkspacePage(): ReactElement {
               title="Workspace"
               description={
                 isActive
-                  ? "Select a file from the tree, create one, or drop files to upload."
-                  : `Archived view of ${manifest?.day ?? viewDay ?? ""} — read-only.`
+                  ? "从目录树选择文件，或新建、拖入文件上传。"
+                  : `${manifest?.day ?? viewDay ?? ""} 的归档视图——只读。`
               }
             />
           </div>
@@ -304,8 +304,8 @@ export function WorkspacePage(): ReactElement {
           epoch={epoch}
           actionId="workspace.search"
           identityKey={`workspace|${manifest?.day ?? activeDay ?? ""}`}
-          title="Search workspace"
-          placeholder="Search the workspace…"
+          title="检索工作区"
+          placeholder="检索工作区…"
           scopes={scopes}
           run={runSearch}
           onOpenRef={(ref) => void openSearchRef(ref)}

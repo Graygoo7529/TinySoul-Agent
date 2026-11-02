@@ -219,8 +219,8 @@ function ConversationView() {
           {latestId === null && (
             <EmptyState
               icon={sessionLoading ? <Loader2 size={26} className="animate-spin-slow" /> : <MessageSquareText size={28} />}
-              title={sessionLoading ? "Loading today's conversations…" : "Start a conversation"}
-              description={sessionLoading ? undefined : "Send a message below. Open a turn’s Details to explore its activity and model calls."}
+              title={sessionLoading ? "正在加载今天的会话…" : "开始会话"}
+              description={sessionLoading ? undefined : "在下方发送消息。打开轮次的「详情」可查看其活动与模型调用。"}
               action={<Button variant="outline" size="sm" onClick={() => openHistoryBrowser(epoch)}><History size={13} /> Browse earlier days</Button>}
             />
           )}
@@ -252,8 +252,8 @@ function ConversationView() {
         >
           <ArrowDown size={12} />
           {pendingQuestion !== null
-            ? "Question waiting for your reply"
-            : "New content"}
+            ? "问题等待你的回复"
+            : "新内容"}
         </button>
       )}
     </div>
@@ -304,7 +304,7 @@ function HistoryBanner() {
           Process
         </Button>
       )}
-      <BackToToday label={liveElsewhere ? "Back to the live turn" : undefined} />
+      <BackToToday label={liveElsewhere ? "回到进行中的轮次" : undefined} />
     </div>
   );
 }
@@ -322,7 +322,7 @@ function BackToToday({ label }: { label?: string }) {
         void syncFromStatus(epoch);
       }}
     >
-      {label ?? "Back to today"}
+      {label ?? "回到今天"}
     </Button>
   );
 }
@@ -405,10 +405,10 @@ function EchoDelivery({ echo }: { echo: OutgoingEcho }) {
               {echo.turnClosed && (
                 <button
                   className="font-medium text-accent hover:underline"
-                  title="The target turn is closed; send the same text as a new turn"
+                  title="目标轮次已关闭；相同内容将作为新一轮发送"
                   onClick={() => void sendEchoAsNewTurn(epoch, echo.echoId)}
                 >
-                  Send as new conversation
+                  作为新会话发送
                 </button>
               )}
               {echo.kind !== "reply" && (

@@ -125,8 +125,8 @@ export function JobsTab({
     return (
       <EmptyState
         icon={<ListTodo size={26} />}
-        title="No active turn"
-        description="Jobs belong to the turn that started them — none is running right now."
+        title="没有活动轮次"
+        description="后台任务属于发起它们的轮次——当前没有轮次在运行。"
       />
     );
   }
@@ -138,7 +138,7 @@ export function JobsTab({
         <span className="font-medium text-fg-muted" title={bound.turnId}>
           {shortTurnId(bound.turnId)}
         </span>
-        <CopyButton text={() => bound.turnId ?? ""} label="Copy turn id" />
+        <CopyButton text={() => bound.turnId ?? ""} label="复制轮次 ID" />
       </div>
       {reclaimed && (
         <ReclaimedNotice epoch={epoch} turnId={bound.turnId} day={bound.day} />
@@ -403,7 +403,7 @@ function JobDetailBody({
             size="xs"
             onClick={() => useAppStore.getState().setActiveTab("chat")}
           >
-            Open in conversation
+            在对话中打开
           </Button>
         </div>
       )}
@@ -429,7 +429,7 @@ function JobDetailBody({
         </div>
       )}
       {detail.details !== null && detail.details !== undefined && (
-        <Collapsible title="Details">
+        <Collapsible title="详情">
           <JsonTree value={detail.details} defaultExpanded={false} />
         </Collapsible>
       )}

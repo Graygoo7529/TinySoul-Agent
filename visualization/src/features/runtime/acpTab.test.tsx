@@ -65,8 +65,8 @@ describe("AcpTab", () => {
     await renderTab();
     await flush();
 
-    expect(container.textContent).toContain("No subagent targets configured");
-    expect(container.textContent).toContain("No live connections");
+    expect(container.textContent).toContain("没有已配置的子代理目标");
+    expect(container.textContent).toContain("没有活动连接");
     expect(container.textContent).toContain("never connects");
     // One side-effect-free directory read; nothing else.
     expect(endpoint.calls("/v2/subagent")).toHaveLength(1);

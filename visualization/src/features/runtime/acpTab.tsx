@@ -71,7 +71,7 @@ export function AcpTab({ epoch }: { epoch: number }): ReactElement {
           onClick={() => setNonce((n) => n + 1)}
         >
           <RefreshCw size={12} />
-          Re-read
+          重新读取
         </Button>
       </div>
       <TargetsSection targets={targets} />
@@ -93,11 +93,11 @@ function TargetsSection({
     return (
       <EmptyState
         icon={<Unplug size={26} />}
-        title="No subagent targets configured"
-        description="Targets are configuration facts — add one in settings before a delegation can use it."
+        title="没有已配置的子代理目标"
+        description="目标是配置事实——先在设置中添加，委派才能使用。"
         action={
           <Button variant="outline" size="sm" onClick={openAcpSettings}>
-            Open ACP settings
+            打开 ACP 设置
           </Button>
         }
       />
@@ -151,7 +151,7 @@ function ConnectionsSection({
       <section className="space-y-1.5">
         <h3 className="text-[12px] font-medium text-fg-faint">Connections</h3>
         <div className="rounded-lg border border-line bg-bg-elev px-4 py-3 text-[12px] text-fg-faint">
-          No live connections. A connection appears when a delegation starts
+          当前没有活动连接。委派开始时会出现连接
           and an idle one can be reused across turns.
         </div>
       </section>

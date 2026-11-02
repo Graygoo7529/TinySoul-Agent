@@ -115,29 +115,29 @@ export function OwnerResourcePanel({
     case "resolving":
       return (
         <div className="flex items-center gap-2 px-1 py-3 text-[12px] text-fg-faint">
-          Resolving {reference}…
+          正在解析 {reference}…
         </div>
       );
     case "error":
       return (
         <EmptyState
-          title="Could not resolve this reference"
+          title="无法解析此引用"
           description={state.message}
         />
       );
     case "unresolved":
       return (
         <EmptyState
-          title="This reference needs its original binding"
-          description={`“${reference}” is a dynamic reference whose original day/turn binding is no longer available. The current owner content is not substituted for it.`}
+          title="此引用需要其原始绑定"
+          description={`「${reference}」是动态引用，其原始日期/轮次绑定已不可用。不会用当前所有者内容替代它。`}
         />
       );
     case "unsupported":
       return (
         <div className="space-y-2">
           <EmptyState
-            title="This reference opens in its owner page"
-            description="The context drawer reads Home and Memory resources in place; other owners have their own pages."
+            title="此引用在其所有者页面打开"
+            description="语境抽屉就地读取 Home 与 Memory 资源；其它所有者有各自页面。"
           />
           <JsonTree value={state.locator} defaultExpanded={false} />
         </div>
@@ -249,8 +249,8 @@ function OwnerContentReader({
           closed={false}
           empty={
             <EmptyState
-              title="Empty document"
-              description="The owner reports no content for this resource."
+              title="空文档"
+              description="所有者报告此资源没有内容。"
             />
           }
         />
@@ -273,7 +273,7 @@ function OwnerContentReader({
       )}
 
       {memoryMeta !== null && memoryMeta.resolutionChain.length > 1 && (
-        <Collapsible title="Resolution chain" tone="sunken">
+        <Collapsible title="解析链" tone="sunken">
           <DetailGrid
             facts={memoryMeta.resolutionChain.map((ref, index) => [
               `step ${index + 1}`,

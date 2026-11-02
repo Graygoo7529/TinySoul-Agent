@@ -126,7 +126,7 @@ export function SessionMapPanel({ epoch, day }: { epoch: number; day: string }) 
         <EmptyState
           icon={<MessageSquareText size={26} />}
           title={`No completed conversations on ${day}`}
-          description="Once a turn finishes, its facts are committed here and the Agent can organize them into topics."
+          description="轮次结束后，其事实会提交到这里，Agent 可以将其整理为话题。"
         />
       ) : (
         sections.map((child) => (

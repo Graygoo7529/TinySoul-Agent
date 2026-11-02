@@ -108,7 +108,7 @@ describe("McpTab", () => {
     // Four separate facts, never one traffic light.
     expect(container.textContent).toContain("enabled");
     expect(container.textContent).toContain("connected");
-    expect(container.textContent).toContain("discovered · 2 tools");
+    expect(container.textContent).toContain("已发现 · 2 个工具");
     // Only side-effect-free reads happened: no POST at all, no tools read.
     expect(endpoint.requests.filter((r) => r.method === "POST")).toHaveLength(0);
     expect(endpoint.calls("/v2/expand/tools")).toHaveLength(0);
@@ -126,7 +126,7 @@ describe("McpTab", () => {
 
     const refreshButtons = Array.from(
       container.querySelectorAll("button"),
-    ).filter((button) => button.textContent?.includes("Refresh directory"));
+    ).filter((button) => button.textContent?.includes("刷新目录"));
     expect(refreshButtons).toHaveLength(2);
     await act(async () => (refreshButtons[0] as HTMLButtonElement).click());
     await flush();
@@ -145,7 +145,7 @@ describe("McpTab", () => {
     endpoint.get("/v2/expand/servers", () => jsonResponse(serversPage([])));
     await renderTab();
     await flush();
-    expect(container.textContent).toContain("No MCP servers configured");
+    expect(container.textContent).toContain("没有已配置的 MCP 服务器");
     expect(endpoint.requests.filter((r) => r.method === "POST")).toHaveLength(0);
   });
 

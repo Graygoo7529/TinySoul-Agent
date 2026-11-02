@@ -88,7 +88,7 @@ export function SessionRefPanel({
             onClick={() => openHistoryConversation(epoch, turnId, day)}
           >
             <BookOpen size={12} />
-            Open conversation
+            打开会话
           </Button>
         )}
         <form
@@ -126,7 +126,7 @@ export function SessionRefPanel({
       ))}
 
       {parsed.relations.length > 0 && (
-        <PanelSection title="Relations">
+        <PanelSection title="关系">
           {parsed.relations.map((relation, index) => (
             <RelationRow
               key={`${relation.source}-${relation.relation}-${relation.target}-${index}`}
@@ -139,7 +139,7 @@ export function SessionRefPanel({
       )}
 
       {parsed.children.length > 0 && (
-        <PanelSection title={query !== null ? "Located" : "Contents"}>
+        <PanelSection title={query !== null ? "定位" : "内容"}>
           {parsed.children.map((child) => (
             <HintRow
               key={child.ref}
@@ -153,7 +153,7 @@ export function SessionRefPanel({
       )}
 
       {parsed.sources.length > 0 && (
-        <PanelSection title="Evidence">
+        <PanelSection title="依据">
           <div className="flex flex-wrap gap-1.5">
             {parsed.sources.map((ref) => (
               <RefChip key={ref} epoch={epoch} day={day} ref_={ref} />
@@ -255,7 +255,7 @@ function ContentCard({
     return <FactCard label={String(item.title ?? item.role ?? item.kind ?? "Content")}>
       <FactText text={item.narrative} />
       <div className="text-xs text-fg-muted">{coverageDescription(item.coverage)}</div>
-      <Collapsible title="Facts" tone="sunken">
+      <Collapsible title="事实" tone="sunken">
         <JsonTree value={item} defaultExpanded={false} />
       </Collapsible>
     </FactCard>;
@@ -267,7 +267,7 @@ function ContentCard({
       return <InteractionCard item={item} />;
     case "session_input":
       return (
-        <FactCard label="User input">
+        <FactCard label="用户输入">
           <FactText text={typeof item.narrative === "string" ? item.narrative : typeof item.text === "string" ? item.text : ""} />
         </FactCard>
       );
@@ -282,7 +282,7 @@ function ContentCard({
       return <ActionFactCard item={item} />;
     case "session_working":
       return (
-        <FactCard label="Final working state">
+        <FactCard label="最终工作状态">
           <JsonTree value={item.working ?? {}} defaultExpanded={false} />
         </FactCard>
       );
@@ -327,7 +327,7 @@ function FactText({ text }: { text: string }) {
 function TurnHeaderCard({ item }: { item: JsonObject }) {
   const failures = Array.isArray(item.failures) ? item.failures : [];
   return (
-    <FactCard label="Committed turn">
+    <FactCard label="已提交轮次">
       <div className="flex items-center gap-2 text-[12px]">
         <span className="text-fg-muted">
           {typeof item.day === "string" ? item.day : ""}
@@ -423,11 +423,11 @@ function ActionFactCard({ item }: { item: JsonObject }) {
       )}
       {item.request !== undefined && (
         <div className="mt-2 space-y-1.5">
-          <Collapsible title="Request" tone="sunken">
+          <Collapsible title="请求" tone="sunken">
             <JsonTree value={item.request} defaultExpanded={false} />
           </Collapsible>
           {item.result !== undefined && (
-            <Collapsible title="Result" tone="sunken">
+            <Collapsible title="结果" tone="sunken">
               <JsonTree value={item.result} defaultExpanded={false} />
             </Collapsible>
           )}
@@ -440,7 +440,7 @@ function ActionFactCard({ item }: { item: JsonObject }) {
 
 function ResourceFactCard({ item }: { item: JsonObject }) {
   return (
-    <FactCard label="Referenced resource">
+    <FactCard label="被引用的资源">
       <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
         <code className="rounded bg-bg-sunken px-1.5 py-0.5 font-mono text-[11px] break-all">
           {typeof item.ref === "string" ? item.ref : "(unknown link)"}

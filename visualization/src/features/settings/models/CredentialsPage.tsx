@@ -84,7 +84,7 @@ export function CredentialsPage() {
         <input
           aria-label="Filter credentials"
           value={query}
-          placeholder="Filter by name or referencing path…"
+          placeholder="按名称或引用路径筛选…"
           onChange={(event) => setQuery(event.target.value)}
           className={`${inputClass} h-7 text-[11px]`}
         />
@@ -137,7 +137,7 @@ export function CredentialsPage() {
 
       {credentials.length === 0 && !adding ? (
         <EmptyState
-          title="No credentials referenced"
+          title="没有已引用的凭据"
           description="Provider and server configurations declare the dotenv names they read; those references appear here together with any values already present in the dotenv file."
         />
       ) : (

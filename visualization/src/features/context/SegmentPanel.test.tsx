@@ -161,7 +161,7 @@ describe("SegmentPanel body", () => {
       void request;
       return jsonResponse(second);
     });
-    clickText("Show more");
+    clickText("显示更多");
     await flush();
     expect(container.textContent).toContain("page two");
     expect(segmentCalls("inputs")).toHaveLength(2);
@@ -214,7 +214,7 @@ describe("SegmentPanel body", () => {
         content_fragment: { encoding: "canonical_json", text: full.slice(cut) },
       }),
     );
-    clickText("Show more");
+    clickText("显示更多");
     await flush();
     expect(
       container.textContent?.split("fragment assembled body").length,
@@ -249,13 +249,13 @@ describe("SegmentPanel body", () => {
     endpoint.get(`/v2/requests/${TURN_ID}/context/segments/inputs`, () =>
       errorResponse(409, "context.unavailable"),
     );
-    clickText("Show more");
+    clickText("显示更多");
     await flush();
     expect(container.textContent).toContain("last captured view");
     expect(container.textContent).toContain("kept");
     // No retry loop, no further reads, no load-more affordance.
     expect(segmentCalls("inputs")).toHaveLength(2);
-    expect(container.textContent).not.toContain("Show more");
+    expect(container.textContent).not.toContain("显示更多");
   });
 });
 
@@ -332,7 +332,7 @@ describe("SegmentPanel shapes", () => {
   it("state: the technical descriptor lives in the Details section", async () => {
     await renderSegment("inputs");
     expect(container.textContent).not.toContain("capabilities");
-    clickText("Details");
+    clickText("详情");
     expect(container.textContent).toContain("capabilities");
     expect(container.textContent).toContain("read only");
     expect(container.textContent).toContain("46 chars");

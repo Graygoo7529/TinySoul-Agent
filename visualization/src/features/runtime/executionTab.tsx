@@ -49,8 +49,8 @@ function CurrentTurnCard({ read }: { read: ActiveTurnRead }): ReactElement {
     return (
       <EmptyState
         icon={<PlayCircle size={26} />}
-        title="No turn is running"
-        description="New turns start from the conversation; queued turns appear below."
+        title="当前没有运行中的轮次"
+        description="新轮次从对话发起；排队的轮次会显示在下方。"
       />
     );
   }
@@ -76,14 +76,14 @@ function CurrentTurnCard({ read }: { read: ActiveTurnRead }): ReactElement {
           <span className="text-[12px] text-fg-faint" title={snapshot.turn_id ?? snapshot.request_id}>
             {shortTurnId(snapshot.turn_id ?? snapshot.request_id)}
           </span>
-          <CopyButton text={() => snapshot.turn_id ?? snapshot.request_id} label="Copy turn id" />
+          <CopyButton text={() => snapshot.turn_id ?? snapshot.request_id} label="复制轮次 ID" />
           <span className="flex-1" />
           <Button
             variant="outline"
             size="xs"
             onClick={() => useAppStore.getState().setActiveTab("chat")}
           >
-            Open in conversation
+            在对话中打开
           </Button>
         </div>
         <WaitingLine snapshot={snapshot} />
@@ -157,7 +157,7 @@ function ResultCard({ result }: { result: TurnResult }): ReactElement {
       </div>
       {result.failure != null && (
         <Collapsible
-          title="Execution failure"
+          title="执行失败"
           meta={<Badge tone="red">failed</Badge>}
           defaultOpen
         >
@@ -165,18 +165,18 @@ function ResultCard({ result }: { result: TurnResult }): ReactElement {
         </Collapsible>
       )}
       {result.output != null && (
-        <Collapsible title="Output">
+        <Collapsible title="输出">
           <JsonTree value={result.output} defaultExpanded={false} />
         </Collapsible>
       )}
       {result.completion != null && (
-        <Collapsible title="Completion">
+        <Collapsible title="收尾">
           <JsonTree value={result.completion} defaultExpanded={false} />
         </Collapsible>
       )}
       {hasCleanup && (
         <Collapsible
-          title="Finish and cleanup diagnostics"
+          title="收尾与清理诊断"
           meta={
             <Badge tone="yellow">
               {(result.finish_failures?.length ?? 0) + (result.cleanup?.length ?? 0)}
@@ -185,8 +185,8 @@ function ResultCard({ result }: { result: TurnResult }): ReactElement {
         >
           <div className="space-y-2 text-[12px] text-fg-muted">
             <p>
-              Raised while finishing or cleaning up — separate from the
-              Turn's own result above.
+              在收尾或清理阶段产生——与上方轮次自身的
+              结果分开呈现。
             </p>
             {(result.finish_failures?.length ?? 0) > 0 && (
               <JsonTree value={result.finish_failures ?? []} defaultExpanded={false} />
@@ -213,7 +213,7 @@ function QueueCard({
   return (
     <div className="rounded-lg border border-line bg-bg-elev px-4 py-3">
       <div className="mb-2 flex items-center gap-2 text-[12px] text-fg-faint">
-        Queued turns — cancelling one never affects the running turn.
+        排队的轮次——取消其中一个不影响正在运行的轮次。
       </div>
       <div className="space-y-1">
         {queued.map((turnId) => (
@@ -222,7 +222,7 @@ function QueueCard({
             <span className="font-medium" title={turnId}>
               {shortTurnId(turnId)}
             </span>
-            <CopyButton text={() => turnId} label="Copy turn id" />
+            <CopyButton text={() => turnId} label="复制轮次 ID" />
             <span className="flex-1" />
             <Button
               variant="ghost"
@@ -230,7 +230,7 @@ function QueueCard({
               onClick={() => void cancelQueuedTurn(epoch, turnId)}
             >
               <CircleStop size={12} />
-              Cancel
+              取消
             </Button>
           </div>
         ))}

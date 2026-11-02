@@ -194,7 +194,7 @@ describe("ContextInspectPanel", () => {
     expect(container.textContent).toContain("first");
 
     const more = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Show more"),
+      (button) => button.textContent?.includes("显示更多"),
     )!;
     act(() => {
       more.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -203,7 +203,7 @@ describe("ContextInspectPanel", () => {
     expect(container.textContent).toContain("last captured view");
     expect(container.textContent).toContain("first");
     expect(inspectCalls()).toHaveLength(2);
-    expect(container.textContent).not.toContain("Show more");
+    expect(container.textContent).not.toContain("显示更多");
   });
 
   it("marks the page refreshable on context install without disturbing content", async () => {

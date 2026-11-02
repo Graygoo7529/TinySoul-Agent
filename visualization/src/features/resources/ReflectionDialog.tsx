@@ -85,7 +85,7 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
   useEffect(() => {
     const clients = useConnectionStore.getState().clients;
     if (clients === null) {
-      setLoadError("Not connected to a backend.");
+      setLoadError("未连接到后端。");
       return;
     }
     const controller = new AbortController();
@@ -187,7 +187,7 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
         const code = apiErrorCode(error);
         if (code === "agent.queue_full") {
           setSubmitError(
-            "The root queue is full right now — your request was not queued. The instructions are kept; try again in a moment.",
+            "根队列已满——请求未能排入。说明内容已保留，请稍后重试。",
           );
           return;
         }
@@ -208,8 +208,8 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
           {queueBusy && (
             <div className="flex items-start gap-2 rounded-lg border border-line bg-bg-sunken px-3 py-2 text-[12px] text-fg-muted">
               <CalendarClock size={13} className="mt-0.5 shrink-0 text-fg-faint" />
-              Other root work is active or queued — this reflection queues
-              behind it and runs when the queue reaches it.
+当前有其它根任务在运行或排队——本次整理会排在它后面，
+              轮到时执行。
             </div>
           )}
 
@@ -223,7 +223,7 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
           {availability === null && loadError === null && (
             <p className="flex items-center gap-2 text-[12px] text-fg-faint">
               <Loader2 size={13} className="animate-spin-slow" />
-              Reading what can be organized…
+              正在读取可整理的内容…
             </p>
           )}
 
@@ -231,10 +231,8 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
             <p className="text-[13px] leading-5.5 text-fg-muted">
               {availability.home_change_count > 0 || availability.home_skill_memory_count > 0 ? (
                 <>
-                  {availability.home_change_count} overlay{" "}
-                  {availability.home_change_count === 1 ? "change" : "changes"}{" "}
-                  pending review. A Home reflection decides what becomes the
-                  accepted baseline — the page itself never accepts or rejects.
+                  当前有 {availability.home_change_count} 项 overlay 变更待审核。
+                  哪些进入已接受基线，由 Home 整理决定，页面本身不做接受或拒绝。
                 </>
               ) : (
                 <>
@@ -247,10 +245,10 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
 
           {kind === "memory" && availability !== null && (
             <section aria-label="Target day" className="space-y-2">
-              <h3 className="text-[12px] font-semibold text-fg">Target day</h3>
+              <h3 className="text-[12px] font-semibold text-fg">目标日</h3>
               {candidates.length === 0 ? (
                 <p className="text-[12px] text-fg-faint">
-                  No source days were suggested from the scanned days.
+                  扫描到的日期里没有可推荐的来源日。
                 </p>
               ) : (
                 <div className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-line bg-bg-sunken p-1.5">
@@ -277,8 +275,8 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
                       />
                       <span className="font-mono text-[11.5px]">{candidate.day}</span>
                       {candidate.missingDaily && (
-                        <Badge tone="yellow" title="This day has no persistent daily document yet — a clue, not an authorization">
-                          no daily yet
+                        <Badge tone="yellow" title="该日还没有持久日记文档——仅是线索，不构成授权">
+                          尚无日记
                         </Badge>
                       )}
                     </label>
@@ -292,16 +290,16 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
                   loading={earlierBusy}
                   onClick={loadEarlier}
                 >
-                  Look further back (before {availability.next_before})
+                  继续向前查找（早于 {availability.next_before}）
                 </Button>
               )}
               <label className="flex items-center gap-2 text-[12px] text-fg-muted">
-                <span className="shrink-0">Or pick a day:</span>
+                <span className="shrink-0">或指定日期：</span>
                 <input
                   type="date"
                   value={manualDay}
                   onChange={(event) => setManualDay(event.target.value)}
-                  aria-label="Custom target day"
+                  aria-label="自定义目标日"
                   className="h-7 rounded-lg border border-line bg-bg-elev px-2 font-mono text-[11.5px] outline-none focus:border-accent"
                 />
               </label>
@@ -310,7 +308,7 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
 
           <section aria-label="Instructions" className="space-y-1.5">
             <h3 className="text-[12px] font-semibold text-fg">
-              This run's instructions
+              本次整理说明
             </h3>
             <textarea
               value={instructions}
@@ -319,10 +317,10 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
               maxLength={16000}
               placeholder={
                 kind === "home"
-                  ? "What to focus on while reviewing Home…"
-                  : "What this day should settle into persistent knowledge…"
+                  ? "本次审核 Home 时重点关注什么…"
+                  : "这一天应当沉淀为哪些持久知识…"
               }
-              aria-label="Reflection instructions"
+              aria-label="整理说明"
               className="w-full resize-y rounded-lg border border-line bg-bg-elev px-3 py-2 text-[13px] leading-5 outline-none focus:border-accent"
             />
           </section>
@@ -336,7 +334,7 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
 
           <div className="flex items-center justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={onClose}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -349,7 +347,7 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
               onClick={submit}
             >
               <Sparkles size={13} />
-              {kind === "home" ? "Start Home reflection" : "Start Memory reflection"}
+              {kind === "home" ? "开始 Home 整理" : "开始 Memory 整理"}
             </Button>
           </div>
         </div>

@@ -295,7 +295,7 @@ describe("ChatView: scroll anchoring", () => {
     });
     expect(node.scrollTop).toBe(100);
     const pill = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "New content",
+      (button) => button.textContent === "新内容",
     );
     expect(pill).toBeDefined();
 
@@ -308,7 +308,7 @@ describe("ChatView: scroll anchoring", () => {
     expect(node.scrollTop).toBe(680);
     expect(
       Array.from(container.querySelectorAll("button")).find(
-        (button) => button.textContent === "New content",
+        (button) => button.textContent === "新内容",
       ),
     ).toBeUndefined();
   });
@@ -335,7 +335,7 @@ describe("ChatView: scroll anchoring", () => {
     });
 
     const pill = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Question waiting for your reply",
+      (button) => button.textContent === "问题等待你的回复",
     );
     expect(pill).toBeDefined();
     expect(node.scrollTop).toBe(50);
@@ -531,7 +531,7 @@ describe("ChatView: snapshot-driven waiting cards", () => {
       ).click();
     });
     const reply = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Reply",
+      (button) => button.textContent === "回复",
     );
     expect(reply).toBeDefined();
     await act(async () => {
@@ -589,15 +589,15 @@ describe("ChatView: direct composer", () => {
   it("appends without a mode menu and shows stop only when the draft is empty", async () => {
     await openLiveTurn();
     await renderChat();
-    expect(container.querySelector('button[title="Stop the current turn"]')).not.toBeNull();
+    expect(container.querySelector('button[title="停止当前轮次"]')).not.toBeNull();
     expect(container.querySelector('button[title="Stop turn"]')).toBeNull();
     expect(container.textContent).not.toContain("Queue as next turn");
     endpoint.post("/v2/requests/contract-turn/input", () =>
       jsonResponse({ accepted: true, record_id: "added", sequence: 1 }));
     act(() => useComposerDraft.getState().setDraft("one more detail"));
-    expect(container.querySelector('button[title="Stop the current turn"]')).toBeNull();
+    expect(container.querySelector('button[title="停止当前轮次"]')).toBeNull();
     await act(async () => {
-      (container.querySelector('button[title="Send"]') as HTMLButtonElement).click();
+      (container.querySelector('button[title="发送"]') as HTMLButtonElement).click();
     });
     expect(endpoint.calls("/v2/requests/contract-turn/input", "POST")).toHaveLength(1);
     expect(endpoint.calls("/v2/requests", "POST")).toHaveLength(0);
@@ -611,7 +611,7 @@ describe("ChatView: direct composer", () => {
     endpoint.post("/v2/requests/contract-turn/input", () => gate.promise);
     act(() => useComposerDraft.getState().setDraft("first addition"));
     await act(async () => {
-      (container.querySelector('button[title="Send"]') as HTMLButtonElement).click();
+      (container.querySelector('button[title="发送"]') as HTMLButtonElement).click();
       await Promise.resolve();
     });
     act(() => {
@@ -630,7 +630,7 @@ describe("ChatView: direct composer", () => {
       useComposerDraft.getState().setDraft("keep this");
     });
     expect((container.querySelector("textarea") as HTMLTextAreaElement).disabled).toBe(false);
-    expect((container.querySelector('button[title="Send"]') as HTMLButtonElement).disabled).toBe(true);
+    expect((container.querySelector('button[title="发送"]') as HTMLButtonElement).disabled).toBe(true);
     expect(useComposerDraft.getState().draft).toBe("keep this");
   });
 });
@@ -664,14 +664,14 @@ describe("ChatView: read-only history composer", () => {
     // though the live runtime below would accept a new turn.
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
     expect(textarea.disabled).toBe(true);
-    expect(textarea.placeholder).toContain("Read-only history");
+    expect(textarea.placeholder).toContain("只读历史");
     const box = container.querySelector(".composer-box") as HTMLDivElement;
     expect(box.className).toContain("opacity-60");
     const send = container.querySelector(
-      'button[title="Send"]',
+      'button[title="发送"]',
     ) as HTMLButtonElement;
     expect(send.disabled).toBe(true);
-    expect(container.textContent).toContain("Back to today to send a message");
+    expect(container.textContent).toContain("回到今天才能发送消息");
     // The live intent chip menu is not offered for committed history.
     expect(container.querySelector("button[aria-expanded]")).toBeNull();
   });
@@ -706,7 +706,7 @@ describe("ChatView: failed echo on a closed turn", () => {
     });
 
     const entries = Array.from(container.querySelectorAll("button")).filter(
-      (button) => button.textContent === "Send as new conversation",
+      (button) => button.textContent === "作为新会话发送",
     );
     expect(entries).toHaveLength(1);
 
@@ -778,9 +778,9 @@ describe("ChatView: pre-context entry", () => {
     });
     await renderChat();
     expect(container.querySelector(".bubble-user")?.textContent).toBe("look into the build…");
-    expect(container.textContent).toContain("Waiting to start");
+    expect(container.textContent).toContain("等待开始");
     endpoint.post("/v2/requests/contract-turn/cancel", () => jsonResponse({ accepted: true, turn_id: "contract-turn" }));
-    await act(async () => (container.querySelector('button[title="Stop the current turn"]') as HTMLButtonElement).click());
+    await act(async () => (container.querySelector('button[title="停止当前轮次"]') as HTMLButtonElement).click());
     expect(endpoint.calls("/v2/requests/contract-turn/cancel", "POST")).toHaveLength(1);
     expect(endpoint.calls("/v2/requests/reflection/cancel", "POST")).toHaveLength(0);
   });

@@ -158,10 +158,10 @@ describe("SearchResultView (plan §9.2)", () => {
     expect(text).toContain("0.90");
     // Two distinct badges: source channel vs model evaluation.
     expect(
-      container.querySelector('[title="Source channel score"]'),
+      container.querySelector('[title="来源通道分数"]'),
     ).not.toBeNull();
     expect(
-      container.querySelector('[title="Model evaluation score"]'),
+      container.querySelector('[title="模型评估分数"]'),
     ).not.toBeNull();
   });
 

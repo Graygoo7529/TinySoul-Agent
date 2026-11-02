@@ -136,8 +136,8 @@ export function ContextOverviewPanel({
       {state.kind === "closed" && (
         <EmptyState
           icon={<Layers size={26} />}
-          title="This turn's context is closed"
-          description="The turn ended before its context was read. Browse the day history for its committed record."
+          title="本轮语境已关闭"
+          description="这一轮在语境被读取前就已结束；已提交的记录可以在日历史中查看。"
           action={
             <Button variant="outline" onClick={() => openHistoryBrowser(epoch)}>
               Browse history
@@ -203,8 +203,8 @@ function OverviewBody({
       {groups.length === 0 ? (
         <EmptyState
           icon={<Layers size={26} />}
-          title="No segments installed"
-          description="This turn has not installed any context segments yet."
+          title="尚未安装语境段"
+          description="这一轮还没有安装任何语境段。"
         />
       ) : (
         groups.map((group) => (

@@ -140,7 +140,7 @@ describe("HomePage reading", () => {
 
     // Switching to actual re-reads both the directory and the document.
     await act(async () => {
-      buttonByText("Actual").click();
+      buttonByText("基线").click();
     });
     reads = endpoint.calls("/v2/home/content");
     expect(reads).toHaveLength(2);
@@ -195,7 +195,7 @@ describe("HomePage reading", () => {
     });
     // A non-text resource shows the reference and supported operations —
     // never a fake download.
-    expect(container.textContent).toContain("Not readable as text");
+    expect(container.textContent).toContain("无法按文本读取");
     expect(container.textContent).toContain("Copy reference");
   });
   it("derives semantic titles and independent type badges from Home content", async () => {
@@ -291,7 +291,7 @@ describe("HomePage changes", () => {
       (container.querySelector('button[title="home:top/agent/identity"]') as HTMLButtonElement).click();
     });
     await act(async () => {
-      buttonByText("Changes").click();
+      buttonByText("变更").click();
     });
     await act(async () => {
       (container.querySelector('button[title="home:top/agent/contract"]') as HTMLButtonElement).click();
@@ -301,10 +301,10 @@ describe("HomePage changes", () => {
     expect(queryOf(diffs[0], "ref")).toBe("home:top/agent/contract");
     // Unified mode shows the added line with its marker.
     expect(container.textContent).toContain("+Workspace guidance");
-    expect(container.textContent).toContain("actual 0 chars · effective 19 chars");
+    expect(container.textContent).toContain("actual 0 字符 · effective 19 字符");
 
     await act(async () => {
-      buttonByText("Side by side").click();
+      buttonByText("并排").click();
     });
     expect(container.textContent).toContain("Actual");
     expect(container.textContent).toContain("Effective");
@@ -312,7 +312,7 @@ describe("HomePage changes", () => {
 
     // Back to the changes list; the content selection survives.
     await act(async () => {
-      (container.querySelector('button[aria-label="Back to changes"]') as HTMLButtonElement).click();
+      (container.querySelector('button[aria-label="返回变更列表"]') as HTMLButtonElement).click();
     });
     expect(useHomePage.getState().diffLink).toBeNull();
     expect(useHomePage.getState().ref).toBe("home:top/agent/identity");
@@ -347,12 +347,12 @@ describe("HomePage changes", () => {
     expect(endpoint.calls("/v2/home/changes")).toHaveLength(0);
 
     await act(async () => {
-      buttonByText("Changes").click();
+      buttonByText("变更").click();
     });
     await flush();
-    expect(buttonByText("Changes4")).not.toBeNull();
+    expect(buttonByText("变更4")).not.toBeNull();
     await act(async () => {
-      buttonByText("Changes4").click();
+      buttonByText("变更4").click();
     });
     await flush();
     const modified = container.querySelector('button[aria-label="Open modified diff for home:top/agent/background"]');
@@ -375,12 +375,12 @@ describe("HomePage changes", () => {
     wireChanges(true);
     await renderPage();
     await act(async () => {
-      buttonByText("Changes").click();
+      buttonByText("变更").click();
     });
     await act(async () => {
       (container.querySelector('button[title="home:top/agent/contract"]') as HTMLButtonElement).click();
     });
-    expect(container.textContent).toContain("accepted baseline changed");
+    expect(container.textContent).toContain("已接受基线又发生了变化");
     // Review stays with the Home reflection: no accept/reject affordances.
     expect(container.textContent).not.toContain("Accept");
     expect(container.textContent).not.toContain("Reject");
@@ -408,7 +408,7 @@ describe("HomePage changes", () => {
     );
     await renderPage();
     await act(async () => {
-      buttonByText("Changes").click();
+      buttonByText("变更").click();
     });
     await act(async () => {
       (container.querySelector('button[title="home:top/agent/contract"]') as HTMLButtonElement).click();
@@ -419,7 +419,7 @@ describe("HomePage changes", () => {
     await flush();
     // The prefill names the change under review; the user can edit it.
     const instructions = container.querySelector(
-      'textarea[aria-label="Reflection instructions"]',
+      'textarea[aria-label="整理说明"]',
     ) as HTMLTextAreaElement;
     expect(instructions.value).toBe(
       "重点审核这条 Home 变更：home:top/agent/contract（created）。",
@@ -433,7 +433,7 @@ describe("HomePage changes", () => {
       instructions.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => {
-      buttonByText("Start Home reflection").click();
+      buttonByText("开始 Home 整理").click();
     });
     const posts = endpoint.calls("/v2/reflection", "POST");
     expect(posts).toHaveLength(1);
@@ -468,7 +468,7 @@ describe("HomePage search and organize", () => {
     });
     await flush();
     await act(async () => {
-      (container.querySelector('button[aria-label="References and backlinks"]') as HTMLButtonElement).click();
+      (container.querySelector('button[aria-label="引用与反链"]') as HTMLButtonElement).click();
     });
     await flush();
     expect(container.textContent).toContain("引用了");
@@ -488,12 +488,12 @@ describe("HomePage search and organize", () => {
     );
     await renderPage();
     await act(async () => {
-      buttonByText("Actual").click();
+      buttonByText("基线").click();
     });
     expect(useHomePage.getState().view).toBe("actual");
 
     await act(async () => {
-      buttonByText("Search content").click();
+      buttonByText("检索内容").click();
     });
     const page = useHomePage.getState();
     expect(page.view).toBe("effective");
@@ -526,15 +526,15 @@ describe("HomePage search and organize", () => {
     );
     await renderPage();
     await act(async () => {
-      buttonByText("Organize Home").click();
+      buttonByText("整理 Home").click();
     });
     await flush();
-    expect(container.textContent).toContain("2 overlay changes pending review");
+    expect(container.textContent).toContain("当前有 2 项 overlay 变更待审核");
     // The target-day control belongs to Memory only.
     expect(container.querySelector('input[type="date"]')).toBeNull();
 
     const instructions = container.querySelector(
-      'textarea[aria-label="Reflection instructions"]',
+      'textarea[aria-label="整理说明"]',
     ) as HTMLTextAreaElement;
     const setter = Object.getOwnPropertyDescriptor(
       window.HTMLTextAreaElement.prototype,
@@ -545,7 +545,7 @@ describe("HomePage search and organize", () => {
       instructions.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => {
-      buttonByText("Start Home reflection").click();
+      buttonByText("开始 Home 整理").click();
     });
     const posts = endpoint.calls("/v2/reflection", "POST");
     expect(posts).toHaveLength(1);
@@ -553,6 +553,6 @@ describe("HomePage search and organize", () => {
     expect(body).toMatchObject({ kind: "home", instructions: "Tidy the identity section" });
     expect(body).not.toHaveProperty("target_day");
     expect(useAppStore.getState().activeTab).toBe("chat");
-    expect(container.querySelector('textarea[aria-label="Reflection instructions"]')).toBeNull();
+    expect(container.querySelector('textarea[aria-label="整理说明"]')).toBeNull();
   });
 });

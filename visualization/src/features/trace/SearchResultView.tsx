@@ -244,12 +244,12 @@ function SearchItemCard({
           </span>
         )}
         {sourceScore !== null && (
-          <Badge tone="gray" title="Source channel score">
+          <Badge tone="gray" title="来源通道分数">
             source {formatScore(sourceScore)}
           </Badge>
         )}
         {evaluationScore !== null && (
-          <Badge tone="blue" title="Model evaluation score">
+          <Badge tone="blue" title="模型评估分数">
             score {formatScore(evaluationScore)}
           </Badge>
         )}

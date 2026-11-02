@@ -105,14 +105,14 @@ describe("DayListPanel", () => {
     expect(queryOf(first[0], "before")).toBeNull();
 
     await act(async () => {
-      buttonByText("Show more").click();
+      buttonByText("显示更多").click();
     });
     expect(container.textContent).toContain("2026-09-27");
     const all = endpoint.calls("/v2/days");
     expect(all).toHaveLength(2);
     expect(queryOf(all[1], "before")).toBe("2026-09-28");
     // The exhausted sequence offers no further page.
-    expect(container.textContent).not.toContain("Show more");
+    expect(container.textContent).not.toContain("显示更多");
   });
 
   it("shows the distinct empty state when no day is recorded", async () => {
@@ -120,7 +120,7 @@ describe("DayListPanel", () => {
       jsonResponse({ items: [], next_before: null }),
     );
     await renderAndSettle(<DayListPanel epoch={epoch} />);
-    expect(container.textContent).toContain("No recorded days yet");
+    expect(container.textContent).toContain("还没有已记录的日期");
   });
 
   it("pushes the day's turns; the map action opens the day's Session map", async () => {
@@ -140,7 +140,7 @@ describe("DayListPanel", () => {
     await act(async () => {
       (
         container.querySelector(
-          'button[aria-label="Session map of this day"]',
+          'button[aria-label="当日的会话图"]',
         ) as HTMLButtonElement
       ).click();
     });

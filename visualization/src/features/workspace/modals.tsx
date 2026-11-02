@@ -53,7 +53,7 @@ export function PathInputModal({
         </label>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
+            取消
           </Button>
           <Button
             type="submit"
@@ -100,7 +100,7 @@ export function TagsModal({
     });
   };
   return (
-    <Modal title="Tags" onClose={onClose} width="max-w-sm">
+    <Modal title="标签" onClose={onClose} width="max-w-sm">
       <div className="space-y-3">
         <div className="space-y-1.5">
           {KNOWN_TAGS.map(({ tag, label }) => (
@@ -120,12 +120,12 @@ export function TagsModal({
         </div>
         {preserved.length > 0 && (
           <div className="text-[11px] text-fg-faint">
-            Kept as-is: {preserved.join(", ")}
+            保持原样：{preserved.join("，")}
           </div>
         )}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            取消
           </Button>
           <Button
             variant="primary"
@@ -139,7 +139,7 @@ export function TagsModal({
               ])
             }
           >
-            Save tags
+            保存标签
           </Button>
         </div>
       </div>
@@ -159,7 +159,7 @@ export function AppendModal({
 }): ReactElement {
   const [text, setText] = useState("");
   return (
-    <Modal title="Append text" onClose={onClose}>
+    <Modal title="追加文本" onClose={onClose}>
       <div className="space-y-3">
         <textarea
           // eslint-disable-next-line jsx-a11y/no-autofocus -- modal form focus
@@ -167,12 +167,12 @@ export function AppendModal({
           value={text}
           onChange={(event) => setText(event.target.value)}
           rows={6}
-          placeholder="Text appended to the end of the file…"
+          placeholder="追加到文件末尾的文本…"
           className="w-full resize-y rounded-lg border border-line bg-bg px-3 py-2 font-mono text-[12.5px] leading-5 outline-none focus:border-accent"
         />
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            取消
           </Button>
           <Button
             variant="primary"
@@ -180,7 +180,7 @@ export function AppendModal({
             disabled={text === ""}
             onClick={() => onSubmit(text)}
           >
-            Append
+            追加
           </Button>
         </div>
       </div>
@@ -201,11 +201,11 @@ export function ReplaceModal({
   const [oldText, setOldText] = useState("");
   const [newText, setNewText] = useState("");
   return (
-    <Modal title="Find and replace" onClose={onClose}>
+    <Modal title="查找替换" onClose={onClose}>
       <div className="space-y-3">
         <label className="block space-y-1">
           <span className="text-[12px] text-fg-muted">
-            Find (must match exactly once)
+            查找（必须恰好匹配一次）
           </span>
           <textarea
             // eslint-disable-next-line jsx-a11y/no-autofocus -- modal form focus
@@ -217,7 +217,7 @@ export function ReplaceModal({
           />
         </label>
         <label className="block space-y-1">
-          <span className="text-[12px] text-fg-muted">Replace with</span>
+          <span className="text-[12px] text-fg-muted">替换为</span>
           <textarea
             value={newText}
             onChange={(event) => setNewText(event.target.value)}
@@ -227,7 +227,7 @@ export function ReplaceModal({
         </label>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            取消
           </Button>
           <Button
             variant="primary"
@@ -235,7 +235,7 @@ export function ReplaceModal({
             disabled={oldText === ""}
             onClick={() => onSubmit(oldText, newText)}
           >
-            Replace
+            替换
           </Button>
         </div>
       </div>

@@ -71,7 +71,7 @@ export function CollectionObjectEditor({
     return (
       <SettingsPageBody>
         <EmptyState
-          title="Collection not declared"
+          title="集合未声明"
           description="The running backend's catalog does not declare this collection; the page cannot edit it."
         />
       </SettingsPageBody>

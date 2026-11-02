@@ -156,7 +156,7 @@ function ExportButton({
       type="button"
       onClick={onExport}
       className="inline-flex items-center gap-1 text-[12px] text-accent hover:underline"
-      title="Download the retained events of this view as JSON"
+      title="将此视图保留的事件导出为 JSON"
     >
       <Download size={12} />
       Export retained records
