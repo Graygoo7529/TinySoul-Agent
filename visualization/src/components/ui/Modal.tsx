@@ -23,7 +23,7 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-(--z-drawer) flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
+      className="fixed inset-0 z-(--z-drawer) flex items-center justify-center bg-scrim/40 backdrop-blur-[2px]"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}

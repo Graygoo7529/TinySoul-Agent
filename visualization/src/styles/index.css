@@ -17,6 +17,8 @@
   --bg-rgb: 246, 247, 249;
   --bg-elev: #ffffff;
   --bg-sunken: #eef0f3;
+  /* overlay scrim color; strength derives via opacity (bg-scrim/25|40|70) */
+  --scrim: #000;
   --hover: rgba(15, 23, 42, 0.05);
   --active: rgba(99, 102, 241, 0.1);
   --fg: #1c2333;
@@ -90,6 +92,7 @@
   --bg-rgb: 13, 16, 23;
   --bg-elev: #151a23;
   --bg-sunken: #090c12;
+  --scrim: #000;
   --hover: rgba(230, 233, 239, 0.06);
   --active: rgba(129, 140, 248, 0.14);
   --fg: #e6e9ef;
@@ -141,6 +144,7 @@
   --color-bg: var(--bg);
   --color-bg-elev: var(--bg-elev);
   --color-bg-sunken: var(--bg-sunken);
+  --color-scrim: var(--scrim);
   --color-hover: var(--hover);
   --color-active: var(--active);
   --color-fg: var(--fg);

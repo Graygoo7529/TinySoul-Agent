@@ -200,7 +200,7 @@ export function InspectorHost(props: InspectorHostProps) {
   return (
     <>
       <div
-        className="fixed inset-0 z-(--z-overlay) bg-black/25 backdrop-blur-[1px]"
+        className="fixed inset-0 z-(--z-overlay) bg-scrim/25 backdrop-blur-[1px]"
         onClick={onClose}
         aria-hidden="true"
       />

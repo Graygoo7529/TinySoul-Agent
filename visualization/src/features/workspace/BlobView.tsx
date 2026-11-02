@@ -203,7 +203,7 @@ export function ImageLightbox({
 
   return (
     <div
-      className="animate-fade-in fixed inset-0 z-(--z-drawer) flex flex-col bg-black/70 backdrop-blur-[2px]"
+      className="animate-fade-in fixed inset-0 z-(--z-drawer) flex flex-col bg-scrim/70 backdrop-blur-[2px]"
       role="dialog"
       aria-label={`查看图片 ${name}`}
     >
