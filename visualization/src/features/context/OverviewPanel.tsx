@@ -118,8 +118,7 @@ export function ContextOverviewPanel({
       {state.kind === "loading" && (
         <div className="flex items-center gap-2 px-1 py-3 text-[12px] text-fg-faint">
           <Loader2 size={13} className="animate-spin-slow" />
-          Reading the installed context…
-        </div>
+          {t("context.loadingInstalled")}</div>
       )}
       {state.kind === "error" && (
         <div className="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-[12px] text-danger">
@@ -141,8 +140,7 @@ export function ContextOverviewPanel({
           description={t("context.turnEndedContextReadBrowseDayHistory")}
           action={
             <Button variant="outline" onClick={() => openHistoryBrowser(epoch)}>
-              Browse history
-            </Button>
+              {t("context.browseHistory")}</Button>
           }
         />
       )}
@@ -159,6 +157,7 @@ export function ContextOverviewPanel({
 
 /** After the bound turn ends: jump to the now-active turn, or to history. */
 function ClosedAction({ epoch }: { epoch: number }): ReactElement | null {
+  const { t } = useI18n();
   const activeTurnId = useConnectionStore(selectActiveTurnId);
   if (activeTurnId !== null) {
     return (
@@ -167,8 +166,7 @@ function ClosedAction({ epoch }: { epoch: number }): ReactElement | null {
         onClick={() => openContextDrawer(epoch)}
         className="shrink-0 font-medium hover:underline"
       >
-        Open current context
-      </button>
+        {t("context.openCurrent")}</button>
     );
   }
   return (
@@ -177,8 +175,7 @@ function ClosedAction({ epoch }: { epoch: number }): ReactElement | null {
       onClick={() => openHistoryBrowser(epoch)}
       className="shrink-0 font-medium hover:underline"
     >
-      Browse history
-    </button>
+      {t("context.browseHistory")}</button>
   );
 }
 
@@ -197,9 +194,9 @@ function OverviewBody({
     <>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[11px] text-fg-faint">
         <span>
-          Captured <span className="font-mono">{overview.captured_at}</span>
+          {t("context.captured")}<span className="font-mono">{overview.captured_at}</span>
         </span>
-        {overview.day && <span>Day {overview.day}</span>}
+        {overview.day && <span>{t("common.day")}{overview.day}</span>}
         <span title={overview.measurement}>{t("context.usageInCharacters")}</span>
       </div>
       {groups.length === 0 ? (
@@ -243,7 +240,9 @@ function SegmentRow({
   segment: SegmentView;
   closed: boolean;
 }): ReactElement {
+  const { t } = useI18n();
   const status = segmentStatusLine(segment);
+  const empty = segment.chars === 0 && segment.root_refs.length === 0;
   return (
     <button
       type="button"
@@ -260,10 +259,10 @@ function SegmentRow({
         <span className="flex items-center gap-2">
           <span className="truncate text-[13px] font-medium">{segment.id}</span>
           <Badge>{shapeLabel(segment.shape)}</Badge>
-          {status === "empty" && <Badge tone="gray">empty</Badge>}
+          {empty && <Badge tone="gray">{t("common.empty")}</Badge>}
         </span>
         <span className="mt-0.5 block truncate text-[11px] text-fg-faint">
-          {status !== null && status !== "empty" ? `${status} · ` : ""}
+          {status !== null && !empty ? `${status} · ` : ""}
           {usageLine(segment)}
         </span>
       </span>

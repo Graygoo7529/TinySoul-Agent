@@ -1,3 +1,4 @@
+import { message, type UiText, type MessageId } from "../../i18n/core";
 /**
  * Workspace write operations (plan §10/P06).
  *
@@ -44,7 +45,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function toast(kind: "success" | "error" | "info", text: string): void {
+function toast(kind: "success" | "error" | "info", text: UiText): void {
   useAppStore.getState().pushToast(kind, text);
 }
 
@@ -63,15 +64,15 @@ export function useWorkspaceMutations(
   const execute = useCallback(
     async <T,>(
       thunk: (clients: V2Clients) => Promise<{ manifest: WorkspaceManifest; value: T }>,
-      failure: string,
+      failure: MessageId,
     ): Promise<T | null> => {
       if (busyRef.current) {
-        toast("info", "Another workspace operation is still running.");
+        toast("info", message("workspace.operationBusy"));
         return null;
       }
       const clients = useConnectionStore.getState().clients;
       if (clients === null) {
-        toast("error", "Not connected to a backend.");
+        toast("error", message("connection.notConnected"));
         return null;
       }
       busyRef.current = true;
@@ -81,7 +82,7 @@ export function useWorkspaceMutations(
         manifestRef.current(result.manifest);
         return result.value;
       } catch (error) {
-        toast("error", `${failure}: ${errorMessage(error)}`);
+        toast("error", message(failure, { detail: errorMessage(error) }));
         return null;
       } finally {
         busyRef.current = false;
@@ -94,7 +95,7 @@ export function useWorkspaceMutations(
   const checkedPath = useCallback((input: string): string | null => {
     const path = normalizeWorkspacePath(input);
     if (!isValidWorkspacePath(path)) {
-      toast("error", `"${input}" is not a valid workspace path.`);
+      toast("error", message("workspace.invalidPath", { path: input }));
       return null;
     }
     return path;
@@ -111,7 +112,7 @@ export function useWorkspaceMutations(
           });
           return { manifest: result.manifest, value: result.record };
         },
-        "Save failed",
+        "workspace.saveFailed",
       ),
     [execute],
   );
@@ -129,7 +130,7 @@ export function useWorkspaceMutations(
           });
           return { manifest: result.manifest, value: result.record };
         },
-        "Create file failed",
+        "workspace.createFileFailed",
       );
       return record === null ? null : path;
     },
@@ -147,7 +148,7 @@ export function useWorkspaceMutations(
           });
           return { manifest: result.manifest, value: result.record };
         },
-        "Create folder failed",
+        "workspace.createDirectoryFailed",
       );
       return record === null ? null : path;
     },
@@ -166,7 +167,7 @@ export function useWorkspaceMutations(
           });
           return { manifest: result.manifest, value: result.record };
         },
-        "Move failed",
+        "workspace.moveFailed",
       );
       return record === null ? null : target;
     },
@@ -180,7 +181,7 @@ export function useWorkspaceMutations(
           const result = await clients.workspace.setTags({ ref, tags });
           return { manifest: result.manifest, value: result.record };
         },
-        "Update tags failed",
+        "workspace.tagsFailed",
       ),
     [execute],
   );
@@ -192,7 +193,7 @@ export function useWorkspaceMutations(
           const result = await clients.workspace.append({ ref, text });
           return { manifest: result.manifest, value: result.record };
         },
-        "Append failed",
+        "workspace.appendFailed",
       ),
     [execute],
   );
@@ -207,7 +208,7 @@ export function useWorkspaceMutations(
           });
           return { manifest: result.manifest, value: result.record };
         },
-        "Replace failed",
+        "workspace.replaceFailed",
       ),
     [execute],
   );
@@ -219,7 +220,7 @@ export function useWorkspaceMutations(
           const outcome = await clients.workspace.trash({ ref });
           return { manifest: outcome.manifest, value: true };
         },
-        "Move to trash failed",
+        "workspace.trashFailed",
       );
       return result === true;
     },
@@ -233,7 +234,7 @@ export function useWorkspaceMutations(
           const outcome = await clients.workspace.restore({ trash_ref: trashRef });
           return { manifest: outcome.manifest, value: true };
         },
-        "Restore failed",
+        "workspace.restoreFailed",
       );
       return result === true;
     },
@@ -243,12 +244,12 @@ export function useWorkspaceMutations(
   const upload = useCallback(
     async (files: File[], targetDir: string): Promise<void> => {
       if (busyRef.current) {
-        toast("info", "Another workspace operation is still running.");
+        toast("info", message("workspace.operationBusy"));
         return;
       }
       const clients = useConnectionStore.getState().clients;
       if (clients === null) {
-        toast("error", "Not connected to a backend.");
+        toast("error", message("connection.notConnected"));
         return;
       }
       busyRef.current = true;
@@ -279,11 +280,11 @@ export function useWorkspaceMutations(
         setBusy(false);
       }
       if (failed.length === 0) {
-        toast("success", `Uploaded ${uploaded} file${uploaded === 1 ? "" : "s"}.`);
+        toast("success", message("workspace.uploaded", { count: uploaded }));
       } else {
         toast(
           "error",
-          `${failed.length} of ${files.length} uploads failed: ${failed.join(", ")}`,
+          message("workspace.uploadFailed", { count: failed.length, total: files.length, detail: failed.join(", ") }),
         );
       }
     },

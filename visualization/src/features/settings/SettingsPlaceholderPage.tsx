@@ -1,3 +1,4 @@
+import { useI18n } from "../../i18n";
 import { Construction } from "lucide-react";
 
 import { EmptyState } from "../../components/ui/EmptyState";
@@ -11,6 +12,7 @@ import { settingsDescription, settingsGroupTitle, settingsTitle } from "./labels
  * component, so this is not reachable from the navigation today.
  */
 export function SettingsPlaceholderPage({ page }: { page: SettingsPageId }) {
+  const { t } = useI18n();
   const def = SETTINGS_PAGES[page];
   const group = SETTINGS_GROUPS.find((item) => item.id === def.group);
   return (
@@ -22,8 +24,7 @@ export function SettingsPlaceholderPage({ page }: { page: SettingsPageId }) {
           <>
             {settingsDescription(def)}
             <span className="mt-1 block text-fg-faint">
-              {group ? settingsGroupTitle(group) : ""} · 此页面尚未实现。
-            </span>
+              {group ? settingsGroupTitle(group) : ""} {t("settings.pageUnavailable")}</span>
           </>
         }
       />

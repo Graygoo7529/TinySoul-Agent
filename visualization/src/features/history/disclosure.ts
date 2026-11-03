@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 /**
  * Session map / inspect DisclosurePage reading (plan §7, API-08).
  *
@@ -20,8 +21,8 @@ import type { JsonObject, JsonValue } from "../../api/v2/json";
 export function coverageDescription(value: JsonValue | undefined): string | null {
   if (value === undefined || !isRecord(value) || typeof value.start !== "number" || typeof value.end !== "number" || typeof value.total !== "number") return null;
   const lines = typeof value.start_line === "number" && typeof value.end_line === "number"
-    ? `Lines ${value.start_line}–${value.end_line}; ` : "";
-  return `${lines}characters ${value.start}–${value.end} of ${value.total} (${value.complete ? "complete" : "partial"})`;
+    ? t("history.lineCoverage", { start: value.start_line, end: value.end_line }) : "";
+  return lines + t("history.characterCoverage", { start: value.start, end: value.end, total: value.total, coverage: value.complete ? t("trace.coverageComplete") : t("trace.coveragePartial") });
 }
 
 /** A navigation hint (`{kind:"child"}`) — opens its ref's own page. */

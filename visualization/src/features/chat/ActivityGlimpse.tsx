@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, LocalizedText } from "../../i18n";
 /**
  * c479ca0's compact action inset. Only the input/result boundary uses v2;
  * diff rows, terminal tails and bounded search hits retain the baseline layout.
@@ -78,7 +78,7 @@ export function glimpseBody(data: ActionGlimpseData) {
       const line = text?.split("\n").map((part) => part.trim()).find((part) => part !== "") ?? null;
       return line !== null
         ? <div className="min-w-0">
-            <div className="text-[10px] font-medium text-accent">推理任务</div>
+            <div className="text-[10px] font-medium text-accent">{t("chat.reasonTask")}</div>
             <div className="line-clamp-2 break-words text-[11px] text-fg-muted">{line}</div>
           </div>
         : null;
@@ -89,7 +89,7 @@ export function glimpseBody(data: ActionGlimpseData) {
       const connectionId = asString(params.connection_id);
       if (line === null && connectionId === null) return null;
       return <div className="min-w-0">
-        {connectionId !== null && <div className="text-[10px] font-medium text-accent">委派 {connectionId}</div>}
+        {connectionId !== null && <div className="text-[10px] font-medium text-accent">{t("chat.delegation")} {connectionId}</div>}
         {line !== null && <div className="line-clamp-2 break-words text-[11px] text-fg-muted">{line}</div>}
       </div>;
     }
@@ -98,7 +98,7 @@ export function glimpseBody(data: ActionGlimpseData) {
   }
   if (data.result?.status === "failure" || data.result?.status === "timeout") {
     const feedback = asString(data.failure?.feedback) ?? data.result.preview;
-    return feedback ? <div className="line-clamp-2 text-[11px] text-danger">{feedback}</div> : null;
+    return feedback ? <div className="line-clamp-2 text-[11px] text-danger"><LocalizedText value={feedback} /></div> : null;
   }
   if (!payload) return null;
   if (family === "write") return <WriteResultGlimpse actionId={data.actionId} payload={payload} />;
@@ -110,8 +110,7 @@ export function glimpseBody(data: ActionGlimpseData) {
     const gist = analysisGist(data.actionId, payload);
     if (gist !== null) return <div className="min-w-0">
       <div className="text-[10px] font-medium text-accent">
-        {gist.kind === "report" ? "分析报告" : "资源描述"} · {gist.text.length.toLocaleString()} 字符
-      </div>
+        {gist.kind === "report" ? t("chat.analysisReport") : t("chat.resourceDescription")} · {gist.text.length.toLocaleString()} {t("chat.characters")}</div>
       {gist.title !== null && <div className="mt-0.5 truncate text-[11px] font-medium text-fg">{gist.title}</div>}
       {gist.summary !== null && <div className="line-clamp-2 break-words text-[11px] text-fg-muted">{gist.summary}</div>}
     </div>;
@@ -191,7 +190,7 @@ function lowFrequencyGist(data: ActionGlimpseData): ReactElement | null | undefi
   const params = asObject(data.params) ?? {};
   if (data.actionId === "core.wait") {
     const kind = asString(payload.event_kind);
-    const label = kind === "job" ? "等待 Job 事件" : kind === "timer" ? "等待定时器" : kind === "event" ? "等待环境事件" : "等待";
+    const label = kind === "job" ? t("chat.waitJob") : kind === "timer" ? t("chat.waitTimer") : kind === "event" ? t("chat.waitEnvironment") : t("chat.wait");
     const timeout = asNumber(payload.timeout_seconds);
     const topic = asString(payload.topic);
     const source = asString(payload.source);
@@ -221,7 +220,7 @@ function lowFrequencyGist(data: ActionGlimpseData): ReactElement | null | undefi
       <ChipRow items={[
         ...(connectionId !== null ? [{ text: connectionId, tone: "accent" as const }] : []),
         ...(jobId !== null ? [{ text: jobId, tone: "accent" as const }] : []),
-        { text: "已受理", tone: "accent" },
+        { text: t("chat.accepted"), tone: "accent" },
         ...(state !== null ? [{ text: state, tone: "gray" as const }] : []),
       ]} />
     </div>;
@@ -230,7 +229,7 @@ function lowFrequencyGist(data: ActionGlimpseData): ReactElement | null | undefi
     const connectionId = asString(payload.connection_id);
     const agentId = asString(payload.agent_id);
     return <div className="space-y-1">
-      <div className="text-[10px] font-medium text-accent">已连接</div>
+      <div className="text-[10px] font-medium text-accent">{t("chat.connected")}</div>
       <ChipRow items={[
         ...(connectionId !== null ? [{ text: connectionId, tone: "accent" as const }] : []),
         ...(agentId !== null ? [{ text: agentId }] : []),
@@ -243,13 +242,13 @@ function lowFrequencyGist(data: ActionGlimpseData): ReactElement | null | undefi
       const id = asString(asObject(entry)?.agent_id);
       return id !== null ? [{ text: id }] : [];
     });
-    return items.length > 0 ? <div className="space-y-1"><div className="text-[10px] font-medium text-accent">可委派 Agent</div><ChipRow items={items.slice(0, 3)} /></div> : undefined;
+    return items.length > 0 ? <div className="space-y-1"><div className="text-[10px] font-medium text-accent">{t("chat.availableAgents")}</div><ChipRow items={items.slice(0, 3)} /></div> : undefined;
   }
   if (data.actionId === "subagent.respond") {
     const jobId = asString(payload.job_id);
     const requestId = asString(payload.request_id);
     return <div className="space-y-1">
-      <div className="text-[10px] font-medium text-accent">已回应</div>
+      <div className="text-[10px] font-medium text-accent">{t("chat.responded")}</div>
       <ChipRow items={[...(jobId !== null ? [{ text: jobId, tone: "accent" as const }] : []), ...(requestId !== null ? [{ text: requestId }] : [])]} />
     </div>;
   }
@@ -258,13 +257,13 @@ function lowFrequencyGist(data: ActionGlimpseData): ReactElement | null | undefi
     const jobId = asString(payload.job_id);
     const resultRef = asString(payload.result_ref);
     return <div className="space-y-1">
-      {jobId !== null && <div className="text-[10px] font-medium text-accent">读取输出 {jobId}</div>}
+      {jobId !== null && <div className="text-[10px] font-medium text-accent">{t("chat.readingOutput")}{jobId}</div>}
       {text !== null && text !== "" ? <GistText text={text} /> : resultRef !== null ? <div className="font-mono text-[11px] text-accent">{resultRef}</div> : null}
     </div>;
   }
   if (data.actionId === "subagent.disconnect") {
     const connectionId = asString(payload.connection_id);
-    return <div className="space-y-1"><div className="text-[10px] font-medium text-accent">已断开</div>{connectionId !== null && <ChipRow items={[{ text: connectionId, tone: "accent" }]} />}</div>;
+    return <div className="space-y-1"><div className="text-[10px] font-medium text-accent">{t("chat.disconnected")}</div>{connectionId !== null && <ChipRow items={[{ text: connectionId, tone: "accent" }]} />}</div>;
   }
   if (data.actionId === "expand.describe_servers") {
     const servers = Array.isArray(payload.servers) ? payload.servers : [];
@@ -272,7 +271,7 @@ function lowFrequencyGist(data: ActionGlimpseData): ReactElement | null | undefi
       const id = asString(asObject(entry)?.server_id);
       return id !== null ? [{ text: id }] : [];
     });
-    return items.length > 0 ? <div className="space-y-1"><div className="text-[10px] font-medium text-accent">MCP 服务</div><ChipRow items={items.slice(0, 3)} /></div> : undefined;
+    return items.length > 0 ? <div className="space-y-1"><div className="text-[10px] font-medium text-accent">{t("chat.mcpServers")}</div><ChipRow items={items.slice(0, 3)} /></div> : undefined;
   }
   if (data.actionId === "expand.describe_tools") {
     const tools = Array.isArray(payload.tools) ? payload.tools : [];
@@ -280,7 +279,7 @@ function lowFrequencyGist(data: ActionGlimpseData): ReactElement | null | undefi
       const id = asString(asObject(entry)?.tool_name);
       return id !== null ? [{ text: id }] : [];
     });
-    return items.length > 0 ? <div className="space-y-1"><div className="text-[10px] font-medium text-accent">MCP 工具</div><ChipRow items={items.slice(0, 3)} /></div> : undefined;
+    return items.length > 0 ? <div className="space-y-1"><div className="text-[10px] font-medium text-accent">{t("chat.mcpTools")}</div><ChipRow items={items.slice(0, 3)} /></div> : undefined;
   }
   if (data.actionId === "expand.call") {
     const server = asString(params.server_id);
@@ -299,16 +298,16 @@ function lowFrequencyGist(data: ActionGlimpseData): ReactElement | null | undefi
     const first = created !== null ? Object.entries(created)[0] : undefined;
     if (first !== undefined) {
       const [name, ref] = first;
-      return <div className="space-y-0.5"><div className="text-[10px] font-medium text-accent">新建解释 {name}</div>{typeof ref === "string" && <div className="font-mono text-[11px] text-accent">{ref}</div>}</div>;
+      return <div className="space-y-0.5"><div className="text-[10px] font-medium text-accent">{t("chat.newInterpretations")} {name}</div>{typeof ref === "string" && <div className="font-mono text-[11px] text-accent">{ref}</div>}</div>;
     }
     const changed = Array.isArray(payload.changed_refs) ? payload.changed_refs.filter((value): value is string => typeof value === "string") : [];
-    return changed.length > 0 ? <div className="space-y-0.5"><div className="text-[10px] font-medium text-accent">变更引用</div>{changed.slice(0, 2).map((ref) => <div key={ref} className="truncate font-mono text-[11px] text-accent">{ref}</div>)}</div> : undefined;
+    return changed.length > 0 ? <div className="space-y-0.5"><div className="text-[10px] font-medium text-accent">{t("chat.changedReferences")}</div>{changed.slice(0, 2).map((ref) => <div key={ref} className="truncate font-mono text-[11px] text-accent">{ref}</div>)}</div> : undefined;
   }
   if (data.actionId === "memory.write" || data.actionId === "memory.write_daily") {
     const markdown = asString(params.markdown);
     const ref = asString(payload.ref);
     return <div className="space-y-1">
-      <ChipRow items={[{ text: "已写入", tone: "green" }]} />
+      <ChipRow items={[{ text: t("chat.written"), tone: "green" }]} />
       {markdown !== null && markdown.trim() !== ""
         ? <Markdown className="md-calm text-[11px]" origin={{ ref: "" }}>{markdownExcerpt(markdown)}</Markdown>
         : ref !== null ? <div className="font-mono text-[11px] text-accent">{ref}</div> : null}
@@ -335,7 +334,7 @@ function lowFrequencyGist(data: ActionGlimpseData): ReactElement | null | undefi
     return <div className="space-y-1">
       <ChipRow items={[
         ...(decision !== null ? [{ text: decision, tone: decision === "accept" ? "green" as const : "gray" as const }] : []),
-        ...(item.reviewed === false ? [{ text: "not reviewed" }] : []),
+        ...(item.reviewed === false ? [{ text: t("chat.notReviewed") }] : []),
       ]} />
       {ref !== null && <div className="font-mono text-[11px] text-accent">{ref}</div>}
       {reason !== null && reason !== "" && <GistText text={reason} />}
@@ -345,6 +344,7 @@ function lowFrequencyGist(data: ActionGlimpseData): ReactElement | null | undefi
 }
 
 function ReasonResultGlimpse({ payload }: { payload: Record<string, unknown> }) {
+  const { t } = useI18n();
   let scalar: { key: string; value: string } | null = null;
   for (const [key, value] of Object.entries(payload)) {
     if (typeof value === "string" && value.trim() !== "") {
@@ -364,7 +364,7 @@ function ReasonResultGlimpse({ payload }: { payload: Record<string, unknown> }) 
   return <div className="min-w-0">
     <div className="flex items-center gap-1.5 text-[10px]">
       <span className="rounded bg-accent-soft px-1.5 py-px font-mono text-accent">JSON</span>
-      {scalar === null && <span className="text-fg-faint">对象 · {Object.keys(payload).length} 个字段</span>}
+      {scalar === null && <span className="text-fg-faint">{t("chat.objectFields", { count: Object.keys(payload).length })}</span>}
     </div>
     {scalar !== null && (
       <div className="mt-0.5 break-words font-mono text-[11px] text-fg-muted">
@@ -384,15 +384,15 @@ function WriteResultGlimpse({ actionId, payload }: { actionId: string; payload: 
   const bytes = asNumber(payload.bytes) ?? (!isHome ? asNumber(payload.size) : null);
   const operations = Array.isArray(payload.operations) ? payload.operations.length : null;
   const items = Array.isArray(payload.items) ? payload.items : [];
-  const operation = asString(payload.operation) ?? (changed === true ? "changed" : changed === false ? "unchanged" : payload.written === true || written !== null ? "written" : operations !== null ? `${operations} operations` : chars !== null || bytes !== null ? "updated" : null);
+  const operation = asString(payload.operation) ?? (changed === true ? t("trace.changed") : changed === false ? t("chat.unchanged") : payload.written === true || written !== null ? t("chat.written") : operations !== null ? t("chat.operationCount", { count: operations }) : chars !== null || bytes !== null ? t("chat.updated") : null);
   const detail = asString(payload.summary) ?? asString(payload.message);
   if (!link && !operation && written === null && chars === null && bytes === null && !detail && items.length === 0) return null;
   return <div className="min-w-0 text-[11px]">
     <div className="flex min-w-0 items-center gap-2">
       <span className={changed === false ? "text-fg-muted" : "text-success"}>{operation ?? "completed"}</span>
-      {written !== null && <span className="font-mono text-fg-faint">{written} written</span>}
+      {written !== null && <span className="font-mono text-fg-faint">{written} {t("chat.written")}</span>}
       {chars !== null && <span className="font-mono text-fg-faint">{chars} {t("resources.chars")}</span>}
-      {bytes !== null && <span className="font-mono text-fg-faint">{bytes} bytes</span>}
+      {bytes !== null && <span className="font-mono text-fg-faint">{bytes} {t("common.bytes")}</span>}
       {link && <span className="truncate text-fg-muted" title={link}>{link}</span>}
     </div>
     {detail && <div className="line-clamp-1 text-fg-muted">{detail}</div>}
@@ -408,6 +408,7 @@ function WriteResultGlimpse({ actionId, payload }: { actionId: string; payload: 
 
 /** Original two-line terminal tail and six-line manual expansion, using v2 streams. */
 function TerminalGlimpse({ payload }: { payload: Record<string, unknown> }) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const holdFollow = useHoldChatFollow();
   const streams = (["stdout", "stderr"] as const).flatMap((name) => {
@@ -420,16 +421,16 @@ function TerminalGlimpse({ payload }: { payload: Record<string, unknown> }) {
   const cap = expanded ? 6 : 2;
   return <div>
     <div className="term-block space-y-1">
-      {exitCode !== null && <div className={exitCode === 0 ? "text-success" : "term-stderr"}>exit code {exitCode}</div>}
+      {exitCode !== null && <div className={exitCode === 0 ? "text-success" : "term-stderr"}>{t("common.exitCode")}{exitCode}</div>}
       {streams.map(({ name, lines }) => <div key={name} className={name === "stderr" ? "term-stderr" : ""}>
-        {lines.length > cap && <div className="opacity-50">… {lines.length - cap} earlier lines</div>}
+        {lines.length > cap && <div className="opacity-50">… {lines.length - cap} {t("chat.earlierLines")}</div>}
         <div>{lines.slice(-cap).join("\n")}</div>
-        {payload[`${name}_truncated`] === true && <div className="opacity-50">… (truncated)</div>}
+        {payload[`${name}_truncated`] === true && <div className="opacity-50">{t("chat.truncated")}</div>}
       </div>)}
     </div>
     {lineCount > 2 && <button onClick={() => { holdFollow(); setExpanded(!expanded); }}
       className="mt-0.5 text-[10px] text-fg-faint transition-colors hover:text-fg-muted">
-      {expanded ? "收起输出" : `展开输出（${lineCount} 行）`}
+      {expanded ? t("chat.collapseOutput") : t("chat.expandOutput", { count: lineCount })}
     </button>}
   </div>;
 }
@@ -445,6 +446,7 @@ export function DiffGlimpse({
   newText: string;
   statOnly?: boolean;
 }) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const holdFollow = useHoldChatFollow();
   const rows = useMemo(() => diffLines(oldText, newText), [oldText, newText]);
@@ -459,13 +461,13 @@ export function DiffGlimpse({
       <div className="flex items-center gap-2 font-mono text-[10px]">
         <span className="text-success">+{adds}</span>
         <span className="text-danger">−{dels}</span>
-        {statOnly && <span className="text-fg-faint">行变更</span>}
+        {statOnly && <span className="text-fg-faint">{t("chat.lineChanges")}</span>}
         {!statOnly && changes.length > DIFF_GLIMPSE_ROWS && (
           <button
             onClick={() => { holdFollow(); setExpanded(!expanded); }}
             className="text-fg-faint transition-colors hover:text-fg-muted"
           >
-            {expanded ? "收起" : "展开"}
+            {expanded ? t("chat.collapse") : t("chat.expand")}
           </button>
         )}
       </div>
@@ -480,7 +482,7 @@ export function DiffGlimpse({
             </div>
           ))}
           {changes.length > shown.length && (
-            <div className="text-fg-faint">… {changes.length - shown.length} 处更多变更</div>
+            <div className="text-fg-faint">… {changes.length - shown.length} {t("chat.moreChanges")}</div>
           )}
         </div>
       )}

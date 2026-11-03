@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -96,7 +97,7 @@ describe("OwnerResourcePanel", () => {
     expect(container.textContent).toContain("Workspace guidance");
     expect(container.textContent).toContain("effective");
     // Clearly annotated: owner-current, not the installed snapshot.
-    expect(container.textContent).toContain("not the snapshot installed");
+    expect(container.textContent).toContain(t("context.ownerCurrentView", { view: "effective" }));
     expect(endpoint.requests.every((request) => request.method === "GET")).toBe(
       true,
     );

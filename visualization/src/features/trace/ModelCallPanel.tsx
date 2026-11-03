@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, tStatus } from "../../i18n";
 /**
  * Model-call Inspector (plan §9.3).
  *
@@ -161,8 +161,7 @@ function ExportButton({
       title={t("trace.downloadRetainedEventsViewJson")}
     >
       <Download size={12} />
-      Export retained records
-    </button>
+      {t("trace.exportRecords")}</button>
   );
 }
 
@@ -203,6 +202,7 @@ function LlmTaskView({
   taskId: string;
   window: EventWindow;
 }): ReactElement {
+  const { t } = useI18n();
   const taskEvents = window.events
     .map(parseLlmTask)
     .filter((fact) => fact !== null);
@@ -357,20 +357,20 @@ function LlmTaskView({
     <div className="space-y-3">
       {task !== null && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
-          <dt className="text-fg-faint">任务</dt>
+          <dt className="text-fg-faint">{t("trace.task")}</dt>
           <dd>
             <IdChip id={task.taskId} />
           </dd>
           {modelLabel !== null && (
             <>
-              <dt className="text-fg-faint">模型</dt>
+              <dt className="text-fg-faint">{t("settings.model")}</dt>
               <dd className="text-fg-muted">
                 <span className="font-mono text-[11px]">{modelLabel}</span>
                 {modelStatus !== null && (
                   <>
                     {" "}
                     <Badge tone={modelStatus.status === "failed" ? "red" : "green"}>
-                      {modelStatus.status}
+                      {modelStatus.status === null ? null : tStatus(modelStatus.status)}
                     </Badge>
                     {modelStatus.errorType !== null && (
                       <span className="ml-1.5 text-danger">{modelStatus.errorType}</span>
@@ -381,8 +381,8 @@ function LlmTaskView({
                   <span className="ml-1.5 text-[11px] text-fg-faint">
                     （{orderedAttempts
                       .map((attempt, index) => {
-                        const label = attempt.status ?? "进行中";
-                        return `${index === 0 ? "" : " → "}第 ${attempt.attempt} 次 ${label}`;
+                        const label = attempt.status ?? t("chat.inProgress");
+                        return `${index === 0 ? "" : " → "}${t("trace.attemptStatus", { attempt: attempt.attempt, status: label })}`;
                       })
                       .join("")}
                     ）
@@ -393,25 +393,25 @@ function LlmTaskView({
           )}
           {task.profile !== "" && (
             <>
-              <dt className="text-fg-faint">用途</dt>
+              <dt className="text-fg-faint">{t("trace.use")}</dt>
               <dd className="text-fg-muted">{task.profile}</dd>
             </>
           )}
           {task.consumer !== "" && (
             <>
-              <dt className="text-fg-faint">调用方</dt>
+              <dt className="text-fg-faint">{t("trace.caller")}</dt>
               <dd className="text-fg-muted">{task.consumer}</dd>
             </>
           )}
           {task.target !== "" && (
             <>
-              <dt className="text-fg-faint">目标</dt>
+              <dt className="text-fg-faint">{t("trace.target")}</dt>
               <dd className="text-fg-muted">{task.target}</dd>
             </>
           )}
           {elapsed !== null && (
             <>
-              <dt className="text-fg-faint">耗时</dt>
+              <dt className="text-fg-faint">{t("trace.duration")}</dt>
               <dd className="text-fg-muted">
                 <span className="font-mono">{formatDuration(elapsed.started, elapsed.finished)}</span>
                 {" "}
@@ -430,17 +430,17 @@ function LlmTaskView({
                 </span>
                 {" "}
                 <span className="text-fg-faint">
-                  （合计 {formatTokens(inputTokens + outputTokens)}）
+                  {t("trace.totalTokens", { count: formatTokens(inputTokens + outputTokens) })}
                 </span>
               </dd>
             </>
           )}
           {task.status !== null && (
             <>
-              <dt className="text-fg-faint">状态</dt>
+              <dt className="text-fg-faint">{t("trace.status")}</dt>
               <dd>
                 <Badge tone={task.status === "failed" ? "red" : "green"}>
-                  {task.status === "failed" ? "失败" : "已完成"}
+                  {task.status === "failed" ? t("common.failed") : t("trace.completed")}
                 </Badge>
                 {task.errorType !== null && (
                   <span className="ml-1.5 text-fg-muted">{task.errorType}</span>
@@ -452,8 +452,7 @@ function LlmTaskView({
       )}
       {task === null && (
         <div className="text-[12px] text-fg-faint">
-          No task header was retained; the attempts below are all the record holds.
-        </div>
+          {t("trace.noTaskHeader")}</div>
       )}
       {orderedAttempts.map((attempt, index) => (
         <AttemptView
@@ -473,11 +472,12 @@ function AttemptView({
   attempt: LlmAttempt;
   showDivider: boolean;
 }): ReactElement {
+  const { t } = useI18n();
   return (
     <div className="space-y-2.5">
       {showDivider && (
         <div className="flex items-center gap-2 border-b border-line/60 pb-1 text-[11px] text-fg-faint">
-          <span>第 {attempt.attempt} 次调用</span>
+          <span>{t("trace.attemptNumber", { count: attempt.attempt })}</span>
           {attempt.providerId !== null && (
             <span className="font-mono">
               {attempt.providerId}
@@ -486,31 +486,28 @@ function AttemptView({
           )}
           {attempt.status !== null && (
             <Badge tone={attempt.status === "failed" ? "red" : "green"}>
-              {attempt.status}
+              {tStatus(attempt.status)}
             </Badge>
           )}
         </div>
       )}
       {attempt.errorType !== null && (
         <div className="text-[12px] text-danger">
-          Attempt failed ({attempt.errorType})
+          {t("trace.attemptFailed", { reason: attempt.errorType ?? "" })}
         </div>
       )}
       {attempt.request !== null ? (
         <RequestView request={attempt.request} />
       ) : (
         <div className="text-[12px] text-fg-faint">
-          The request of this attempt was not recorded (model-level
-          observation is off, or the record was truncated).
-        </div>
+          {t("trace.requestMissing")}</div>
       )}
       {attempt.response !== null ? (
         <ResponseView response={attempt.response} />
       ) : (
         attempt.status === null && (
           <div className="text-[12px] text-fg-faint">
-            No response was recorded for this attempt.
-          </div>
+            {t("trace.responseMissing")}</div>
         )
       )}
     </div>
@@ -522,12 +519,12 @@ function AttemptView({
 // ---------------------------------------------------------------------------
 
 const SLOT_ORDER = ["background", "trace", "working", "task_prompt"];
-const SLOT_LABELS: Record<string, string> = {
-  background: "背景",
-  trace: "过程",
-  working: "现态",
-  task_prompt: "任务提示",
-};
+function slotLabel(slot: string): string { const labels: Record<string, string> = {
+  background: t("trace.background"),
+  trace: t("trace.trace"),
+  working: t("trace.working"),
+  task_prompt: t("trace.taskPrompt"),
+}; return labels[slot] ?? slot; }
 const ROLE_TONES: Record<string, BadgeTone> = {
   system: "accent",
   user: "blue",
@@ -729,6 +726,7 @@ function SectionCopyButton({
 }
 
 function RequestView({ request }: { request: JsonObject }): ReactElement {
+  const { t } = useI18n();
   const slotRefs = useRef(new Map<string, HTMLDivElement>());
   const messages = Array.isArray(request.messages) ? request.messages : [];
   const provenance = parseProvenance(request);
@@ -787,8 +785,8 @@ function RequestView({ request }: { request: JsonObject }): ReactElement {
     <div className="space-y-2">
       {messages.length > 0 && (
         <Fold
-          name="Context"
-          meta={`${messages.length} 条消息 · ${formatChars(totalChars)} 字符`}
+          name={t("trace.context")}
+          meta={t("trace.messageChars", { count: messages.length, chars: formatChars(totalChars) })}
           open={contextOpen}
           onToggle={() => setContextOpen(!contextOpen)}
         >
@@ -803,7 +801,7 @@ function RequestView({ request }: { request: JsonObject }): ReactElement {
                     key={slot}
                     type="button"
                     tabIndex={-1}
-                    title={`${SLOT_LABELS[slot] ?? slot} · ${indices.length} 条 · ${formatChars(groupChars(indices))} 字符`}
+                    title={t("trace.slotMessageChars", { slot: slotLabel(slot), count: indices.length, chars: formatChars(groupChars(indices)) })}
                     onClick={() => openAndScroll(slot)}
                     className={`h-0.5 rounded-full transition-all duration-300 ${
                       openSlots.has(slot)
@@ -826,14 +824,14 @@ function RequestView({ request }: { request: JsonObject }): ReactElement {
                   >
                     <Fold
                       small
-                      name={SLOT_LABELS[slot] ?? slot}
+                      name={slotLabel(slot)}
                       title={slot}
-                      meta={`${indices.length} 条 · ${formatChars(groupChars(indices))} 字符`}
+                      meta={t("trace.messageChars", { count: indices.length, chars: formatChars(groupChars(indices)) })}
                       open={open}
                       onToggle={() => toggleSlot(slot)}
                       actions={
                         <SectionCopyButton
-                          title="复制该段全部消息文本"
+                          title={t("trace.copyMessages")}
                           getText={() =>
                             indices
                               .map((index) => messageText(messages[index]))
@@ -859,9 +857,9 @@ function RequestView({ request }: { request: JsonObject }): ReactElement {
               {refCount > 0 && (
                 <Fold
                   small
-                  name="引用解析"
-                  title="owner 校验过的 ref → 资源定位映射，服务回放审计"
-                  meta={`${refCount} 条`}
+                  name={t("trace.referenceResolution")}
+                  title={t("trace.resourceMappings")}
+                  meta={t("trace.itemCount", { count: refCount })}
                   open={refsOpen}
                   onToggle={() => setRefsOpen(!refsOpen)}
                 >
@@ -874,12 +872,11 @@ function RequestView({ request }: { request: JsonObject }): ReactElement {
       )}
       {messages.length === 0 && (
         <div className="text-[12px] text-fg-faint">
-          The request carried no recorded messages.
-        </div>
+          {t("trace.noMessages")}</div>
       )}
       {tools.length > 0 && (
         <Fold
-          name="Tools"
+          name={t("trace.tools")}
           meta={`${tools.length}`}
           open={toolsOpen}
           onToggle={() => setToolsOpen(!toolsOpen)}
@@ -906,7 +903,7 @@ function RequestView({ request }: { request: JsonObject }): ReactElement {
                   onClick={() => setOpenToolDef(defOpen ? null : name)}
                   title={
                     isForced
-                      ? "本次强制"
+                      ? t("trace.requiredThisCall")
                       : (asString(entry.kind) ?? undefined)
                   }
                   className={`rounded-md px-1.5 py-0.5 font-mono text-[11px] transition-all ${stateClass}`}
@@ -957,6 +954,7 @@ function MessageView({
   message: unknown;
   origins: ProvenanceEntry[];
 }): ReactElement | null {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const entry = asObject(message);
   if (entry === null) return null;
@@ -1000,7 +998,7 @@ function MessageView({
           <span className="font-mono text-[10px] text-fg-faint">{callId}</span>
         )}
         <span className="ml-auto text-[10px] text-fg-faint/70" title={segmentIds.join(" · ")}>
-          {[...segmentIds.map(segmentLabel), `${formatChars(chars)} 字符`].join(" · ")}
+          {[...segmentIds.map(segmentLabel), t("trace.charCount", { count: formatChars(chars) })].join(" · ")}
         </span>
       </button>
       {!expanded && preview !== null && (
@@ -1008,7 +1006,7 @@ function MessageView({
       )}
       {reasoningSummary !== null && reasoningSummary !== "" && (
         <div className="mb-1 mt-1 text-[11px] text-fg-faint italic">
-          recorded reasoning summary: {reasoningSummary}
+          {t("trace.reasoningSummary")}{reasoningSummary}
         </div>
       )}
       {expanded && (
@@ -1044,6 +1042,7 @@ function MessageView({
 }
 
 function MessagePart({ part }: { part: unknown }): ReactElement | null {
+  const { t } = useI18n();
   const entry = asObject(part);
   if (entry === null) return null;
   const type = asString(entry.type);
@@ -1062,7 +1061,7 @@ function MessagePart({ part }: { part: unknown }): ReactElement | null {
   if (type === "image" || type === "image_url") {
     return (
       <div className="text-[11px] text-fg-faint">
-        [image {asString(entry.mime_type) ?? ""}]
+        [{t("trace.imageType", { type: asString(entry.mime_type) ?? "" })}]
       </div>
     );
   }
@@ -1076,6 +1075,7 @@ function MessagePart({ part }: { part: unknown }): ReactElement | null {
 // ---------------------------------------------------------------------------
 
 function ResponseView({ response }: { response: JsonObject }): ReactElement {
+  const { t } = useI18n();
   const answer = asString(response.answer_text);
   const toolCalls = Array.isArray(response.tool_calls) ? response.tool_calls : [];
   const usage = asObject(response.usage);
@@ -1093,7 +1093,7 @@ function ResponseView({ response }: { response: JsonObject }): ReactElement {
 
   return (
     <Fold
-      name="Response"
+      name={t("trace.response")}
       open={responseOpen}
       onToggle={() => setResponseOpen(!responseOpen)}
     >
@@ -1101,8 +1101,8 @@ function ResponseView({ response }: { response: JsonObject }): ReactElement {
         {reasoningSummary !== null && reasoningSummary !== "" && (
           <Fold
             small
-            name="思考过程"
-            meta={`${reasoningSummary.length} 字符`}
+            name={t("trace.reasoning")}
+            meta={t("trace.charCount", { count: reasoningSummary.length })}
             open={reasoningOpen}
             onToggle={() => setReasoningOpen(!reasoningOpen)}
           >
@@ -1112,7 +1112,7 @@ function ResponseView({ response }: { response: JsonObject }): ReactElement {
         {toolCalls.length > 0 && (
           <Fold
             small
-            name="工具调用"
+            name={t("trace.toolCalls")}
             meta={`${toolCalls.length}`}
             open={callsOpen}
             onToggle={() => setCallsOpen(!callsOpen)}
@@ -1163,7 +1163,7 @@ function ResponseView({ response }: { response: JsonObject }): ReactElement {
         {answer !== null && answer !== "" && (
           <Fold
             small
-            name="模型回答"
+            name={t("trace.modelAnswer")}
             open={answerOpen}
             onToggle={() => setAnswerOpen(!answerOpen)}
           >
@@ -1177,14 +1177,14 @@ function ResponseView({ response }: { response: JsonObject }): ReactElement {
             {inputTokens !== null && <span>in {inputTokens}</span>}
             {outputTokens !== null && <span>out {outputTokens}</span>}
             {inputTokens !== null && outputTokens !== null && (
-              <span>合计 {inputTokens + outputTokens}</span>
+              <span>{t("trace.total")}{inputTokens + outputTokens}</span>
             )}
           </div>
         )}
         {metadata !== null && Object.keys(metadata).length > 0 && (
           <Fold
             small
-            name="Response metadata"
+            name={t("trace.responseMetadata")}
             open={metadataOpen}
             onToggle={() => setMetadataOpen(!metadataOpen)}
           >
@@ -1264,6 +1264,7 @@ function DedicatedCallView({
   callId: string;
   window: EventWindow;
 }): ReactElement {
+  const { t } = useI18n();
   const nav = makeTraceNavigation(epoch, turnId, day);
   const calls = window.events
     .map(parseModelCall)
@@ -1278,29 +1279,29 @@ function DedicatedCallView({
   return (
     <div className="space-y-3">
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
-        <dt className="text-fg-faint">call</dt>
+        <dt className="text-fg-faint">{t("trace.call")}</dt>
         <dd className="font-mono text-[11px] text-fg-muted">{head.callId}</dd>
         {head.consumer !== "" && (
           <>
-            <dt className="text-fg-faint">consumer</dt>
+            <dt className="text-fg-faint">{t("trace.consumer")}</dt>
             <dd className="text-fg-muted">{head.consumer}</dd>
           </>
         )}
         {head.implementation !== "" && (
           <>
-            <dt className="text-fg-faint">implementation</dt>
+            <dt className="text-fg-faint">{t("trace.implementation")}</dt>
             <dd className="text-fg-muted">{head.implementation}</dd>
           </>
         )}
         {head.target !== "" && (
           <>
-            <dt className="text-fg-faint">target</dt>
+            <dt className="text-fg-faint">{t("trace.target")}</dt>
             <dd className="text-fg-muted">{head.target}</dd>
           </>
         )}
         {(head.provider !== "" || head.model !== "") && (
           <>
-            <dt className="text-fg-faint">provider</dt>
+            <dt className="text-fg-faint">{t("trace.provider")}</dt>
             <dd className="text-fg-muted">
               {head.provider}
               {head.model !== "" ? ` / ${head.model}` : ""}
@@ -1309,7 +1310,7 @@ function DedicatedCallView({
         )}
         {head.searchId !== null && (
           <>
-            <dt className="text-fg-faint">search</dt>
+            <dt className="text-fg-faint">{t("trace.search")}</dt>
             <dd>
               <button
                 type="button"
@@ -1349,22 +1350,22 @@ function DedicatedCallView({
                       : "blue"
               }
             >
-              {fact.status ?? "in progress"}
+              {fact.status ?? t("chat.inProgress")}
             </Badge>
             {fact.attempt !== null && (
-              <span className="text-fg-faint">attempt {fact.attempt}</span>
+              <span className="text-fg-faint">{t("trace.attempt")}{fact.attempt}</span>
             )}
             {fact.retry !== null && fact.retry > 0 && (
-              <span className="text-fg-faint">retry {fact.retry}</span>
+              <span className="text-fg-faint">{t("trace.retry")}{fact.retry}</span>
             )}
             {fact.elapsedSeconds !== null && (
               <span className="text-fg-faint">{fact.elapsedSeconds}s</span>
             )}
             {fact.inputCount !== null && (
-              <span className="text-fg-faint">{fact.inputCount} inputs</span>
+              <span className="text-fg-faint">{fact.inputCount} {t("trace.inputs")}</span>
             )}
             {fact.dimensions !== null && (
-              <span className="text-fg-faint">{fact.dimensions} dims</span>
+              <span className="text-fg-faint">{fact.dimensions} {t("trace.dimensions")}</span>
             )}
             {fact.usage !== null && asNumber(fact.usage.input_tokens) !== null && (
               <span className="text-fg-faint">
@@ -1379,7 +1380,7 @@ function DedicatedCallView({
       </div>
 
       {details.map((fact, index) => (
-        <Collapsible key={index} title={`Prepared input / result detail ${index + 1}`}>
+        <Collapsible key={index} title={t("trace.preparedDetail", { index: index + 1 })}>
           <JsonTree value={fact.detail} defaultExpanded={false} />
         </Collapsible>
       ))}
@@ -1406,6 +1407,7 @@ function SearchCallView({
   focusStep: number | null;
   window: EventWindow;
 }): ReactElement {
+  const { t } = useI18n();
   const nav = makeTraceNavigation(epoch, turnId, day);
   const steps = window.events
     .map(parseRetrievalStep)
@@ -1432,15 +1434,14 @@ function SearchCallView({
   return (
     <div className="space-y-3">
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
-        <dt className="text-fg-faint">search</dt>
+        <dt className="text-fg-faint">{t("trace.search")}</dt>
         <dd className="font-mono text-[11px] text-fg-muted">{searchId}</dd>
       </dl>
 
       {steps.length > 0 && (
         <div className="space-y-1">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Steps (actual order)
-          </div>
+            {t("trace.steps")}</div>
           {steps.map((step, index) => {
             const focused = focusStep !== null && step.stepIndex === focusStep;
             return (
@@ -1460,7 +1461,7 @@ function SearchCallView({
                   <span className="text-fg-faint">in {step.input}</span>
                 )}
                 {step.evaluated !== null && (
-                  <span className="text-fg-faint">evaluated {step.evaluated}</span>
+                  <span className="text-fg-faint">{t("trace.evaluated")}{step.evaluated}</span>
                 )}
                 {step.output !== null && (
                   <span className="text-fg-faint">out {step.output}</span>
@@ -1477,8 +1478,7 @@ function SearchCallView({
       {invocations.length > 0 && (
         <div className="space-y-1">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Model invocations
-          </div>
+            {t("trace.modelInvocations")}</div>
           <div className="flex flex-wrap gap-1.5">
             {invocations.map((invocation, index) => (
               <button
@@ -1500,8 +1500,7 @@ function SearchCallView({
       {modelCalls.size > 0 && (
         <div className="space-y-1">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Dedicated model calls
-          </div>
+            {t("trace.dedicatedCalls")}</div>
           <div className="flex flex-wrap gap-1.5">
             {[...modelCalls.entries()].map(([callId, info]) => (
               <button

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -166,12 +167,12 @@ describe("Reflection in the shared conversation", () => {
     await act(async () => { await refreshRuntimeTurns(epoch); });
     await renderChat();
     const card = container.querySelector('[data-reflection="memory"]');
-    expect(card?.textContent).toContain("自动");
+    expect(card?.textContent).toContain(t("chat.reflection.automatic"));
     expect(card?.textContent).toContain("2026-09-28");
-    expect(card?.textContent).toContain("无需整理");
+    expect(card?.textContent).toContain(t("chat.reflection.skipped"));
     expect(card?.textContent).toContain("该日期没有可供整理的会话或记忆");
     expect(card?.querySelector("[data-live-body]")).toBeNull();
-    expect(card?.textContent).not.toContain("Details");
+    expect(card?.textContent).not.toContain(t("common.details"));
     expect(endpoint.calls(`/v2/session/turns/${summary.turn_id}`)).toHaveLength(0);
   });
 
@@ -189,7 +190,7 @@ describe("Reflection in the shared conversation", () => {
     await act(async () => { await refreshRuntimeTurns(epoch); });
     await renderChat();
     const card = container.querySelector('[data-reflection="memory"]');
-    expect(card?.textContent).toContain("Memory 整理");
+    expect(card?.textContent).toContain(`${t("shell.memory")} ${t("shell.organize")}`);
     expect(card?.textContent).toContain("2026-09-28");
     expect(turnState().turnId).toBeNull();
     act(() => presentationStore.getState().addEvent({ sequence: 10, name: "llm.model.response", level: "model", source: "test", message: "",
@@ -217,7 +218,7 @@ describe("Reflection in the shared conversation", () => {
       result: { request_id: "reflection-1", turn_id: "reflection-1", active_day: day, status: "partial", tasks: [{ kind: "memory", status: "awaiting_user", details: {}, turn: { status: "awaiting_user", completion: { text: "One decision remains." }, failure: null, finish_failures: [], cleanup: [] } }] } };
     await act(async () => { await refreshRuntimeTurn(epoch, "reflection-1"); });
     expect(container.querySelector('[data-reflection="memory"]')).toBe(card);
-    expect(card?.textContent).toContain("部分完成");
+    expect(card?.textContent).toContain(t("chat.reflection.partial"));
     expect(card?.textContent).toContain("One decision remains.");
     expect(card?.querySelector('input[type="radio"]')).toBeNull();
     expect(card?.querySelector(".answer-card")).toBeNull();
@@ -295,7 +296,7 @@ describe("ChatView: scroll anchoring", () => {
     });
     expect(node.scrollTop).toBe(100);
     const pill = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "新内容",
+      (button) => button.textContent === t("chat.newContent"),
     );
     expect(pill).toBeDefined();
 
@@ -308,7 +309,7 @@ describe("ChatView: scroll anchoring", () => {
     expect(node.scrollTop).toBe(680);
     expect(
       Array.from(container.querySelectorAll("button")).find(
-        (button) => button.textContent === "新内容",
+        (button) => button.textContent === t("chat.newContent"),
       ),
     ).toBeUndefined();
   });
@@ -335,7 +336,7 @@ describe("ChatView: scroll anchoring", () => {
     });
 
     const pill = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "问题等待你的回复",
+      (button) => button.textContent === t("chat.questionPending"),
     );
     expect(pill).toBeDefined();
     expect(node.scrollTop).toBe(50);
@@ -518,11 +519,11 @@ describe("ChatView: snapshot-driven waiting cards", () => {
 
     // Still draining — but the question card and the budget card are live.
     expect(turnState().loading).toBe(true);
-    expect(container.textContent).not.toContain("Loading the conversation…");
+    expect(container.textContent).not.toContain(t("chat.loading"));
     expect(container.querySelectorAll('[data-question-form="active"]')).toHaveLength(1);
     expect(container.querySelectorAll('input[type="radio"]')).toHaveLength(1);
     expect(container.querySelector('[data-waiting-dock]')).not.toBeNull();
-    expect(container.textContent).toContain("waiting for more budget");
+    expect(container.textContent).toContain(t("chat.budgetWaiting"));
 
     // The card submits against the snapshot's question right away.
     act(() => {
@@ -531,7 +532,7 @@ describe("ChatView: snapshot-driven waiting cards", () => {
       ).click();
     });
     const reply = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "回复",
+      (button) => button.textContent === t("chat.question.reply"),
     );
     expect(reply).toBeDefined();
     await act(async () => {
@@ -589,15 +590,15 @@ describe("ChatView: direct composer", () => {
   it("appends without a mode menu and shows stop only when the draft is empty", async () => {
     await openLiveTurn();
     await renderChat();
-    expect(container.querySelector('button[title="停止当前轮次"]')).not.toBeNull();
+    expect(container.querySelector(`button[title="${t("chat.composer.stop")}"]`)).not.toBeNull();
     expect(container.querySelector('button[title="Stop turn"]')).toBeNull();
     expect(container.textContent).not.toContain("Queue as next turn");
     endpoint.post("/v2/requests/contract-turn/input", () =>
       jsonResponse({ accepted: true, record_id: "added", sequence: 1 }));
     act(() => useComposerDraft.getState().setDraft("one more detail"));
-    expect(container.querySelector('button[title="停止当前轮次"]')).toBeNull();
+    expect(container.querySelector(`button[title="${t("chat.composer.stop")}"]`)).toBeNull();
     await act(async () => {
-      (container.querySelector('button[title="发送"]') as HTMLButtonElement).click();
+      (container.querySelector(`button[title="${t("chat.composer.send")}"]`) as HTMLButtonElement).click();
     });
     expect(endpoint.calls("/v2/requests/contract-turn/input", "POST")).toHaveLength(1);
     expect(endpoint.calls("/v2/requests", "POST")).toHaveLength(0);
@@ -611,7 +612,7 @@ describe("ChatView: direct composer", () => {
     endpoint.post("/v2/requests/contract-turn/input", () => gate.promise);
     act(() => useComposerDraft.getState().setDraft("first addition"));
     await act(async () => {
-      (container.querySelector('button[title="发送"]') as HTMLButtonElement).click();
+      (container.querySelector(`button[title="${t("chat.composer.send")}"]`) as HTMLButtonElement).click();
       await Promise.resolve();
     });
     act(() => {
@@ -630,7 +631,7 @@ describe("ChatView: direct composer", () => {
       useComposerDraft.getState().setDraft("keep this");
     });
     expect((container.querySelector("textarea") as HTMLTextAreaElement).disabled).toBe(false);
-    expect((container.querySelector('button[title="发送"]') as HTMLButtonElement).disabled).toBe(true);
+    expect((container.querySelector(`button[title="${t("chat.composer.send")}"]`) as HTMLButtonElement).disabled).toBe(true);
     expect(useComposerDraft.getState().draft).toBe("keep this");
   });
 });
@@ -668,10 +669,10 @@ describe("ChatView: read-only history composer", () => {
     const box = container.querySelector(".composer-box") as HTMLDivElement;
     expect(box.className).toContain("opacity-60");
     const send = container.querySelector(
-      'button[title="发送"]',
+      `button[title="${t("chat.composer.send")}"]`,
     ) as HTMLButtonElement;
     expect(send.disabled).toBe(true);
-    expect(container.textContent).toContain("回到今天才能发送消息");
+    expect(container.textContent).toContain(t("chat.composer.returnToday"));
     // The live intent chip menu is not offered for committed history.
     expect(container.querySelector("button[aria-expanded]")).toBeNull();
   });
@@ -706,7 +707,7 @@ describe("ChatView: failed echo on a closed turn", () => {
     });
 
     const entries = Array.from(container.querySelectorAll("button")).filter(
-      (button) => button.textContent === "作为新会话发送",
+      (button) => button.textContent === t("chat.sendAsNew"),
     );
     expect(entries).toHaveLength(1);
 
@@ -753,10 +754,10 @@ describe("ChatView: pre-context entry", () => {
     const bubble = container.querySelector(".bubble-user");
     const card = container.querySelector(".live-border");
     expect(bubble?.textContent).toBe(echo.text);
-    expect(card?.textContent).toContain("Preparing context");
+    expect(card?.textContent).toContain(t("chat.preparingContext"));
     expect(bubbleCount()).toBe(1);
     expect(container.textContent).not.toContain("Queued as the next turn");
-    expect(container.textContent).not.toContain("Accepted · waiting to appear");
+    expect(container.textContent).not.toContain(t("chat.acceptedDisplay"));
     act(() => useTurnStore.setState({
       snapshot: runningSnapshot(),
       items: [makeInteraction({ id: "initial", role: "user.input", text: echo.text })],
@@ -780,7 +781,7 @@ describe("ChatView: pre-context entry", () => {
     expect(container.querySelector(".bubble-user")?.textContent).toBe("look into the build…");
     expect(container.textContent).toContain("等待开始");
     endpoint.post("/v2/requests/contract-turn/cancel", () => jsonResponse({ accepted: true, turn_id: "contract-turn" }));
-    await act(async () => (container.querySelector('button[title="停止当前轮次"]') as HTMLButtonElement).click());
+    await act(async () => (container.querySelector(`button[title="${t("chat.composer.stop")}"]`) as HTMLButtonElement).click());
     expect(endpoint.calls("/v2/requests/contract-turn/cancel", "POST")).toHaveLength(1);
     expect(endpoint.calls("/v2/requests/reflection/cancel", "POST")).toHaveLength(0);
   });
@@ -821,7 +822,7 @@ describe("ChatView: historical markdown origin", () => {
 
   it("resolves an archived day's references against that day", async () => {
     await openHistoryTurn("2026-09-28");
-    expect(container.textContent).toContain("archived day");
+    expect(container.textContent).toContain(t("chat.archiveHint"));
 
     await act(async () => {
       workspaceLink().click();
@@ -833,7 +834,7 @@ describe("ChatView: historical markdown origin", () => {
 
   it("keeps the active day's content bound to live resources", async () => {
     await openHistoryTurn("2026-09-29");
-    expect(container.textContent).not.toContain("archived day");
+    expect(container.textContent).not.toContain(t("chat.archiveHint"));
 
     await act(async () => {
       workspaceLink().click();

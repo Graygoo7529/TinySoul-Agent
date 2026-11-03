@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../../i18n";
+import { t, useI18n, LocalizedText } from "../../../i18n";
 
 import { useEffect, useState } from "react";
 import type { Preset, PresetSummary } from "../../../api/v2/types";
@@ -32,7 +32,7 @@ function PresetApplyDialog({ preset, onReview, onClose }: {
   const clients = useConnectionStore((state) => state.clients);
   const current = useConfigDraftStore((state) => state.saved);
   const draftCount = useConfigDraftStore(selectDraftCount);
-  const blocker = useConfigDraftStore(activationBlocker);
+  const blocker = useConfigDraftStore((state) => activationBlocker(state));
   const applying = useConfigDraftStore((state) => state.applyPhase !== "idle");
   const failure = useConfigDraftStore((state) => state.applyFailure);
   const [detail, setDetail] = useState<Preset | null>(null);
@@ -54,20 +54,20 @@ function PresetApplyDialog({ preset, onReview, onClose }: {
     const discardDraftKeys = Object.keys(useConfigDraftStore.getState().drafts);
     if (await applyPreset(clients, preset, { discardDraftKeys })) onClose();
   };
-  return <Modal title={`应用方案 · ${preset.name}`} onClose={() => { if (!applying) onClose(); }} width="max-w-3xl">
-    <p className="mb-3 text-[12px] text-fg-muted">应用后将重新加载配置。</p>
-    {error ? <p className="text-danger">{error}</p> : !detail ? <p>正在比较方案…</p> : <>
+  return <Modal title={t("settings.applyPlanName", { name: preset.name })} onClose={() => { if (!applying) onClose(); }} width="max-w-3xl">
+    <p className="mb-3 text-[12px] text-fg-muted">{t("settings.planReloadHint")}</p>
+    {error ? <p className="text-danger">{error}</p> : !detail ? <p>{t("settings.comparingPlan")}</p> : <>
       {issues.map((issue, index) => <p key={index} className="mb-2 text-[12px] text-warning">{issue.message}</p>)}
       <PresetChanges changes={detail.changes} />
     </>}
-    {draftCount > 0 && <p className="mt-4 text-[12px] text-warning">有 {draftCount} 项未应用修改，不包含在以上比较中。请先处理草稿，或丢弃后应用方案。</p>}
+    {draftCount > 0 && <p className="mt-4 text-[12px] text-warning">{t("settings.planPendingDraft", { count: draftCount })}</p>}
     {blocker && <p className="mt-3 text-[12px] text-warning">{blocker}</p>}
-    {failure && <p role="alert" className="mt-3 text-[12px] text-danger">{failure.message}</p>}
+    {failure && <p role="alert" className="mt-3 text-[12px] text-danger"><LocalizedText value={failure.message} /></p>}
     <div className="mt-4 flex flex-wrap justify-end gap-2">
       <Button variant="ghost" size="sm" disabled={applying} onClick={onClose}>{t("runtime.cancel")}</Button>
-      {draftCount > 0 && <Button variant="outline" size="sm" disabled={applying} onClick={() => { onClose(); onReview(); }}>先处理草稿</Button>}
+      {draftCount > 0 && <Button variant="outline" size="sm" disabled={applying} onClick={() => { onClose(); onReview(); }}>{t("settings.handleDraft")}</Button>}
       <Button variant={draftCount > 0 ? "danger" : "primary"} size="sm" disabled={disabled} loading={applying} onClick={() => void apply()}>
-        {draftCount > 0 ? "丢弃草稿并应用" : "应用方案"}
+        {draftCount > 0 ? t("settings.discardAndApply") : t("settings.applyPlan")}
       </Button>
     </div>
   </Modal>;

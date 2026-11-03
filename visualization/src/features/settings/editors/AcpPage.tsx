@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { useI18n, tStatus } from "../../../i18n";
 import { NetworkPolicyEditor, NetworkPolicyField } from "./NetworkPolicyEditor";
 /**
  * ACP Subagents settings (config-coverage §4.6): delegation targets are
@@ -28,13 +28,14 @@ import {
 const ROOT = "capabilities.subagent.agents";
 
 export function AcpPage() {
+  const { t } = useI18n();
   return (
     <CollectionObjectEditor
       collectionId="capabilities.subagent.agents"
       runtimeSummary={<AcpRuntimeSummary />}
       renderFields={(ctx) => <AcpTargetFields ctx={ctx} />}
       limits={<>
-        <NetworkPolicyField path="capabilities.subagent.network" title="默认代理" />
+        <NetworkPolicyField path="capabilities.subagent.network" title={t("settings.defaultProxy")} />
         <FieldSection
           title={t("settings.delegationLimits")}
           description={t("settings.connectionAndDelegationBoundsSharedByAllTargets")}
@@ -60,6 +61,7 @@ export function AcpPage() {
 }
 
 function AcpTargetFields({ ctx }: { ctx: ObjectEditContext }) {
+  const { t } = useI18n();
   const disabled = ctx.readOnly !== null;
   const at = (name: string) => `${ROOT}.${ctx.id}.${name}`;
   const text = (name: string): string =>
@@ -80,8 +82,8 @@ function AcpTargetFields({ ctx }: { ctx: ObjectEditContext }) {
 
   return (
     <>
-      <ObjRow path={at("network")} label="代理设置">
-        <NetworkPolicyEditor value={ctx.object.network} parentLabel="模块默认代理" disabled={disabled} onChange={(network) => ctx.update({ network })} />
+      <ObjRow path={at("network")} label={t("settings.proxySettings")}>
+        <NetworkPolicyEditor value={ctx.object.network} parentLabel={t("settings.moduleProxy")} disabled={disabled} onChange={(network) => ctx.update({ network })} />
       </ObjRow>
       <ObjRow path={at("enabled")}>
         <ObjBoolean
@@ -94,7 +96,7 @@ function AcpTargetFields({ ctx }: { ctx: ObjectEditContext }) {
         <ObjText
           value={text("description")}
           disabled={disabled}
-          placeholder="What this subagent is for"
+          placeholder={t("settings.agentPurpose")}
           onChange={(next) => ctx.update({ description: next })}
         />
       </ObjRow>
@@ -103,7 +105,7 @@ function AcpTargetFields({ ctx }: { ctx: ObjectEditContext }) {
           value={text("command")}
           mono
           disabled={disabled}
-          placeholder="Executable of the ACP agent"
+          placeholder={t("settings.agentExecutable")}
           onChange={(next) => ctx.update({ command: next })}
         />
       </ObjRow>
@@ -149,6 +151,7 @@ function AcpTargetFields({ ctx }: { ctx: ObjectEditContext }) {
 
 /** Read-only live connection summary of the running generation. */
 function AcpRuntimeSummary() {
+  const { t } = useI18n();
   const clients = useConnectionStore((s) => s.clients);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const [directory, setDirectory] = useState<AcpDirectory | null>(null);
@@ -164,7 +167,7 @@ function AcpRuntimeSummary() {
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Unavailable");
+          setError(cause instanceof Error ? cause.message : t("settings.actionUnavailable"));
         }
       });
     return () => {
@@ -191,7 +194,7 @@ function AcpRuntimeSummary() {
   return (
     <SectionCard
       title={t("settings.runtimeConnections")}
-      description="Live connections of the running generation. Configuration changes activate on apply; they never start a connection by themselves."
+      description={t("settings.agentConnectionsHint")}
       actions={
         <button
           type="button"
@@ -211,9 +214,8 @@ function AcpRuntimeSummary() {
       ) : (
         <div className="flex flex-col gap-1.5">
           <div className="text-[12px] text-fg-muted">
-            {directory.targets.length} configured target(s) ·{" "}
-            {connectionStates.length} live connection(s)
-          </div>
+            {directory.targets.length} {t("settings.configuredTargetCount")}{" "}
+            {connectionStates.length} {t("settings.liveConnectionCount")}</div>
           {connectionStates.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {connectionStates.map((connection, index) => (
@@ -229,7 +231,7 @@ function AcpRuntimeSummary() {
                         : "gray"
                     }
                   >
-                    {connection.state}
+                    {tStatus(connection.state)}
                   </Badge>
                 </span>
               ))}

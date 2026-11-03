@@ -1,3 +1,4 @@
+import { LocalizedText, message } from "../../i18n";
 /**
  * Trace Inspector entries (plan §9, §21.3).
  *
@@ -49,7 +50,7 @@ export function openTurnProcess(
 ): void {
   useInspectorStore.getState().open({
     key: `trace:process:${turnId}`,
-    title: "Turn Trace",
+    title: <LocalizedText value={message("trace.turnTrace")} />,
     subtitle: `Turn ${turnId}`,
     render: () => <ProcessPanel epoch={epoch} turnId={turnId} day={day} />,
   });
@@ -64,7 +65,7 @@ export function pushTurnProcess(
   detailCounter += 1;
   useInspectorStore.getState().push({
     key: `trace:process:${turnId}:${detailCounter}`,
-    title: "Turn Trace",
+    title: <LocalizedText value={message("trace.turnTrace")} />,
     subtitle: `Turn ${turnId}`,
     render: () => <ProcessPanel epoch={epoch} turnId={turnId} day={day} />,
   });
@@ -85,7 +86,7 @@ export function pushActionDetail(
   useInspectorStore.getState().push({
     key: `trace:action:${turnId}:${selector.callId ?? `${selector.action}#${selector.ordinal}`}:${detailCounter}`,
     title: selector.action,
-    subtitle: "Action detail",
+    subtitle: <LocalizedText value={message("trace.actionDetail")} />,
     render: () => (
       <ActionDetailPanel
         epoch={epoch}
@@ -116,10 +117,10 @@ export function pushModelCall(
     adjacent: true,
     title:
       target.kind === "llm"
-        ? "Model task"
+        ? <LocalizedText value={message("trace.modelTask")} />
         : target.kind === "call"
-          ? (target.label ?? "Model call")
-          : "Search evaluation",
+          ? (target.label ?? <LocalizedText value={message("trace.modelCall")} />)
+          : <LocalizedText value={message("trace.searchEvaluation")} />,
     subtitle: id,
     copyText: id,
     render: () => (
@@ -139,7 +140,7 @@ export function pushJobDetail(
   useInspectorStore.getState().push({
     key: `trace:job:${turnId}:${jobId}:${detailCounter}`,
     title: `Job ${jobId}`,
-    subtitle: "Turn-owned job",
+    subtitle: <LocalizedText value={message("trace.turnJob")} />,
     copyText: jobId,
     render: () => (
       <JobPanel epoch={epoch} turnId={turnId} day={day} jobId={jobId} />

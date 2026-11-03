@@ -64,8 +64,7 @@ function DayRow({ epoch, entry }: { epoch: number; entry: DayEntry }) {
           </span>
           {entry.active && (
             <span className="inline-flex items-center gap-1 rounded-md bg-accent-soft px-1.5 py-0.5 text-[11px] font-medium text-accent">
-              <span className="animate-pulse-dot">●</span> active
-            </span>
+              <span className="animate-pulse-dot">●</span> {t("common.active")}</span>
           )}
         </span>
       </button>

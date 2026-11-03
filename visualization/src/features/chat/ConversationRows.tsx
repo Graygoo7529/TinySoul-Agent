@@ -21,15 +21,16 @@ import { grantBudget } from "./turnController";
 type ChatViewMode = "live" | "history";
 
 export function BudgetCard({ snapshot }: { snapshot: TurnSnapshot | null }) {
+  const { t } = useI18n();
   const epoch = useConnectionStore((s) => s.epoch);
   const history = useTurnStore((s) => s.historyView);
   const request = snapshot?.budget_request;
   if (history || !snapshot || snapshot.state !== "waiting" || !request) return null;
   return <div className="rounded-xl border border-warning/40 bg-warning-soft px-4 py-3">
-    <div className="text-[13px] font-medium text-warning">The turn used up its cycles and is waiting for more budget.</div>
+    <div className="text-[13px] font-medium text-warning">{t("chat.budgetWaiting")}</div>
     <div className="mt-2 flex items-center gap-2">{[1, 5, 10].map((count) =>
       <Button key={count} variant="outline" size="xs" onClick={() => void grantBudget(epoch, snapshot.request_id, request.request_id, count)}>
-        +{count} {count === 1 ? "cycle" : "cycles"}
+        +{t("chat.cycleCount", { count })}
       </Button>)}</div>
   </div>;
 }
@@ -51,7 +52,7 @@ export function TurnFooter({ epoch, turnId, day, status, items, elapsedMs }: {
         <Badge tone={tone}>{turnStatusText(status)}</Badge>
         {elapsedMs !== undefined && <span title={t("chat.elapsedTimeCapturedActivity")}>{formatDuration(0, elapsedMs / 1000)}</span>}
         {outcomes.length > 0 && <span title={t("chat.actionsRepresentedRetainedInteractionRecord")}>
-          {outcomes.length} 个动作{failed > 0 ? ` ${failed} 失败` : ""}{timeout > 0 ? ` ${timeout} 超时` : ""}
+          {outcomes.length} {t("chat.actionCountUnit")}{failed > 0 ? t("chat.failedCount", { count: failed }) : ""}{timeout > 0 ? t("chat.timeoutCount", { count: timeout }) : ""}
         </span>}
       </>}
       <Button variant="outline" size="xs" className="ml-auto" onClick={() => openTurnProcess(epoch, turnId, day)}>
@@ -112,6 +113,7 @@ export function InteractionRow({
 }
 
 export function UserBubble({ text, label, delivery, pending, failed = false }: { text: string; label?: string; delivery?: ReactNode; pending?: "sending" | "accepted"; failed?: boolean }) {
+  const { t } = useI18n();
   return (
     <div className="flex justify-end">
       <div className={`max-w-[85%] ${delivery && !failed ? "opacity-60" : ""}`}>
@@ -123,7 +125,7 @@ export function UserBubble({ text, label, delivery, pending, failed = false }: {
         <div className={`bubble-user relative rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-sm leading-6 break-words whitespace-pre-wrap ${failed ? "border border-danger/40 bg-danger-soft" : ""}`}>
           {text}
           <span className={`pointer-events-none absolute -right-1 -bottom-1 flex h-4 w-4 items-center justify-center rounded-full bg-bg-elev text-fg-faint shadow-sm transition-opacity ${pending ? "opacity-100" : "opacity-0"}`}
-            role={pending ? "status" : undefined} aria-label={pending === "sending" ? "Sending" : pending === "accepted" ? "Sent" : undefined} aria-hidden={!pending}>
+            role={pending ? "status" : undefined} aria-label={pending === "sending" ? t("chat.sendingStatus") : pending === "accepted" ? t("chat.sentStatus") : undefined} aria-hidden={!pending}>
             {pending === "sending" ? <Loader2 size={10} className="animate-spin-slow" /> : <Check size={10} />}
           </span>
         </div>

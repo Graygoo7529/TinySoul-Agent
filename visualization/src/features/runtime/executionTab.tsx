@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, tStatus } from "../../i18n";
 /**
  * Execution tab (plan §14): what the Agent is doing right now — the active
  * Turn's formal state, its real wait reason with the way back to the
@@ -46,7 +46,7 @@ export function ExecutionTab({
 
 function CurrentTurnCard({ read }: { read: ActiveTurnRead }): ReactElement {
   useI18n();
-  if (!read.settled) return <LoadingRow text="Reading the active turn…" />;
+  if (!read.settled) return <LoadingRow text={t("runtime.readTurn")} />;
   if (read.turnId === null) {
     return (
       <EmptyState
@@ -59,7 +59,7 @@ function CurrentTurnCard({ read }: { read: ActiveTurnRead }): ReactElement {
   if (read.snapshot === null) {
     return (
       <ReadError
-        message={read.error ?? "the turn projection is unavailable"}
+        message={read.error ?? t("runtime.turnUnavailable")}
       />
     );
   }
@@ -69,11 +69,11 @@ function CurrentTurnCard({ read }: { read: ActiveTurnRead }): ReactElement {
       <div className="rounded-lg border border-line bg-bg-elev px-4 py-3">
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={TURN_STATE_TONES[snapshot.state] ?? "gray"}>
-            {snapshot.state}
+            {tStatus(snapshot.state)}
           </Badge>
-          <Badge tone="accent">{snapshot.kind} turn</Badge>
+          <Badge tone="accent">{snapshot.kind} {t("runtime.turn")}</Badge>
           {snapshot.cancel_requested && (
-            <Badge tone="yellow">cancel requested</Badge>
+            <Badge tone="yellow">{t("runtime.cancelRequested")}</Badge>
           )}
           <span className="text-[12px] text-fg-faint" title={snapshot.turn_id ?? snapshot.request_id}>
             {shortTurnId(snapshot.turn_id ?? snapshot.request_id)}
@@ -91,8 +91,7 @@ function CurrentTurnCard({ read }: { read: ActiveTurnRead }): ReactElement {
         {snapshot.jobs.length > 0 && <JobsLine count={snapshot.jobs.length} />}
         {read.error !== null && (
           <div className="mt-2 text-[11px] text-warning">
-            The latest refresh failed ({read.error}); the previous snapshot
-            stays on screen.
+            {t("runtime.refreshFailed", { detail: read.error })}
           </div>
         )}
       </div>
@@ -103,6 +102,7 @@ function CurrentTurnCard({ read }: { read: ActiveTurnRead }): ReactElement {
 
 /** The real wait reason, with the question/budget path back to the chat. */
 function WaitingLine({ snapshot }: { snapshot: TurnSnapshot }): ReactElement | null {
+  const { t } = useI18n();
   if (snapshot.state !== "waiting" || snapshot.wait_reason === null) {
     return null;
   }
@@ -116,25 +116,24 @@ function WaitingLine({ snapshot }: { snapshot: TurnSnapshot }): ReactElement | n
       )}
       {snapshot.budget_request !== null && (
         <span className="text-fg-muted">
-          cycle {snapshot.budget_request.next_cycle_index} needs a grant
-        </span>
+          {t("runtime.cycle")}{snapshot.budget_request.next_cycle_index} {t("runtime.needsGrant")}</span>
       )}
     </div>
   );
 }
 
 function JobsLine({ count }: { count: number }): ReactElement {
+  const { t } = useI18n();
   const setTab = useRuntimeUi((s) => s.setTab);
   return (
     <div className="mt-2 flex items-center gap-2 text-[12px] text-fg-muted">
       <ListTodo size={12} className="text-fg-faint" />
-      {count} background {count === 1 ? "job" : "jobs"} in this turn
-      <button
+      {t("runtime.turnJobCount", { count })} <button
         type="button"
         onClick={() => setTab("jobs")}
         className="text-accent hover:underline"
       >
-        open Jobs
+        {t("runtime.openJobs")}
       </button>
     </div>
   );
@@ -154,13 +153,13 @@ function ResultCard({ result }: { result: TurnResult }): ReactElement {
       <div className="flex items-center gap-2 text-[12px]">
         <span className="text-fg-faint">{t("runtime.result")}</span>
         <Badge tone={result.status === "answered" ? "green" : "gray"}>
-          {result.status}
+          {tStatus(result.status)}
         </Badge>
       </div>
       {result.failure != null && (
         <Collapsible
           title={t("runtime.executionFailure")}
-          meta={<Badge tone="red">failed</Badge>}
+          meta={<Badge tone="red">{t("common.failed")}</Badge>}
           defaultOpen
         >
           <JsonTree value={result.failure} defaultExpanded={false} />
@@ -218,7 +217,7 @@ function QueueCard({
       <div className="space-y-1">
         {queued.map((turnId) => (
           <div key={turnId} className="flex items-center gap-2 text-[13px]">
-            <Badge tone="gray">queued</Badge>
+            <Badge tone="gray">{t("common.queued")}</Badge>
             <span className="font-medium" title={turnId}>
               {shortTurnId(turnId)}
             </span>

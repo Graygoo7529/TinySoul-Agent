@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { JsonObject, ObservationEvent } from "../../api/v2/types";
 import { useInspectorStore } from "../../store/inspectorStore";
+import { useUiPrefsStore } from "../../store/uiPrefsStore";
 import {
   FakeEndpoint,
   jsonResponse,
@@ -54,6 +56,21 @@ const CYCLE = { level: "cycle", name: "cycle_1" };
 const PHASE1 = { level: "phase", name: "phase1" };
 const PHASE2 = { level: "phase", name: "phase2" };
 const PHASE3 = { level: "phase", name: "phase3" };
+
+it("updates an open trace title without replacing its entry or rereading events", async () => {
+  serveEvents([]);
+  openTurnProcess(epoch, TURN_ID);
+  const entry = useInspectorStore.getState().entries[0];
+  render(<><h1>{entry.title}</h1>{entry.render()}</>);
+  await flush();
+  expect(container.querySelector("h1")?.textContent).toBe(t("trace.turnTrace"));
+  const reads = endpoint.calls("/v2/events").length;
+  act(() => useUiPrefsStore.setState({ pending: { locale: "en-US" } }));
+  await flush();
+  expect(useInspectorStore.getState().entries[0]).toBe(entry);
+  expect(container.querySelector("h1")?.textContent).toBe(t("trace.turnTrace"));
+  expect(endpoint.calls("/v2/events")).toHaveLength(reads);
+});
 
 function serveEvents(events: ObservationEvent[], gap = false) {
   endpoint.get("/v2/events", () =>
@@ -141,15 +158,15 @@ describe("ActivityTimeline", () => {
       } }, [TURN, CYCLE, phase]),
     ];
     render(<ActivityTimeline events={events} turnId={TURN_ID} epoch={epoch} day={null} />);
-    expect(container.textContent).toContain("Selected domains");
+    expect(container.textContent).toContain(t("chat.selectedDomains"));
     // Phase group headers show in the unfiltered view…
-    expect(container.textContent).toContain("更新语境");
-    expect(container.textContent).toContain("规划动作");
+    expect(container.textContent).toContain(t("trace.phase1"));
+    expect(container.textContent).toContain(t("trace.phase2"));
     clickButton("思考");
     // …and disappear under a single-kind filter.
-    expect(container.textContent).not.toContain("更新语境");
+    expect(container.textContent).not.toContain(t("trace.phase1"));
     expect(container.textContent).toContain("First intent");
-    expect(container.textContent).not.toContain("任务指导");
+    expect(container.textContent).not.toContain(t("chat.taskGuidance"));
     const nextCycle = { level: "cycle", name: "cycle_2" };
     render(<ActivityTimeline events={[...events,
       event("llm.model.response", 5, {
@@ -160,21 +177,21 @@ describe("ActivityTimeline", () => {
     ]} turnId={TURN_ID} epoch={epoch} day={null} />);
     expect(container.textContent).toContain("First intent");
     expect(container.textContent).toContain("Second intent");
-    expect(container.textContent).not.toContain("In progress");
-    expect(container.textContent).toContain("Selected domains");
+    expect(container.textContent).not.toContain(t("chat.inProgress"));
+    expect(container.textContent).toContain(t("chat.selectedDomains"));
     const intentButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Second intent"));
-    expect(intentButton?.parentElement?.textContent).not.toContain("Selected domains");
+    expect(intentButton?.parentElement?.textContent).not.toContain(t("chat.selectedDomains"));
     clickButton("Second intent");
     expect(container.textContent).toContain("Verify the result against the source.");
-    expect(container.textContent).toContain("Selected domains");
+    expect(container.textContent).toContain(t("chat.selectedDomains"));
     clickButton("Second intent");
     expect(container.textContent).not.toContain("Verify the result against the source.");
-    clickButton("语境");
-    expect(container.textContent).toContain("任务指导");
+    clickButton(t("trace.context"));
+    expect(container.textContent).toContain(t("chat.taskGuidance"));
     expect(container.textContent).not.toContain("Second intent");
-    clickButton("Milestone");
+    clickButton(t("chat.milestone"));
     expect(container.textContent).toContain("Its section on testing explains the decision.");
-    clickButton("Milestone");
+    clickButton(t("chat.milestone"));
     expect(container.textContent).not.toContain("Its section on testing explains the decision.");
   });
 });
@@ -220,7 +237,7 @@ describe("ProcessPanel", () => {
     render(<ProcessPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29" />);
     await flush();
     // The process tree lives on the 过程 tab.
-    clickButton("过程");
+    clickButton(t("trace.process"));
 
     expect(queryOf(endpoint.calls("/v2/events")[0]!, "turn_id")).toBe(TURN_ID);
     expect(queryOf(endpoint.calls("/v2/events")[0]!, "mode")).toBe("model");
@@ -228,12 +245,12 @@ describe("ProcessPanel", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("Cycle 1");
     expect(text).toContain("workspace.read");
-    expect(text).toContain("success");
+    expect(text).toContain(t("trace.status.success"));
     expect(text).toContain("execution.run");
     // The expanded phase shows the action's result gist inline (payload text).
     expect(text).toContain("hi");
     // A not-executed action is shown as such — never as a tool answer.
-    expect(text).toContain("not executed");
+    expect(text).toContain(t("trace.status.notExecuted"));
   });
 
   it("renders the overview metric band (elapsed, tokens, failure jump)", async () => {
@@ -251,7 +268,7 @@ describe("ProcessPanel", () => {
     render(<ProcessPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29" />);
     await flush();
     // Elapsed from first phase start to last finish (10 → 60).
-    expect(container.textContent).toContain("总耗时");
+    expect(container.textContent).toContain(t("trace.totalDuration"));
     expect(container.textContent).toContain("50s");
     // Tokens summed over retained usages (100 + 5).
     expect(container.textContent).toContain("105");
@@ -268,7 +285,7 @@ describe("ProcessPanel", () => {
     serveEvents(processEvents);
     render(<ProcessPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29" />);
     await flush();
-    clickButton("过程");
+    clickButton(t("trace.process"));
     clickPhase("phase3");
     clickButton("workspace.read");
     const entries = useInspectorStore.getState().entries;
@@ -280,7 +297,7 @@ describe("ProcessPanel", () => {
     serveEvents(processEvents, true);
     render(<ProcessPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29" />);
     await flush();
-    expect(container.textContent).toContain("truncated");
+    expect(container.textContent).toContain(t("trace.retainedRange"));
   });
 });
 
@@ -317,11 +334,11 @@ describe("ActionDetailPanel", () => {
     );
     await flush();
     const text = container.textContent ?? "";
-    expect(text).toContain("failed");
+    expect(text).toContain(t("trace.status.failed"));
     expect(text).toContain("hook_rejected");
     expect(text).toContain("write rejected by hook");
     // The second call's params are the ones shown.
-    clickButton("调用参数");
+    clickButton(t("settings.call"));
     await flush();
     expect(container.textContent).toContain("workspace:b.md");
   });
@@ -346,7 +363,7 @@ describe("ActionDetailPanel", () => {
     await flush();
     const text = container.textContent ?? "";
     expect(text).toContain("cancelled");
-    expect(text).toContain("No result was recorded");
+    expect(text).toContain(t("trace.noActionResult"));
   });
 
   it("links the action's model calls through the module scope", async () => {
@@ -403,14 +420,14 @@ describe("ActionDetailPanel", () => {
         selector={{ callId: "c1", action: "workspace.analyze", ordinal: 0 }} />,
     );
     await flush();
-    expect(container.textContent).toContain("规划输入");
-    expect(container.textContent).toContain("执行结果");
+    expect(container.textContent).toContain(t("trace.planningInput"));
+    expect(container.textContent).toContain(t("trace.executionResult"));
     expect(container.textContent).toContain("核对容量恢复边界");
     expect(container.querySelector(".md-body h1")?.textContent).toBe("容量恢复分析");
     expect(container.querySelector(".md-body strong")?.textContent).toBe("Context");
     expect(container.querySelector(".md-body code")?.textContent).toBe("MessageStack");
     expect(container.textContent).toContain("报告引用（1）");
-    expect(container.textContent).toContain("1,200 source chars");
+    expect(container.textContent).toContain(t("trace.sourceChars", { count: 1200 }));
   });
 
   it("shows describe output as text without fabricating compose narrative", async () => {
@@ -431,7 +448,7 @@ describe("ActionDetailPanel", () => {
         selector={{ callId: "c1", action: "workspace.describe", ordinal: 0 }} />,
     );
     await flush();
-    expect(container.textContent).toContain("资源描述");
+    expect(container.textContent).toContain(t("chat.resourceDescription"));
     expect(container.textContent).toContain("记录 Context 的装配与恢复职责。");
 
     serveEvents([
@@ -511,7 +528,7 @@ describe("ActionDetailPanel", () => {
     expect(container.textContent).toContain("18,420 字符");
     expect(container.textContent).toContain("Recovery guide");
     expect(container.textContent).toContain("Bounded content is reclaimed.");
-    expect(container.textContent).toContain("原始页面");
+    expect(container.textContent).toContain(t("trace.originalPage"));
     expect(container.textContent).toContain("workspace:web/guide.md");
   });
 
@@ -548,7 +565,7 @@ describe("ActionDetailPanel", () => {
     expect(container.textContent).toContain("1 已访问");
     expect(container.textContent).toContain("1 失败");
     expect(container.textContent).toContain("1 候选");
-    expect(container.textContent).toContain("stop: completed");
+    expect(container.textContent).toContain(t("trace.stopReason", { reason: "completed" }));
     expect(container.textContent).toContain("request timeout");
     expect(container.textContent).toContain("API reference");
   });
@@ -641,7 +658,7 @@ describe("ActionDetailPanel", () => {
         selector={{ callId: "c1", action: "core.job.status", ordinal: 0 }} />,
     );
     await flush();
-    expect(container.textContent).toContain("summary");
+    expect(container.textContent).toContain(t("trace.summary"));
     expect(container.textContent).toContain("uv run --locked --extra dev python scripts/test.py --suite full");
 
     serveEvents([
@@ -713,7 +730,7 @@ describe("ActionDetailPanel", () => {
         selector={{ callId: "c1", action: "subagent.collect", ordinal: 0 }} />,
     );
     await flush();
-    expect(container.textContent).toContain("输出内容");
+    expect(container.textContent).toContain(t("trace.output"));
     expect(container.textContent).toContain("已定位到失败原因：模型输出协议缺少 text 字段。\n建议先检查 core.answer 的生成结果，再决定是否重试。");
     expect(container.textContent).toContain("workspace:jobs/job_9/output.txt");
   });
@@ -745,7 +762,7 @@ describe("JobPanel", () => {
 
     const text = container.textContent ?? "";
     expect(text).toContain("job_1");
-    expect(text).toContain("running");
+    expect(text).toContain(t("protocol.runtime.running"));
     expect(text).toContain("execution.process");
     expect(text).toContain("ready");
     expect(text).toContain("workspace:jobs/job_1/logs/stdout.log");
@@ -761,7 +778,7 @@ describe("JobPanel", () => {
     await flush();
     expect(container.textContent).toContain("notice");
 
-    clickButton("显示更多输出");
+    clickButton(t("trace.showMoreOutput"));
     await flush();
     expect(queryOf(endpoint.calls(`/v2/requests/${TURN_ID}/jobs/job_1/output`)[1]!, "continuation")).toBe("continuation_2");
     expect(container.textContent).toContain("more");

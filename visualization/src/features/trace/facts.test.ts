@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { describe, expect, it } from "vitest";
 
 import type { JsonObject, ObservationEvent } from "../../api/v2/types";
@@ -360,13 +361,13 @@ describe("actionTraceStatus", () => {
 
   it("keeps non-result terminal states distinct", () => {
     expect(actionTraceStatus(traceWith(null, ["requested", "started", "settled"])).label).toBe(
-      "settled without result",
+      t("trace.status.noResult"),
     );
     expect(actionTraceStatus(traceWith(null, ["cancelled"])).kind).toBe("cancelled");
     expect(actionTraceStatus(traceWith(null, ["not_executed"])).kind).toBe("not_executed");
-    expect(actionTraceStatus(traceWith(null, ["unknown"])).label).toBe("outcome unknown");
+    expect(actionTraceStatus(traceWith(null, ["unknown"])).label).toBe(t("trace.status.unknown"));
     expect(actionTraceStatus(traceWith(null, ["started"])).kind).toBe("running");
-    expect(actionTraceStatus(traceWith(null, [])).label).toBe("no execution record");
+    expect(actionTraceStatus(traceWith(null, [])).label).toBe(t("trace.status.noRecord"));
   });
 });
 

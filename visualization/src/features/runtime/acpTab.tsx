@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, tStatus } from "../../i18n";
 /**
  * ACP tab (plan §14 ACP, API-15).
  *
@@ -49,7 +49,7 @@ export function AcpTab({ epoch }: { epoch: number }): ReactElement {
   );
 
   if (read.kind === "loading") {
-    return <LoadingRow text="Reading the subagent directory…" />;
+    return <LoadingRow text={t("runtime.readSubagents")} />;
   }
   if (read.kind === "error") {
     return (
@@ -63,9 +63,7 @@ export function AcpTab({ epoch }: { epoch: number }): ReactElement {
     <div className="space-y-5">
       <div className="flex items-center gap-2 text-[12px] text-fg-faint">
         <span>
-          Reading this page never connects to a subagent — connections are
-          established by delegations.
-        </span>
+          {t("runtime.connectionHint")}</span>
         <span className="flex-1" />
         <Button
           variant="ghost"
@@ -107,15 +105,14 @@ function TargetsSection({
   return (
     <section className="space-y-1.5">
       <h3 className="text-[12px] font-medium text-fg-faint">
-        Configured targets
-      </h3>
+        {t("runtime.configuredTargets")}</h3>
       {targets.map((target) => (
         <div
           key={target.agentId}
           className="flex items-center gap-2 rounded-lg border border-line bg-bg-elev px-3 py-2"
         >
           <Badge tone={target.enabled ? "green" : "gray"}>
-            {target.enabled ? "enabled" : "disabled"}
+            {target.enabled ? t("runtime.enabled") : t("settings.disabled")}
           </Badge>
           <span className="shrink-0 text-[13px] font-medium">
             {target.agentId}
@@ -129,8 +126,7 @@ function TargetsSection({
             onClick={() => delegateDraft(target.agentId)}
           >
             <Send size={12} />
-            Delegate in conversation
-          </Button>
+            {t("runtime.delegate")}</Button>
         </div>
       ))}
     </section>
@@ -151,7 +147,7 @@ function ConnectionsSection({
   if (connections.length === 0) {
     return (
       <section className="space-y-1.5">
-        <h3 className="text-[12px] font-medium text-fg-faint">Connections</h3>
+        <h3 className="text-[12px] font-medium text-fg-faint">{t("runtime.connections")}</h3>
         <div className="rounded-lg border border-line bg-bg-elev px-4 py-3 text-[12px] text-fg-faint">
           {t("runtime.liveConnectionsConnectionAppearsDelegationStartsIdle")}</div>
       </section>
@@ -160,15 +156,14 @@ function ConnectionsSection({
   return (
     <section className="space-y-1.5">
       <h3 className="text-[12px] font-medium text-fg-faint">
-        Connections — this generation's runtime facts
-      </h3>
+        {t("runtime.connectionFacts")}</h3>
       {connections.map((connection) => (
         <div
           key={connection.connectionId}
           className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-bg-elev px-3 py-2"
         >
           <Badge tone={CONNECTION_TONES[connection.state] ?? "gray"}>
-            {connection.state}
+            {tStatus(connection.state)}
           </Badge>
           <span className="text-[13px] font-medium">{connection.agentId}</span>
           <span
@@ -179,19 +174,18 @@ function ConnectionsSection({
           </span>
           <CopyButton
             text={() => connection.connectionId}
-            label="Copy connection id"
+            label={t("runtime.copyConnection")}
           />
           {connection.turnId !== null ? (
             <span
               className="text-[11px] text-fg-muted"
               title={connection.turnId}
             >
-              turn {shortTurnId(connection.turnId)}
+              {t("runtime.turn")}{shortTurnId(connection.turnId)}
             </span>
           ) : (
             <span className="text-[11px] text-fg-faint">
-              idle — reusable across turns
-            </span>
+              {t("runtime.idleReusable")}</span>
           )}
           {connection.cwdLink !== "" && (
             <button

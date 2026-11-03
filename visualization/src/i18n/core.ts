@@ -62,15 +62,7 @@ export function protocolText(code: string, locale: Locale = "zh-CN"): string | u
   return dictionaries[locale][key] ?? dictionaries["en-US"][key];
 }
 
-export function tError(code: string | undefined, message: string, locale: Locale = "zh-CN"): string {
-  return (code === undefined ? undefined : protocolText(code, locale)) ?? message;
-}
-
 /** Stable runtime and action values can use the same code-based projection. */
 export function tStatus(value: string, locale: Locale = "zh-CN"): string {
   return protocolText(`runtime.${value}`, locale) ?? value;
-}
-
-export function tActionState(value: string, locale: Locale = "zh-CN"): string {
-  return protocolText(`action.${value}`, locale) ?? value;
 }

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it } from "vitest";
@@ -45,8 +46,8 @@ it("keeps the result preview grounded in the returned write facts", () => {
     params: { edits: [{ old_text: "old", new_text: "new" }] },
     payload: { changed: true, written: 42, ref: "workspace:notes.md", summary: "Saved" },
   }))));
-  expect(host.textContent).toContain("changed");
-  expect(host.textContent).toContain("42 written");
+  expect(host.textContent).toContain(t("trace.changed"));
+  expect(host.textContent).toContain(t("chat.written"));
   expect(host.textContent).toContain("workspace:notes.md");
   expect(host.textContent).not.toContain("+ new");
 });
@@ -90,7 +91,7 @@ it("summarizes analysis reports and descriptions from their actual fields", () =
   }))));
   expect(host.textContent).toContain("已有文件摘要");
   expect(host.textContent).not.toContain("不能被当成生成正文的元数据");
-  expect(host.textContent).not.toContain("资源描述");
+  expect(host.textContent).not.toContain(t("chat.resourceDescription"));
 });
 
 it("uses the first content line when an analysis report has no heading", () => {
@@ -141,7 +142,7 @@ it("keeps web gists focused on primary content and adds only discovery states", 
     },
   }))));
   expect(host.textContent).toContain("已访问");
-  expect(host.textContent).toContain("失败");
+  expect(host.textContent).toContain(t("common.failed"));
   expect(host.textContent).toContain("候选");
   expect(host.textContent).toContain("request timeout");
   expect(host.textContent).toContain("API reference");
@@ -159,7 +160,7 @@ it("shows the first nonempty guide line for core.reason planning", () => {
       output_blocks: [{ text: "输出协议不进入摘要" }],
     },
   }))));
-  expect(host.textContent).toContain("推理任务");
+  expect(host.textContent).toContain(t("chat.inferenceTask"));
   expect(host.textContent).toContain("判断由谁负责容量恢复");
   expect(host.textContent).not.toContain("第二行不进入摘要");
   expect(host.textContent).not.toContain("输入区不进入摘要");
@@ -202,7 +203,7 @@ it("shows wait conditions and actual job content", () => {
     actionId: "core.wait",
     payload: { event_kind: "job", timeout_seconds: 30 },
   }))));
-  expect(host.textContent).toContain("等待 Job 事件");
+  expect(host.textContent).toContain(t("chat.waitJob"));
   expect(host.textContent).toContain("30s");
   expect(host.textContent).not.toContain("completed");
 
@@ -220,7 +221,7 @@ it("shows ACP briefs and real MCP names and call content", () => {
     actionId: "subagent.delegate", stage: "plan",
     params: { connection_id: "conn_3", brief: "分析失败原因\n第二行不显示" },
   }))));
-  expect(host.textContent).toContain("委派 conn_3");
+  expect(host.textContent).toContain(`${t("chat.delegation")} conn_3`);
   expect(host.textContent).toContain("分析失败原因");
   expect(host.textContent).not.toContain("第二行不显示");
 
@@ -230,7 +231,7 @@ it("shows ACP briefs and real MCP names and call content", () => {
   }))));
   expect(host.textContent).toContain("conn_3");
   expect(host.textContent).toContain("job_9");
-  expect(host.textContent).toContain("已受理");
+  expect(host.textContent).toContain(t("chat.accepted"));
   expect(host.textContent).not.toContain("running");
 
   act(() => root.render(glimpseBody(result({
@@ -262,7 +263,7 @@ it("shows created session refs, submitted Markdown and actual Home differences",
     actionId: "core.session.organize",
     payload: { changed_refs: ["session:node/2026-10-28/1", "session:edge/2026-10-28/2"], created_refs: { "release-review": "session:thread/2026-10-28/7" } },
   }))));
-  expect(host.textContent).toContain("新建解释 release-review");
+  expect(host.textContent).toContain(`${t("chat.newInterpretations")} release-review`);
   expect(host.textContent).toContain("session:thread/2026-10-28/7");
 
   act(() => root.render(glimpseBody(result({
@@ -270,7 +271,7 @@ it("shows created session refs, submitted Markdown and actual Home differences",
     params: { markdown: "## 今日进展\n- 完成 Context 容量恢复设计\n- 补充 4 个回归测试" },
     payload: { ref: "memory:daily/2026-10-28", written: true },
   }))));
-  expect(host.textContent).toContain("已写入");
+  expect(host.textContent).toContain(t("chat.written"));
   expect(host.textContent).toContain("今日进展");
   expect(host.textContent).toContain("完成 Context 容量恢复设计");
   expect(host.textContent).toContain("补充 4 个回归测试");

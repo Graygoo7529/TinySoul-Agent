@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { t, useI18n } from "../../../i18n";
 /**
  * Credentials settings page (plan §16.6): the unified editor for every
  * credential reference the catalog declares (provider env names, dedicated
@@ -19,6 +19,7 @@ import { CredentialValueEditor } from "../editors/controls";
 import { inputClass } from "./controls";
 
 export function CredentialsPage() {
+  const { t } = useI18n();
   const state = useConfigDraftStore();
   const credentials = useMemo(
     () => deriveCredentials(state),
@@ -58,9 +59,9 @@ export function CredentialsPage() {
     newName.trim() === ""
       ? null
       : !/^[A-Za-z_][A-Za-z0-9_]*$/.test(newName.trim())
-        ? "Use a dotenv variable name (letters, digits, underscores; not starting with a digit)."
+        ? t("settings.credentialNameHint")
         : credentials.some((entry) => entry.name === newName.trim())
-          ? "This name is already listed."
+          ? t("settings.credentialNameDuplicate")
           : null;
 
   return (
@@ -68,23 +69,21 @@ export function CredentialsPage() {
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <KeyRound size={15} className="text-fg-faint" />
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-semibold text-fg">项目凭据</div>
+          <div className="text-[13px] font-semibold text-fg">{t("settings.credentialsTitle")}</div>
           <div className="text-[11px] text-fg-faint">
-            保存在项目 dotenv 文件{dotenv !== undefined ? ` (${dotenv.path})` : ""}中。值不会直接显示；设置或删除会先形成本地草稿，应用配置后才会提交。
-          </div>
+            {t("settings.credentialLocation")}{dotenv !== undefined ? ` (${dotenv.path})` : ""}{t("settings.credentialHint")}</div>
         </div>
         {pendingCount > 0 && (
           <Button size="xs" variant="outline" onClick={discardCredentialDrafts}>
-            <RotateCcw size={13} /> 放弃 {pendingCount} 项凭据修改
-          </Button>
+            <RotateCcw size={13} /> {t("common.discard")}{pendingCount} {t("settings.credentialChanges")}</Button>
         )}
       </div>
 
       <div className="mb-3 flex items-center gap-2">
         <input
-          aria-label="Filter credentials"
+          aria-label={t("settings.filterCredentials")}
           value={query}
-          placeholder="按名称或引用路径筛选…"
+          placeholder={t("settings.credentialFilterHint")}
           onChange={(event) => setQuery(event.target.value)}
           className={`${inputClass} h-7 text-[11px]`}
         />
@@ -101,7 +100,7 @@ export function CredentialsPage() {
         <div className="mb-4 space-y-2 rounded-md border border-line bg-bg-elev px-3 py-3">
           <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
             <input
-              aria-label="New credential name"
+              aria-label={t("settings.newCredentialName")}
               value={newName}
               placeholder="PROVIDER_API_KEY"
               onChange={(event) => setNewName(event.target.value)}
@@ -109,10 +108,10 @@ export function CredentialsPage() {
               aria-invalid={nameError !== null}
             />
             <input
-              aria-label="New credential value"
+              aria-label={t("settings.newCredentialValue")}
               type="password"
               value={newValue}
-              placeholder="Value (stored in dotenv on apply)"
+              placeholder={t("settings.credentialValueHint")}
               onChange={(event) => setNewValue(event.target.value)}
               className={`${inputClass} font-mono text-[11px]`}
             />
@@ -137,12 +136,12 @@ export function CredentialsPage() {
 
       {credentials.length === 0 && !adding ? (
         <EmptyState
-          title="没有已引用的凭据"
-          description="Provider and server configurations declare the dotenv names they read; those references appear here together with any values already present in the dotenv file."
+          title={t("settings.noCredentialRefs")}
+          description={t("settings.credentialRefsHint")}
         />
       ) : (
         groups.map((group) => (
-          <section key={group.title} className="mb-5">
+          <section key={group.key} className="mb-5">
             <div className="mb-1.5 text-[11px] font-semibold tracking-wide text-fg-faint uppercase">
               {group.title}
             </div>
@@ -161,7 +160,7 @@ export function CredentialsPage() {
   );
 }
 
-function groupCredentials(entries: CredentialEntry[]): { title: string; entries: CredentialEntry[] }[] {
+function groupCredentials(entries: CredentialEntry[]): { key: string; title: string; entries: CredentialEntry[] }[] {
   const groups = new Map<string, CredentialEntry[]>();
   for (const entry of entries) {
     const titles = new Set(entry.references.map((reference) => reference.groupTitle));
@@ -182,7 +181,7 @@ function groupCredentials(entries: CredentialEntry[]): { title: string; entries:
       if (b === "Unreferenced (dotenv only)") return -1;
       return a.localeCompare(b);
     })
-    .map(([title, groupEntries]) => ({ title, entries: groupEntries }));
+    .map(([title, groupEntries]) => ({ key: title, title: title === "Unreferenced (dotenv only)" ? t("settings.unreferencedCredentials") : title === "Shared across groups" ? t("settings.sharedCredentials") : title, entries: groupEntries }));
 }
 
 function CredentialRow({ entry }: { entry: CredentialEntry }) {
@@ -195,7 +194,7 @@ function CredentialRow({ entry }: { entry: CredentialEntry }) {
             <Badge
               key={reference.path}
               tone="gray"
-              title={`${reference.path} (${reference.kind === "header" ? "HTTP header value" : "environment variable"})`}
+              title={`${reference.path} (${reference.kind === "header" ? t("settings.httpHeaderValue") : t("settings.environmentVariable")})`}
             >
               {reference.path}
             </Badge>

@@ -151,25 +151,21 @@ export function MemoryDocumentView({
         <div className="flex items-center gap-2 border-b border-line bg-warning-soft px-4 py-2 text-[12px] text-warning">
           <ArrowRight size={12} className="shrink-0" />
           <span className="min-w-0 flex-1">
-            This document redirects to{" "}
-            <span className="font-mono text-[11px]">{redirectTarget}</span>.
-            The original content below is kept as recorded.
-          </span>
+            {t("memory.redirectPrefix")}{" "}
+            <span className="font-mono text-[11px]">{redirectTarget}</span>{t("memory.redirectHint")}</span>
           <Button
             variant="outline"
             size="xs"
             onClick={() => useMemoryPage.getState().select(redirectTarget)}
           >
-            Open target
-          </Button>
+            {t("memory.openTarget")}</Button>
         </div>
       )}
 
       {page.loading ? (
         <div className="flex flex-1 items-center justify-center gap-2 text-[12px] text-fg-faint">
           <Loader2 size={15} className="animate-spin-slow" />
-          Reading the document…
-        </div>
+          {t("common.loadingDocument")}</div>
       ) : errorCode === "resource.not_found" ? (
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
@@ -177,10 +173,7 @@ export function MemoryDocumentView({
             title={t("memory.documentMissing")}
             description={
               <>
-                <span className="font-mono text-[11px]">{ref}</span> is not in
-                persistent Memory. It may have been merged into another
-                document.
-              </>
+                <span className="font-mono text-[11px]">{ref}</span> {t("memory.missingHint")}</>
             }
           />
         </div>
@@ -204,9 +197,7 @@ export function MemoryDocumentView({
             title={t("home.documentEmpty")}
             description={
               <>
-                <span className="font-mono text-[11px]">{ref}</span> exists in
-                persistent Memory but has no content.
-              </>
+                <span className="font-mono text-[11px]">{ref}</span> {t("memory.emptyHint")}</>
             }
           />
         </div>

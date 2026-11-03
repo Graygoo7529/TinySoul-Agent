@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -108,9 +109,9 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
     expect(queryOf(request, "through")).toBe(String(HEAD));
     expect(container.textContent).toContain("action");
     expect(container.textContent).toContain("loop.phase2");
-    expect(container.textContent).toContain("已完成");
+    expect(container.textContent).toContain(t("trace.completed"));
     // Head metrics: elapsed derives from the retained events' timestamps.
-    expect(container.textContent).toContain("耗时");
+    expect(container.textContent).toContain(t("trace.duration"));
     expect(container.textContent).toContain("30s");
   });
 
@@ -138,8 +139,8 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
 
     expect(queryOf(lastEventRequest(), "call_id")).toBe("mc_1");
     expect(container.textContent).toContain("memory.search.embedding");
-    expect(container.textContent).toContain("1536 dims");
-    expect(container.textContent).toContain("7 inputs");
+    expect(container.textContent).toContain(t("trace.dimensions"));
+    expect(container.textContent).toContain(t("trace.inputs"));
     expect(container.textContent).toContain("completed");
   });
 
@@ -168,7 +169,7 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
     expect(queryOf(request, "search_id")).toBe("s_1");
     expect(queryOf(request, "step_index")).toBe("2");
     expect(container.textContent).toContain("rerank");
-    expect(container.textContent).toContain("evaluated 6");
+    expect(container.textContent).toContain(t("trace.evaluated"));
     expect(container.textContent).toContain("task_9");
   });
 
@@ -220,7 +221,7 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
     // The attempt renders Context / Tools / Response folds, all closed except
     // the response groups: no explanation line, no message text up front.
     expect(container.textContent).not.toContain("provider-neutral request");
-    expect(container.textContent).toContain("Context");
+    expect(container.textContent).toContain(t("trace.context"));
     expect(container.textContent).not.toContain("You are TinySoul.");
     // Expanding Context reveals the slot sections; expanding a section reveals
     // its messages (header + first-line preview).
@@ -234,9 +235,9 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
         target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });
     };
-    foldButton("Context");
-    foldButton("背景");
-    foldButton("过程");
+    foldButton(t("trace.context"));
+    foldButton(t("trace.background"));
+    foldButton(t("trace.trace"));
     expect(container.textContent).toContain("You are TinySoul.");
     expect(container.textContent).toContain("read the file");
     // Message order is the real stack order: system identity before user.
@@ -245,16 +246,16 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
     expect(identity).toBeGreaterThanOrEqual(0);
     expect(user).toBeGreaterThan(identity);
     // The tool scope sits behind the Tools fold; a chip expands its definition.
-    foldButton("Tools");
+    foldButton(t("trace.tools"));
     expect(container.textContent).toContain("core.answer");
     // Response and its sub-groups default collapsed; expand to read the answer.
     expect(container.textContent).not.toContain("Done.");
-    foldButton("Response");
-    foldButton("模型回答");
+    foldButton(t("trace.response"));
+    foldButton(t("trace.modelAnswer"));
     expect(container.textContent).toContain("Done.");
     // Reasoning/calls groups default collapsed.
     expect(container.textContent).not.toContain("short plan");
-    foldButton("思考过程");
+    foldButton(t("trace.reasoning"));
     expect(container.textContent).toContain("short plan");
     // Only the recorded reasoning summary is shown — never raw digests.
     expect(container.textContent).not.toContain("a".repeat(64));
@@ -291,12 +292,12 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
       event("llm.model.completed", 30, { task_id: "task_1", profile: "control", model_id: "model_x", status: "completed" }),
     ]);
     await renderPanel({ kind: "llm", taskId: "task_1" });
-    expect(container.textContent).toContain("was not recorded");
+    expect(container.textContent).toContain(t("trace.requestMissing"));
     // No attempt-less event ever lands in a misleading "Attempt ?" group.
     expect(container.textContent).not.toContain("Attempt ?");
     // Model-level lifecycle folds into the head model row — no separate block.
     expect(container.textContent).not.toContain("Model lifecycle");
-    expect(container.textContent).toContain("prov / pm-1 completed");
+    expect(container.textContent).toContain(`prov / pm-1 ${t("protocol.runtime.completed")}`);
     // A single attempt renders inline without an attempt fold header.
     expect(container.textContent).not.toContain("第 1 次调用");
   });
@@ -338,7 +339,7 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
     await renderPanel({ kind: "llm", taskId: "task_1" });
     const text = container.textContent ?? "";
     // The attempt failure reads provider_error_kind — not a null error_type.
-    expect(text).toContain("Attempt failed (transient)");
+    expect(text).toContain(t("trace.attemptFailed", { reason: "transient" }));
     // The model-level failure stays at task level, outside the attempt group.
     expect(text).toContain("ProviderError · transient");
     expect(text).not.toContain("Attempt ?");
@@ -347,12 +348,12 @@ describe("ModelCallPanel directed reads (plan §9.3)", () => {
   it("reports a missing record without stitching from other calls", async () => {
     serveEvents([]);
     await renderPanel({ kind: "call", callId: "mc_gone" });
-    expect(container.textContent).toContain("was not found in the retained observation");
+    expect(container.textContent).toContain(t("trace.recordNotFound"));
   });
 
   it("marks a truncated retained window", async () => {
     serveEvents([event("llm.task.completed", 800, { task_id: "task_1", status: "completed" })], true);
     await renderPanel({ kind: "llm", taskId: "task_1" });
-    expect(container.textContent).toContain("truncated");
+    expect(container.textContent).toContain(t("trace.retainedRange"));
   });
 });

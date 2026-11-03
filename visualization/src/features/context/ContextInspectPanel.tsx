@@ -186,9 +186,7 @@ export function ContextInspectPanel({
 
       {initialQuery !== undefined && (
         <div className="px-1 text-[12px] text-fg-muted">
-          {t("settings.overview.locate")}<span className="font-medium">“{initialQuery}”</span> in this
-          scope
-        </div>
+          {t("settings.overview.locate")}<span className="font-medium">“{initialQuery}”</span> {t("context.inScope")}</div>
       )}
 
       {canQuery && !closed && (
@@ -202,7 +200,7 @@ export function ContextInspectPanel({
           <input
             value={queryDraft}
             onChange={(event) => setQueryDraft(event.target.value)}
-            placeholder="Locate in this scope…"
+            placeholder={t("context.locateScope")}
             className="h-8 min-w-0 flex-1 rounded-lg border border-line bg-bg-elev px-3 text-[13px] outline-none focus-ring focus:border-accent"
           />
           <button

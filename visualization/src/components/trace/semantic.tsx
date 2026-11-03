@@ -1,3 +1,4 @@
+import { t, useI18n, message, resolveText, effectiveLocale, type UiText } from "../../i18n";
 /**
  * Semantic chips shared by the chat view and the turn-trace drawer: action
  * domains, resource links, and status badges get one consistent visual
@@ -132,11 +133,11 @@ export function domainBorderClass(domain: string): string {
 export function phaseHint(phase: string): string {
   switch (phase) {
     case "phase1":
-      return "更新语境并选择行动域";
+      return t("trace.phase1Hint");
     case "phase2":
-      return "在已选域内生成动作";
+      return t("trace.phase2Hint");
     case "phase3":
-      return "组装并执行动作批次";
+      return t("trace.phase3Hint");
     default:
       return phase;
   }
@@ -146,11 +147,11 @@ export function phaseHint(phase: string): string {
 export function phaseShort(phase: string): string {
   switch (phase) {
     case "phase1":
-      return "更新语境";
+      return t("trace.phase1");
     case "phase2":
-      return "规划动作";
+      return t("trace.phase2");
     case "phase3":
-      return "执行动作";
+      return t("trace.phase3");
     default:
       return phase;
   }
@@ -162,22 +163,22 @@ export function cycleLabel(cycleId: string): string {
   return match ? `Cycle ${match[1]}` : cycleId;
 }
 
-const SEGMENT_LABELS: Record<string, string> = {
-  "agent/identity": "身份",
-  identity: "身份",
-  session: "会话",
-  inputs: "输入",
-  turn_trace: "轨迹",
+const SEGMENT_LABELS: Record<string, UiText> = {
+  "agent/identity": message("context.segment.identity"),
+  identity: message("context.segment.identity"),
+  session: message("context.segment.session"),
+  inputs: message("context.segment.inputs"),
+  turn_trace: message("context.segment.trace"),
   home: "Home",
-  memory: "记忆",
-  plan: "计划",
-  workspace: "工作区",
-  task_prompt: "任务提示",
+  memory: message("context.segment.memory"),
+  plan: message("context.segment.plan"),
+  workspace: message("context.segment.workspace"),
+  task_prompt: message("context.segment.taskPrompt"),
 };
 
 /** Chinese gloss for a context segment id; raw value stays in the tooltip. */
 export function segmentLabel(segmentId: string): string {
-  return SEGMENT_LABELS[segmentId] ?? segmentId;
+  return resolveText(SEGMENT_LABELS[segmentId] ?? segmentId, effectiveLocale());
 }
 
 /** Compact id rendering: long internal ids collapse to a 12-char prefix. */
@@ -191,6 +192,7 @@ export function shortId(id: string): string {
  * `title={id}` instead so the markup stays valid.
  */
 export function IdChip({ id, className = "" }: { id: string; className?: string }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -206,7 +208,7 @@ export function IdChip({ id, className = "" }: { id: string; className?: string 
       type="button"
       onClick={copy}
       title={id}
-      aria-label={`Copy ${id}`}
+      aria-label={t("common.copyValue", { value: id })}
       className={`inline-flex items-center gap-1 rounded-md bg-hover px-1.5 py-0.5 font-mono text-[10.5px] text-fg-muted transition-colors hover:text-fg ${className}`}
     >
       {shortId(id)}
@@ -257,30 +259,31 @@ export function turnStatusText(status: string): string {
   switch (status) {
     case "answered":
     case "completed":
-      return "已完成";
+      return t("trace.completed");
     case "failed":
-      return "失败";
+      return t("trace.failed");
     case "cancelled":
     case "stopped":
-      return "停止";
+      return t("trace.stopped");
     case "waiting_question":
     case "waiting_budget":
     case "awaiting_user":
-      return "等待";
+      return t("trace.waiting");
     case "exhausted":
-      return "耗尽";
+      return t("trace.exhausted");
     case "partial":
-      return "部分完成";
+      return t("trace.partial");
     case "skipped":
-      return "无需整理";
+      return t("trace.skipped");
     case "finished":
-      return "已结束";
+      return t("trace.finished");
     default:
       return status;
   }
 }
 
 export function TurnStatusBadge({ status }: { status: string }) {
+  const { t } = useI18n();
   switch (status) {
     case "answered":
     case "completed":
@@ -294,8 +297,7 @@ export function TurnStatusBadge({ status }: { status: string }) {
     case "running":
       return (
         <Badge tone="accent">
-          <span className="animate-pulse-dot">●</span> 运行中
-        </Badge>
+          <span className="animate-pulse-dot">●</span> {t("common.running")}</Badge>
       );
     default:
       return <Badge tone="gray">{turnStatusText(status)}</Badge>;
@@ -303,18 +305,18 @@ export function TurnStatusBadge({ status }: { status: string }) {
 }
 
 export function ActionStatusBadge({ status }: { status: string }) {
+  const { t } = useI18n();
   switch (status) {
     case "success":
-      return <Badge tone="green">success</Badge>;
+      return <Badge tone="green">{t("common.success")}</Badge>;
     case "failed":
-      return <Badge tone="red">failed</Badge>;
+      return <Badge tone="red">{t("common.failed")}</Badge>;
     case "timeout":
-      return <Badge tone="yellow">timeout</Badge>;
+      return <Badge tone="yellow">{t("common.timeout")}</Badge>;
     case "running":
       return (
         <Badge tone="accent">
-          <span className="animate-pulse-dot">●</span> running
-        </Badge>
+          <span className="animate-pulse-dot">●</span> {t("common.running")}</Badge>
       );
     default:
       return <Badge tone="gray">{status}</Badge>;

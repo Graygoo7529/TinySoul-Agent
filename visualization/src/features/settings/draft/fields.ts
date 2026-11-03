@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 /**
  * Page-side helpers for resolving *where* a config path is written and for
  * treating collection objects (MCP servers, ACP agents) as one atomic draft
@@ -75,19 +76,19 @@ export function readOnlyReason(
   saved: Configuration | null,
   path: string,
 ): string | null {
-  if (saved === null) return "Configuration has not been loaded yet.";
+  if (saved === null) return t("settings.configNotLoaded");
   const field = saved.fields[path];
   if (field === undefined) return null;
   if (field.writable) return null;
   const source = saved.sources.find((item) => item.id === field.source);
-  if (source === undefined) return "The owning source is not writable.";
+  if (source === undefined) return t("settings.sourceNotWritable");
   switch (source.kind) {
     case "environment":
-      return "Provided by the process environment; change it on the host and restart.";
+      return t("settings.environmentReadOnly");
     case "override":
-      return "Provided by a CLI launch override; change it at process start.";
+      return t("settings.cliReadOnly");
     default:
-      return `Source ${source.id} is read-only.`;
+      return t("settings.sourceReadOnly", { source: source.id });
   }
 }
 
@@ -194,9 +195,9 @@ export function objectDraftClears(
 
 /** Validate a collection object id (mirrors the backend identity rules). */
 export function objectIdIssue(id: string): string | null {
-  if (id === "") return "An id is required.";
-  if (id !== id.trim()) return "Ids cannot have leading or trailing whitespace.";
-  if (id.includes(".")) return "Ids cannot contain dots.";
-  if (/^\d+$/.test(id)) return "Ids cannot be purely numeric.";
+  if (id === "") return t("settings.validation.idRequired");
+  if (id !== id.trim()) return t("settings.validation.idWhitespace");
+  if (id.includes(".")) return t("settings.validation.idDots");
+  if (/^\d+$/.test(id)) return t("settings.validation.idNumeric");
   return null;
 }

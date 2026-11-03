@@ -44,10 +44,10 @@ export function ContextInspectorPanel({
   const committed = turns?.some((entry) => entry.turn_id === targetId) ?? false;
   const active = targetId !== null && targetId === activeId && !(snapshot?.turn_id === targetId && snapshot.state === "finished");
   const tabs: Array<{ id: ContextTab; label: string; icon: ReactElement }> = [
-    { id: "context", label: "当前 Context", icon: <Layers size={13} /> },
-    { id: "session", label: "Session map", icon: <Map size={13} /> },
-    { id: "home", label: "已加载 Home", icon: <BookOpen size={13} /> },
-    { id: "memory", label: "已加载 Memory", icon: <Brain size={13} /> },
+    { id: "context", label: t("context.tab.current"), icon: <Layers size={13} /> },
+    { id: "session", label: t("context.tab.session"), icon: <Map size={13} /> },
+    { id: "home", label: t("context.tab.loadedHome"), icon: <BookOpen size={13} /> },
+    { id: "memory", label: t("context.tab.loadedMemory"), icon: <Brain size={13} /> },
   ];
 
   return (
@@ -67,10 +67,10 @@ export function ContextInspectorPanel({
         ))}
       </div>
       {visited.has("context") && targetId && <div hidden={tab !== "context"}><ContextOverviewPanel key={targetId} epoch={epoch} turnId={targetId} /></div>}
-      {tab === "context" && !targetId && <EmptyState title="当前没有运行中的语境" description="Home 和 Memory 子页保留最近会话已加载的正文。" />}
+      {tab === "context" && !targetId && <EmptyState title={t("context.noActiveContext")} description={t("context.lastBackgroundHint")} />}
       {visited.has("session") && (mapDay ?? activeDay) !== null && (
         <div hidden={tab !== "session"}>
-          {kind === "memory" && <p className="mb-2 text-[11px] text-fg-faint">整理来源：{mapDay}</p>}
+          {kind === "memory" && <p className="mb-2 text-[11px] text-fg-faint">{t("context.reflectionSource")}{mapDay}</p>}
           <SessionMapPanel epoch={epoch} day={(mapDay ?? activeDay)!} /></div>
       )}
       {tab === "session" && activeDay === null && (
@@ -78,7 +78,7 @@ export function ContextInspectorPanel({
       )}
       {(visited.has("home") || visited.has("memory")) && <div hidden={tab !== "home" && tab !== "memory"}>
         {targetId && targetDay ? <BackgroundPanel key={targetId} epoch={epoch} turnId={targetId} day={targetDay} active={active} committed={committed} reflection={kind !== "user"} owner={tab === "memory" ? "memory" : "home"} />
-          : <EmptyState title="暂无会话背景" />}
+          : <EmptyState title={t("context.noBackground")} />}
       </div>}
     </div>
   );

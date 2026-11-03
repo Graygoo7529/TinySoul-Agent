@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it } from "vitest";
@@ -75,7 +76,7 @@ it("saves theme, typography and motion through the project client and restores s
   });
   expect(config.values.font_sans).toBe("serif");
   expect(config.values.reduced_motion).toBe(true);
-  expect(container.textContent).toContain("已保存到项目");
+  expect(container.textContent).toContain(t("settings.savedToProject"));
   expect(localStorage.getItem("tinysoul-ui-prefs")).toBeNull();
   expect(endpoint.calls("/v2/config/apply", "POST")).toHaveLength(0);
   await click("恢复项目界面默认");
@@ -88,7 +89,7 @@ it("switches and persists the project-shared interface language", async () => {
   await click("English");
   expect(config.values.locale).toBe("en-US");
   expect(useUiPrefsStore.getState().saved.locale).toBe("en-US");
-  expect(container.textContent).toContain("Interface language");
+  expect(container.textContent).toContain(t("settings.language"));
 });
 
 it("keeps disconnected controls disabled and does not upload rendering defaults", async () => {

@@ -1,3 +1,4 @@
+import { useI18n } from "../../../i18n";
 
 /**
  * Shared form controls for the Models & Services settings pages (plan §16).
@@ -37,15 +38,16 @@ export function FieldRow({
   actions?: ReactNode;
   children: ReactNode;
 }) {
+  const { t } = useI18n();
   return (
     <div className="settings-field-row gap-2 px-5 py-3">
       <div className="min-w-0">
         <div className="flex items-center gap-1.5 text-[12px] font-medium text-fg">
-          {typeof title === "string" ? title : title}
+          {title}
           {dirty && (
             <span
               className="inline-block h-1.5 w-1.5 rounded-full bg-accent"
-              title="已在本地草稿中修改"
+              title={t("settings.modifiedLocally")}
             />
           )}
         </div>
@@ -77,7 +79,7 @@ export function FieldSection({
     <section className="border-b border-line last:border-b-0">
       <div className="flex items-center justify-between gap-2 bg-bg-sunken/40 px-5 py-2.5">
         <div className="min-w-0">
-          <div className="text-[12px] font-semibold text-fg">{typeof title === "string" ? title : title}</div>
+          <div className="text-[12px] font-semibold text-fg">{title}</div>
           {description !== undefined && description !== "" && (
             <div className="text-[10px] text-fg-faint">{typeof description === "string" ? description : description}</div>
           )}
@@ -304,6 +306,7 @@ export function OrderableRow({
   children,
   ariaLabel,
 }: OrderableRowProps) {
+  const { t } = useI18n();
   const [dragOver, setDragOver] = useState(false);
   return (
     <div
@@ -339,21 +342,21 @@ export function OrderableRow({
       <div className="settings-orderable-fields flex min-w-0 flex-1 items-center gap-2">{children}</div>
       <div className="settings-orderable-actions flex shrink-0 items-center gap-0.5">
         <IconButton
-          label="Move up"
+          label={t("settings.moveUp")}
           disabled={disabled || index === 0}
           onClick={() => onMove(index - 1)}
         >
           <ArrowUp size={13} />
         </IconButton>
         <IconButton
-          label="Move down"
+          label={t("settings.moveDown")}
           disabled={disabled || index === count - 1}
           onClick={() => onMove(index + 1)}
         >
           <ArrowDown size={13} />
         </IconButton>
         {onRemove !== null && (
-          <IconButton label="Remove" disabled={disabled} onClick={onRemove}>
+          <IconButton label={t("common.remove")} disabled={disabled} onClick={onRemove}>
             <X size={13} />
           </IconButton>
         )}
@@ -389,6 +392,7 @@ export function StringListEditor({
   mono?: boolean;
   ariaLabel?: string;
 }) {
+  const { t } = useI18n();
   const [next, setNext] = useState("");
   const add = () => {
     const value = next.trim();
@@ -415,7 +419,7 @@ export function StringListEditor({
             }}
           />
           <IconButton
-            label="Remove"
+            label={t("common.remove")}
             disabled={disabled}
             onClick={() => onCommit(values.filter((_, i) => i !== index))}
           >

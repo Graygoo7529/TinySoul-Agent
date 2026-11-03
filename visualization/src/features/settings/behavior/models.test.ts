@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 /**
  * Behavior atom model tests (bindings + retrieval): both atoms stage as one
  * whole value — editing one consumer/action replaces its entry in place and
@@ -332,7 +333,7 @@ describe("policyIssues", () => {
       queryChannels: ["lexical", "embedding"],
     });
     expect(issues.join(" ")).toContain("backlinks");
-    expect(issues.join(" ")).toContain("embedding");
+    expect(issues.join(" ")).toContain(t("settings.validation.embeddingOwner"));
   });
 
   it("a similarity-bound operation cannot keep the current context", () => {
@@ -344,7 +345,7 @@ describe("policyIssues", () => {
       steps: { select: { allowedContext: ["none", "current"], inputMaxChars: 100 } },
     };
     expect(policyIssues(capability!, withCurrent, ["select"]).join(" ")).toContain(
-      "similarity",
+      t("settings.validation.embeddingContext", { operation: "select" }),
     );
     expect(policyIssues(capability!, withCurrent, [])).toEqual([]);
   });

@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, message } from "../../i18n";
 /**
  * Selected-resource panel of the Workspace page (plan §10/P06).
  *
@@ -146,8 +146,8 @@ export function FilePanel({
     if (ok) {
       closeModal();
       select(null);
-      useAppStore.getState().pushToast("success", "Moved to trash.", {
-        label: "View trash",
+      useAppStore.getState().pushToast("success", message("workspace.trashed"), {
+        label: message("workspace.viewTrash"),
         onClick: () => useWorkspacePage.getState().setPanel("trash"),
       });
     }
@@ -164,7 +164,7 @@ export function FilePanel({
             {record.relative_path}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-fg-faint">
-            {!isActive && <Badge tone="yellow">Archived · read-only</Badge>}
+            {!isActive && <Badge tone="yellow">{t("workspace.archivedReadOnly")}</Badge>}
             {record.tags.map((tag) => (
               <Badge key={tag} tone={TAG_TONES[tag] ?? "gray"}>
                 {tag}
@@ -184,7 +184,7 @@ export function FilePanel({
                 </span>
               </>
             )}
-            {dirty && <Badge tone="accent">edited</Badge>}
+            {dirty && <Badge tone="accent">{t("workspace.edited")}</Badge>}
           </div>
           {record.description !== "" && (
             <div
@@ -261,8 +261,7 @@ export function FilePanel({
         <div className="flex items-center gap-2 border-b border-line bg-warning-soft px-4 py-2 text-[12px] text-warning">
           <AlertTriangle size={12} className="shrink-0" />
           <span className="min-w-0 flex-1">
-            This file changed on disk while you have unsaved edits.
-          </span>
+            {t("workspace.changedOnDisk")}</span>
           <button
             type="button"
             className="shrink-0 font-medium hover:underline"
@@ -276,15 +275,13 @@ export function FilePanel({
               setReloadToken((token) => token + 1);
             }}
           >
-            Reload
-          </button>
+            {t("common.reload")}</button>
           <button
             type="button"
             className="shrink-0 font-medium hover:underline"
             onClick={() => setExternalChange(false)}
           >
-            Keep editing
-          </button>
+            {t("workspace.keepEditing")}</button>
         </div>
       )}
 
@@ -298,31 +295,28 @@ export function FilePanel({
             {dirStats != null && (
               <div className="inline-flex items-center gap-1.5 rounded-full border border-line bg-bg-sunken px-3 py-1 text-[11px] text-fg-muted">
                 {dirStats.files === 0 && dirStats.subdirs === 0 ? (
-                  "空目录"
+                  t("workspace.emptyDirectory")
                 ) : (
                   <>
                     {dirStats.files > 0 && (
                       <span>
-                        <span className="font-mono font-semibold text-fg">{dirStats.files}</span> 个文件
-                      </span>
+                        <span className="font-mono font-semibold text-fg">{dirStats.files}</span> {t("workspace.filesUnit")}</span>
                     )}
                     {dirStats.files > 0 && dirStats.subdirs > 0 && <span className="text-fg-faint">·</span>}
                     {dirStats.subdirs > 0 && (
                       <span>
-                        <span className="font-mono font-semibold text-fg">{dirStats.subdirs}</span> 个子目录
-                      </span>
+                        <span className="font-mono font-semibold text-fg">{dirStats.subdirs}</span> {t("workspace.directoriesUnit")}</span>
                     )}
                     <span className="text-fg-faint">·</span>
                     <span>
-                      共 <span className="font-mono font-semibold text-fg">{formatSize(dirStats.totalBytes)}</span>
+                      {t("workspace.totalPrefix")}<span className="font-mono font-semibold text-fg">{formatSize(dirStats.totalBytes)}</span>
                     </span>
                   </>
                 )}
               </div>
             )}
             <div className="text-[12px] text-fg-faint">
-              Directory — its files appear in the tree.
-            </div>
+              {t("workspace.directoryHint")}</div>
           </div>
         </div>
       ) : isText ? (
@@ -346,7 +340,7 @@ export function FilePanel({
           title={t("workspace.moveRename")}
           label={t("workspace.targetPath")}
           initial={record.relative_path}
-          submitLabel="移动"
+          submitLabel={t("workspace.move")}
           busy={mutations.busy}
           onSubmit={(path) => void runMove(path)}
           onClose={closeModal}

@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, LocalizedText, type UiText } from "../../i18n";
 import { useId, useState, type ReactElement } from "react";
 import { Check, HelpCircle, MessageSquare } from "lucide-react";
 import { Button } from "../../components/ui/Button";
@@ -26,7 +26,7 @@ export function QuestionForm({
   mode: QuestionFormMode;
   reply?: QuestionReplyView | null;
   submitting?: boolean;
-  error?: string | null;
+  error?: UiText | null;
   /** Radio group name; defaults to a per-instance id. */
   groupName?: string;
   onSubmit?: (draft: QuestionDraft) => void;
@@ -155,7 +155,7 @@ export function QuestionForm({
             )}
             {error !== null && (
               <div className="mt-2 rounded-lg bg-danger-soft px-3 py-1.5 text-[12px] text-danger">
-                {error}
+                <LocalizedText value={error} />
               </div>
             )}
             {mode === "active" && (

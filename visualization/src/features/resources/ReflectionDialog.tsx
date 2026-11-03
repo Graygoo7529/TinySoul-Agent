@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, message, LocalizedText, type UiText } from "../../i18n";
 /**
  * The shared "organize" dialog (plan §11/§12, API-04).
  *
@@ -70,12 +70,12 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
   useI18n();
   const [kind, setKind] = useState<"home" | "memory">(initialKind ?? "home");
   const [availability, setAvailability] = useState<ReflectionAvailability | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<UiText | null>(null);
   const [earlierBusy, setEarlierBusy] = useState(false);
   const [targetDay, setTargetDay] = useState<string | null>(null);
   const [manualDay, setManualDay] = useState("");
   const [instructions, setInstructions] = useState(initialInstructions ?? "");
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<UiText | null>(null);
   const [busy, setBusy] = useState(false);
 
   const queueBusy = useConnectionStore(
@@ -87,7 +87,7 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
   useEffect(() => {
     const clients = useConnectionStore.getState().clients;
     if (clients === null) {
-      setLoadError("未连接到后端。");
+      setLoadError(message("connection.notConnected"));
       return;
     }
     const controller = new AbortController();
@@ -189,7 +189,7 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
         const code = apiErrorCode(error);
         if (code === "agent.queue_full") {
           setSubmitError(
-            "根队列已满——请求未能排入。说明内容已保留，请稍后重试。",
+            message("resources.reflectionQueueFull"),
           );
           return;
         }
@@ -197,7 +197,7 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
       });
   };
 
-  const title = kind === "home" ? "整理 Home" : "整理 Memory";
+  const title = kind === "home" ? t("home.organize") : t("memory.organize");
 
   return (
     <Modal title={title} onClose={onClose}>
@@ -205,53 +205,47 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
           {!initialKind && <div className="flex gap-1 rounded-lg border border-line bg-bg-sunken p-1">
             {(["home", "memory"] as const).map((value) => <Button key={value} className="flex-1" size="sm"
               variant={kind === value ? "secondary" : "ghost"} disabled={busy}
-              onClick={() => { setKind(value); setSubmitError(null); }}>{value === "home" ? "Home" : "Memory"}</Button>)}
+              onClick={() => { setKind(value); setSubmitError(null); }}>{value === "home" ? t("shell.home") : t("shell.memory")}</Button>)}
           </div>}
           {queueBusy && (
             <div className="flex items-start gap-2 rounded-lg border border-line bg-bg-sunken px-3 py-2 text-[12px] text-fg-muted">
               <CalendarClock size={13} className="mt-0.5 shrink-0 text-fg-faint" />
-当前有其它根任务在运行或排队——本次整理会排在它后面，
-              轮到时执行。
-            </div>
+{t("resources.reflectionQueued")}</div>
           )}
 
           {loadError !== null && (
             <div className="flex items-start gap-2 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-[12px] text-danger">
               <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-              {loadError}
+              <LocalizedText value={loadError} />
             </div>
           )}
 
           {availability === null && loadError === null && (
             <p className="flex items-center gap-2 text-[12px] text-fg-faint">
               <Loader2 size={13} className="animate-spin-slow" />
-              正在读取可整理的内容…
-            </p>
+              {t("resources.loadingReflection")}</p>
           )}
 
           {kind === "home" && availability !== null && (
             <p className="text-[13px] leading-5.5 text-fg-muted">
               {availability.home_change_count > 0 || availability.home_skill_memory_count > 0 ? (
                 <>
-                  当前有 {availability.home_change_count} 项 overlay 变更待审核。
-                  哪些进入已接受基线，由 Home 整理决定，页面本身不做接受或拒绝。
+                  {t("resources.pendingHomeReview", { count: availability.home_change_count })}
                 </>
               ) : (
                 <>
-                  没有待审核的 Home 差异；整理会跳过模型执行，并清理没有变更的运行副本。
-                </>
+                  {t("resources.noHomeChanges")}</>
               )}
-              {availability.home_skill_memory_count > 0 && <span className="block mt-1">{availability.home_skill_memory_count} 项 Skill memory 待整理。</span>}
+              {availability.home_skill_memory_count > 0 && <span className="block mt-1">{t("resources.pendingSkills", { count: availability.home_skill_memory_count })}</span>}
             </p>
           )}
 
           {kind === "memory" && availability !== null && (
-            <section aria-label="Target day" className="space-y-2">
-              <h3 className="text-[12px] font-semibold text-fg">目标日</h3>
+            <section aria-label={t("resources.targetDay")} className="space-y-2">
+              <h3 className="text-[12px] font-semibold text-fg">{t("resources.targetDay")}</h3>
               {candidates.length === 0 ? (
                 <p className="text-[12px] text-fg-faint">
-                  扫描到的日期里没有可推荐的来源日。
-                </p>
+                  {t("resources.noSuggestedDay")}</p>
               ) : (
                 <div className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-line bg-bg-sunken p-1.5">
                   {candidates.map((candidate) => (
@@ -277,9 +271,8 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
                       />
                       <span className="font-mono text-[11.5px]">{candidate.day}</span>
                       {candidate.missingDaily && (
-                        <Badge tone="yellow" title="该日还没有持久日记文档——仅是线索，不构成授权">
-                          尚无日记
-                        </Badge>
+                        <Badge tone="yellow" title={t("resources.noDailyHint")}>
+                          {t("resources.noDaily")}</Badge>
                       )}
                     </label>
                   ))}
@@ -292,26 +285,25 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
                   loading={earlierBusy}
                   onClick={loadEarlier}
                 >
-                  继续向前查找（早于 {availability.next_before}）
+                  {t("resources.findEarlier", { day: availability.next_before })}
                 </Button>
               )}
               <label className="flex items-center gap-2 text-[12px] text-fg-muted">
-                <span className="shrink-0">或指定日期：</span>
+                <span className="shrink-0">{t("resources.specificDay")}</span>
                 <input
                   type="date"
                   value={manualDay}
                   onChange={(event) => setManualDay(event.target.value)}
-                  aria-label="自定义目标日"
+                  aria-label={t("resources.customDay")}
                   className="h-7 rounded-lg border border-line bg-bg-elev px-2 font-mono text-[11.5px] outline-none focus:border-accent"
                 />
               </label>
             </section>
           )}
 
-          <section aria-label="Instructions" className="space-y-1.5">
+          <section aria-label={t("resources.instructions")} className="space-y-1.5">
             <h3 className="text-[12px] font-semibold text-fg">
-              本次整理说明
-            </h3>
+              {t("resources.instructions")}</h3>
             <textarea
               value={instructions}
               onChange={(event) => setInstructions(event.target.value)}
@@ -319,10 +311,10 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
               maxLength={16000}
               placeholder={
                 kind === "home"
-                  ? "本次审核 Home 时重点关注什么…"
-                  : "这一天应当沉淀为哪些持久知识…"
+                  ? t("resources.homeReflectionPlaceholder")
+                  : t("resources.memoryReflectionPlaceholder")
               }
-              aria-label="整理说明"
+              aria-label={t("resources.instructionInput")}
               className="w-full resize-y rounded-lg border border-line bg-bg-elev px-3 py-2 text-[13px] leading-5 outline-none focus:border-accent"
             />
           </section>
@@ -330,7 +322,7 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
           {submitError !== null && (
             <div className="flex items-start gap-2 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-[12px] text-danger">
               <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-              {submitError}
+              <LocalizedText value={submitError} />
             </div>
           )}
 
@@ -348,7 +340,7 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
               onClick={submit}
             >
               <Sparkles size={13} />
-              {kind === "home" ? "开始 Home 整理" : "开始 Memory 整理"}
+              {kind === "home" ? t("resources.startHomeReflection") : t("resources.startMemoryReflection")}
             </Button>
           </div>
         </div>

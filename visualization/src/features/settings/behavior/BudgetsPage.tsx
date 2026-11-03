@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { useI18n } from "../../../i18n";
 /**
  * Budgets settings page (config-coverage §3.4): turn and reflection cycle
  * limits. Every field edits one writable atomic
@@ -12,6 +12,7 @@ import { t } from "../../../i18n";
 import { FieldSection, SettingsPageBody } from "../editors/controls";
 
 export function BudgetsPage() {
+  const { t } = useI18n();
   return (
     <SettingsPageBody>
       <FieldSection

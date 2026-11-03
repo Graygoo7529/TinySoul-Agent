@@ -81,6 +81,7 @@ export function SearchResultView({
   params: JsonObject | null;
   onOpenReference?: (reference: string) => void;
 }): ReactElement {
+  const { t } = useI18n();
   const items = Array.isArray(result.items) ? result.items : [];
   const coverage = asObject(result.coverage);
   const page = asObject(result.page);
@@ -100,7 +101,7 @@ export function SearchResultView({
         )}
         {total !== null && (
           <span className="text-fg-faint">
-            {total} result{total === 1 ? "" : "s"}
+            {t("trace.resultCount", { count: total })}
           </span>
         )}
       </div>
@@ -120,9 +121,8 @@ export function SearchResultView({
 
       {items.length === 0 ? (
         <div className="rounded-lg border border-line bg-bg-elev px-3 py-2 text-[12px] text-fg-faint">
-          No results on this page
-          {coverage !== null && asNumber(coverage.candidates) === 0
-            ? " — the source produced no candidates."
+          {t("trace.noResults")}{coverage !== null && asNumber(coverage.candidates) === 0
+            ? t("trace.noSourceCandidates")
             : "."}
         </div>
       ) : (
@@ -140,10 +140,7 @@ export function SearchResultView({
       <CoverageNote coverage={coverage} page={page} />
       {hasContinuation && (
         <div className="text-[11px] text-fg-faint">
-          The Agent returned more pages; their continuation belongs to the
-          original Turn. Open the real resource, or ask in the conversation to
-          continue this search.
-        </div>
+          {t("trace.moreSearchPages")}</div>
       )}
     </div>
   );
@@ -158,6 +155,7 @@ function StepRow({
   index: number;
   coverage: JsonObject | null;
 }): ReactElement {
+  const { t } = useI18n();
   const steps = coverage !== null && Array.isArray(coverage.steps)
     ? coverage.steps
     : [];
@@ -172,12 +170,12 @@ function StepRow({
   const countText =
     counts !== null && counts !== undefined
       ? [
-          asNumber(counts.input) !== null ? `${asNumber(counts.input)} in` : null,
+          asNumber(counts.input) !== null ? t("trace.inputCount", { count: asNumber(counts.input) ?? 0 }) : null,
           asNumber(counts.evaluated) !== null
-            ? `${asNumber(counts.evaluated)} evaluated`
+            ? t("trace.evaluatedCount", { count: asNumber(counts.evaluated) ?? 0 })
             : null,
           asNumber(counts.output) !== null
-            ? `${asNumber(counts.output)} out`
+            ? t("trace.outputCount", { count: asNumber(counts.output) ?? 0 })
             : null,
         ]
           .filter((part): part is string => part !== null)
@@ -199,7 +197,7 @@ function StepRow({
           </span>
         )}
         {step.context !== null && (
-          <span className="text-fg-faint"> · context {step.context}</span>
+          <span className="text-fg-faint"> {t("trace.contextSuffix")}{step.context}</span>
         )}
       </span>
       {countText !== null && (
@@ -247,12 +245,12 @@ function SearchItemCard({
         )}
         {sourceScore !== null && (
           <Badge tone="gray" title={t("trace.sourceChannelScore")}>
-            source {formatScore(sourceScore)}
+            {t("trace.source")}{formatScore(sourceScore)}
           </Badge>
         )}
         {evaluationScore !== null && (
           <Badge tone="blue" title={t("trace.modelEvaluationScore")}>
-            score {formatScore(evaluationScore)}
+            {t("trace.score")}{formatScore(evaluationScore)}
           </Badge>
         )}
       </div>
@@ -270,10 +268,10 @@ function SearchItemCard({
         (contentCoverage !== "full" || previewCoverage !== "full") && (
           <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px] text-fg-faint">
             {contentCoverage !== null && contentCoverage !== "full" && (
-              <span>content snapshot: {contentCoverage}</span>
+              <span>{t("trace.contentSnapshot")}{contentCoverage}</span>
             )}
             {previewCoverage !== null && previewCoverage !== "full" && (
-              <span>page preview: {previewCoverage}</span>
+              <span>{t("trace.pagePreview")}{previewCoverage}</span>
             )}
           </div>
         )}
@@ -372,14 +370,15 @@ function CoverageNote({
   coverage: JsonObject | null;
   page: JsonObject | null;
 }): ReactElement | null {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   if (coverage === null) return null;
   const sourceComplete = coverage.source_complete === true;
   const shown = page !== null ? asNumber(page.count) : null;
   const remaining = asNumber(coverage.remaining);
   const summaryParts = [
-    sourceComplete ? "source complete" : "source truncated",
-    remaining !== null && remaining > 0 ? `${remaining} not shown` : null,
+    sourceComplete ? t("trace.sourceComplete") : t("trace.sourceTruncated"),
+    remaining !== null && remaining > 0 ? t("trace.notShownCount", { count: remaining }) : null,
   ].filter((part): part is string => part !== null);
   return (
     <div className="rounded-lg border border-line/60 px-2.5 py-1.5">
@@ -409,6 +408,7 @@ function CoverageNote({
 }
 
 function CoverageFacts({ coverage }: { coverage: JsonObject }): ReactElement {
+  const { t } = useI18n();
   const facts: [string, ReactNode][] = (
     [
       ["scanned", asNumber(coverage.scanned)],
@@ -428,7 +428,7 @@ function CoverageFacts({ coverage }: { coverage: JsonObject }): ReactElement {
           {label} <span className="font-mono">{value}</span>
         </span>
       ))}
-      {missing.length > 0 && <span>missing stages: {missing.join(", ")}</span>}
+      {missing.length > 0 && <span>{t("trace.missingStages")}{missing.join(", ")}</span>}
     </div>
   );
 }

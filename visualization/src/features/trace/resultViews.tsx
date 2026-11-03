@@ -95,9 +95,9 @@ function readRangeLine(requested: JsonObject, actual: JsonObject | null): string
   const start = asNumber(requested.start_line);
   const end = asNumber(requested.end_line);
   const endText =
-    end === null ? "?" : end >= 2 ** 31 - 1 ? "end" : String(end);
-  const requestedText = `lines ${start ?? "?"}–${endText}`;
-  if (actual === null) return `requested ${requestedText}`;
+    end === null ? "?" : end >= 2 ** 31 - 1 ? t("trace.rangeEnd") : String(end);
+  const requestedText = t("trace.lineRange", { start: start ?? "?", end: endText });
+  if (actual === null) return t("trace.requestedRange", { range: requestedText });
   const position = (value: unknown): string => {
     const point = asObject(value);
     if (point === null) return "–";
@@ -107,21 +107,21 @@ function readRangeLine(requested: JsonObject, actual: JsonObject | null): string
       ? `${line}${column !== null ? `:${column}` : ""}`
       : "–";
   };
-  return `requested ${requestedText} → actual ${position(actual.start)}–${position(actual.end)}`;
+  return t("trace.actualRange", { requested: requestedText, start: position(actual.start), end: position(actual.end) });
 }
 
 /** workspace.analyze coverage: complete/files_loaded/source_chars. */
 function analysisCoverageLine(coverage: JsonObject): string | null {
   const parts: string[] = [];
-  if (coverage.complete === true) parts.push("complete");
-  if (coverage.complete === false) parts.push("partial");
+  if (coverage.complete === true) parts.push(t("trace.coverageComplete"));
+  if (coverage.complete === false) parts.push(t("trace.coveragePartial"));
   const filesLoaded = asNumber(coverage.files_loaded);
   if (filesLoaded !== null) {
-    parts.push(`${filesLoaded} file${filesLoaded === 1 ? "" : "s"}`);
+    parts.push(t("trace.fileCount", { count: filesLoaded }));
   }
   const sourceChars = asNumber(coverage.source_chars);
   if (sourceChars !== null) {
-    parts.push(`${sourceChars.toLocaleString("en-US")} source chars`);
+    parts.push(t("trace.sourceChars", { count: sourceChars }));
   }
   return parts.length > 0 ? parts.join(" · ") : null;
 }
@@ -241,6 +241,7 @@ function ReadTextWithLines({
  * owner's current content, labelled as such.
  */
 function InspectView({ result, nav }: ResultViewProps) {
+  const { t } = useI18n();
   if (result === null) return <EmptyResult />;
   const text = asString(result.text);
   const link = asString(result.ref);
@@ -273,7 +274,7 @@ function InspectView({ result, nav }: ResultViewProps) {
           </span>
           {nav.openReference !== undefined && (
             <span className="shrink-0 text-[11px] text-fg-faint">
-              open shows current content
+              {t("trace.currentContentHint")}
             </span>
           )}
         </div>
@@ -284,25 +285,24 @@ function InspectView({ result, nav }: ResultViewProps) {
         </div>
       )}
       {text !== null && (
-        <Collapsible title={`Read text (${text.length} chars)`} defaultOpen={text.length <= 1200}>
+        <Collapsible title={t("trace.readTextChars", { count: text.length })} defaultOpen={text.length <= 1200}>
           <ReadTextWithLines text={text} requested={requested} actual={actual} />
         </Collapsible>
       )}
       {truncated && (
         <div className="text-[11px] text-fg-faint">
-          Bounded read — the range was not shown in full.
-        </div>
+          {t("trace.boundedRead")}</div>
       )}
       {complete === false && (
-        <div className="text-[11px] text-warning">Partial read.</div>
+        <div className="text-[11px] text-warning">{t("trace.partialRead")}</div>
       )}
       {trashItems !== null && (
         <div className="space-y-1">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Trash items ({trashItems.length}
+            {t("trace.trashItems")} ({trashItems.length}
             {asNumber(result.total) !== null &&
             asNumber(result.total) !== trashItems.length
-              ? ` of ${asNumber(result.total)}`
+              ? t("trace.ofTotal", { total: asNumber(result.total) ?? 0 })
               : ""}
             )
           </div>
@@ -340,17 +340,16 @@ function InspectView({ result, nav }: ResultViewProps) {
           })}
           {trashItems.length > 24 && (
             <div className="text-[11px] text-fg-faint">
-              … {trashItems.length - 24} more in the trash
-            </div>
+              … {trashItems.length - 24} {t("trace.moreTrash")}</div>
           )}
         </div>
       )}
       {resources !== null && (
         <div className="space-y-0.5">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Directory ({resources.length}
+            {t("trace.directory")} ({resources.length}
             {asNumber(result.total) !== null && asNumber(result.total) !== resources.length
-              ? ` of ${asNumber(result.total)}`
+              ? t("trace.ofTotal", { total: asNumber(result.total) ?? 0 })
               : ""}
             )
           </div>
@@ -371,7 +370,7 @@ function InspectView({ result, nav }: ResultViewProps) {
         </div>
       )}
       {items !== null && text === null && trashItems === null && (
-        <Collapsible title={`Page items (${items.length})`} defaultOpen={items.length <= 8}>
+        <Collapsible title={t("trace.pageItems", { count: items.length })} defaultOpen={items.length <= 8}>
           <JsonTree value={items} defaultExpanded={false} />
         </Collapsible>
       )}
@@ -425,11 +424,10 @@ function WriteView({ result, params, nav }: ResultViewProps) {
       {hasPlanZone && (
         <div>
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-accent">
-            规划输入
-          </div>
+            {t("trace.planningInput")}</div>
           {instruction !== null && (
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
-              <dt className="text-fg-faint">instruction</dt>
+              <dt className="text-fg-faint">{t("trace.instruction")}</dt>
               <dd className="min-w-0 break-words text-fg-muted">{instruction}</dd>
             </dl>
           )}
@@ -437,19 +435,19 @@ function WriteView({ result, params, nav }: ResultViewProps) {
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
               {sourceRef !== null && (
                 <>
-                  <dt className="text-fg-faint">source</dt>
+                  <dt className="text-fg-faint">{t("trace.source")}</dt>
                   <dd className="min-w-0 break-words font-mono text-[11px] text-fg-muted">{sourceRef}</dd>
                 </>
               )}
               {targetRef !== null && (
                 <>
-                  <dt className="text-fg-faint">target</dt>
+                  <dt className="text-fg-faint">{t("trace.target")}</dt>
                   <dd className="min-w-0 break-words font-mono text-[11px] text-fg-muted">{targetRef}</dd>
                 </>
               )}
               {trashRef !== null && (
                 <>
-                  <dt className="text-fg-faint">trash</dt>
+                  <dt className="text-fg-faint">{t("trace.trash")}</dt>
                   <dd className="min-w-0 break-words font-mono text-[11px] text-fg-muted">{trashRef}</dd>
                 </>
               )}
@@ -478,7 +476,7 @@ function WriteView({ result, params, nav }: ResultViewProps) {
           {writeText !== null && (
             <div className="mt-1">
               <div className="mb-0.5 text-[10px] text-fg-faint">
-                写入内容（{writeText.length} 字符）
+                {t("trace.writtenCharacters", { count: writeText.length })}
               </div>
               <Excerpt text={writeText} max={600} />
             </div>
@@ -512,16 +510,15 @@ function WriteView({ result, params, nav }: ResultViewProps) {
       )}
       <div className={hasPlanZone ? "border-t border-line/60 pt-2" : ""}>
         <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-success">
-          执行结果
-        </div>
+          {t("trace.executionResult")}</div>
         <FactGrid>
-          {operation !== null && <FactRow label="operation" value={operation} />}
-          {result.written === true && <FactRow label="written" value="yes" />}
+          {operation !== null && <FactRow label={t("trace.operation")} value={operation} />}
+          {result.written === true && <FactRow label={t("chat.written")} value="yes" />}
           {asNumber(result.chars) !== null && (
             <FactRow label={t("home.chars")} value={asNumber(result.chars)} />
           )}
-          {result.changed === true && <FactRow label="changed" value="yes" />}
-          {result.cleared === true && <FactRow label="cleared" value="yes" />}
+          {result.changed === true && <FactRow label={t("trace.changed")} value="yes" />}
+          {result.cleared === true && <FactRow label={t("trace.cleared")} value="yes" />}
         </FactGrid>
       </div>
       {links.length > 0 ? (
@@ -533,9 +530,7 @@ function WriteView({ result, params, nav }: ResultViewProps) {
             </div>
           ))}
           <div className="text-[11px] text-fg-faint">
-            No before/after was recorded for this change — opening a link shows
-            the current content.
-          </div>
+            {t("trace.noDiff")}</div>
         </div>
       ) : (
         <GenericView result={result} params={null} nav={nav} />
@@ -575,14 +570,13 @@ function WebView({ action, result, params, nav }: ResultViewProps) {
       )}
       {result.untrusted_external_content === true && (
         <div className="text-[11px] text-fg-faint">
-          External content — shown as fetched, not trusted instructions.
-        </div>
+          {t("trace.externalContent")}</div>
       )}
       <LinksBlock payload={result} onOpen={nav.openReference} title={t("trace.producedResources")} />
       {result.truncated === true && asString(result.see_more_at) !== null && (
         <ReferenceButton
           reference={asString(result.see_more_at)!}
-          label={`Full result: ${asString(result.see_more_at)}`}
+          label={t("trace.fullResultAt", { ref: asString(result.see_more_at) ?? "" })}
           onOpen={nav.openReference}
         />
       )}
@@ -591,6 +585,7 @@ function WebView({ action, result, params, nav }: ResultViewProps) {
 }
 
 function WebSearchDetails({ model }: { model: WebSearchResult }) {
+  const { t } = useI18n();
   const resultCount =
     model.resultCount !== null && model.resultCount !== model.sources.length
       ? ` / ${model.resultCount}`
@@ -603,7 +598,7 @@ function WebSearchDetails({ model }: { model: WebSearchResult }) {
       {model.sources.length > 0 && (
         <div className="space-y-1">
           <div className="text-[11px] font-medium text-fg-faint">
-            来源（{model.sources.length}{resultCount}）
+            {t("trace.sourceCount", { count: `${model.sources.length}${resultCount}` })}
           </div>
           {model.sources.slice(0, 12).map((source, index) => {
             const title = source.title ?? source.url;
@@ -626,8 +621,7 @@ function WebSearchDetails({ model }: { model: WebSearchResult }) {
           })}
           {model.sources.length > 12 && (
             <div className="text-[11px] text-fg-faint">
-              … {model.sources.length - 12} more sources in the full result
-            </div>
+              … {model.sources.length - 12} {t("trace.moreSources")}</div>
           )}
         </div>
       )}
@@ -643,7 +637,7 @@ function WebFetchDetails({ model, sourceUrl }: { model: WebFetchResult; sourceUr
         {model.extractor !== null && <Badge tone="teal">{model.extractor}</Badge>}
         {model.contentChars !== null && (
           <span className="text-[11px] text-fg-faint">
-            正文 {model.contentChars.toLocaleString()} {t("home.chars")}</span>
+            {t("trace.body")}{model.contentChars.toLocaleString()} {t("home.chars")}</span>
         )}
       </div>
       {model.title !== null && model.title !== "" && (
@@ -660,7 +654,7 @@ function WebFetchDetails({ model, sourceUrl }: { model: WebFetchResult; sourceUr
           title={sourceUrl}
         >
           <ExternalLink size={11} className="shrink-0" />
-          <span className="truncate">原始页面</span>
+          <span className="truncate">{t("trace.originalPage")}</span>
         </button>
       )}
     </div>
@@ -668,13 +662,14 @@ function WebFetchDetails({ model, sourceUrl }: { model: WebFetchResult; sourceUr
 }
 
 function WebDiscoveryDetails({ model }: { model: WebDiscoveryResult }) {
+  const { t } = useI18n();
   const metrics = [
-    model.pageCount !== null ? `${model.pageCount} 页` : null,
-    model.visitedCount !== null ? `${model.visitedCount} 已访问` : null,
-    model.failedCount !== null && model.failedCount > 0 ? `${model.failedCount} 失败` : null,
-    model.candidateCount !== null ? `${model.candidateCount} 候选` : null,
-    model.skippedCount !== null && model.skippedCount > 0 ? `${model.skippedCount} 跳过` : null,
-    model.stopReason !== null ? `stop: ${model.stopReason}` : null,
+    model.pageCount !== null ? t("trace.pageCount", { count: model.pageCount }) : null,
+    model.visitedCount !== null ? t("trace.visitedCount", { count: model.visitedCount }) : null,
+    model.failedCount !== null && model.failedCount > 0 ? t("trace.failedCount", { count: model.failedCount }) : null,
+    model.candidateCount !== null ? t("trace.candidateCount", { count: model.candidateCount }) : null,
+    model.skippedCount !== null && model.skippedCount > 0 ? t("trace.skippedCount", { count: model.skippedCount }) : null,
+    model.stopReason !== null ? t("trace.stopReason", { reason: model.stopReason }) : null,
   ].filter((value): value is string => value !== null);
   return (
     <div className="space-y-2">
@@ -706,7 +701,7 @@ function WebDiscoveryDetails({ model }: { model: WebDiscoveryResult }) {
       {model.pages.length > 0 && (
         <div className="space-y-1">
           <div className="text-[11px] font-medium text-fg-faint">
-            页面目录（{model.pages.length}）
+            {t("trace.pageCount", { count: model.pages.length })}
           </div>
           {model.pages.slice(0, 24).map((page, index) => {
             if (page.title === null) return null;
@@ -733,8 +728,7 @@ function WebDiscoveryDetails({ model }: { model: WebDiscoveryResult }) {
           })}
           {model.pages.length > 24 && (
             <div className="text-[11px] text-fg-faint">
-              … {model.pages.length - 24} more pages in the full result
-            </div>
+              … {model.pages.length - 24} {t("trace.morePages")}</div>
           )}
         </div>
       )}
@@ -790,15 +784,14 @@ function AnalysisView({ action, result, params, nav }: ResultViewProps) {
       {hasPlanZone && (
         <div>
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-accent">
-            规划输入
-          </div>
+            {t("trace.planningInput")}</div>
           {intent !== null && (
             <div className="mb-1.5 text-[12px] leading-5 text-fg-muted">{intent}</div>
           )}
           {(sourceRef !== null || targetRef !== null) && (
             <FactGrid>
-              {sourceRef !== null && <FactRow label="source" value={sourceRef} />}
-              {targetRef !== null && <FactRow label="target" value={targetRef} />}
+              {sourceRef !== null && <FactRow label={t("trace.source")} value={sourceRef} />}
+              {targetRef !== null && <FactRow label={t("trace.target")} value={targetRef} />}
             </FactGrid>
           )}
           {requestedRefs.length > 0 && (
@@ -814,12 +807,11 @@ function AnalysisView({ action, result, params, nav }: ResultViewProps) {
       )}
       <div className={hasPlanZone ? "border-t border-line/60 pt-2" : ""}>
         <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-success">
-          执行结果
-        </div>
+          {t("trace.executionResult")}</div>
         <div className="space-y-2">
           {narrative?.kind === "report" && (
             <Collapsible
-              title={`分析报告（${narrative.text.length} 字符）`}
+              title={t("trace.analysisReportChars", { count: narrative.text.length })}
               defaultOpen={narrative.text.length <= 3000}
               className="border-accent/20"
             >
@@ -830,7 +822,7 @@ function AnalysisView({ action, result, params, nav }: ResultViewProps) {
           )}
           {narrative?.kind === "description" && (
             <Collapsible
-              title={`资源描述（${narrative.text.length} 字符）`}
+              title={t("trace.resourceDescriptionChars", { count: narrative.text.length })}
               defaultOpen={narrative.text.length <= 1500}
               className="border-accent/20"
             >
@@ -843,14 +835,14 @@ function AnalysisView({ action, result, params, nav }: ResultViewProps) {
             asString(result.content_status) !== null ||
             asNumber(result.generated_resource_count) !== null) && (
             <FactGrid>
-              {converter !== null && <FactRow label="converter" value={converter} />}
+              {converter !== null && <FactRow label={t("trace.converter")} value={converter} />}
               {asString(result.content_status) !== null && (
-                <FactRow label="content" value={asString(result.content_status)} />
+                <FactRow label={t("trace.content")} value={asString(result.content_status)} />
               )}
               {asNumber(result.generated_resource_count) !== null && (
                 <FactRow
-                  label="generated"
-                  value={`${asNumber(result.generated_resource_count)} resource(s)`}
+                  label={t("trace.generated")}
+                  value={t("trace.resourceCount", { count: asNumber(result.generated_resource_count) ?? 0 })}
                 />
               )}
             </FactGrid>
@@ -864,7 +856,7 @@ function AnalysisView({ action, result, params, nav }: ResultViewProps) {
           {sources.length > 0 && (
             <div className="space-y-0.5">
               <div className="text-[11px] font-medium text-fg-faint">
-                报告引用（{sources.length}）
+                {t("trace.reportReferences", { count: sources.length })}
               </div>
               {sources.map((entry, index) => {
                 const object = asObject(entry);
@@ -879,8 +871,7 @@ function AnalysisView({ action, result, params, nav }: ResultViewProps) {
           {visualRefs.length > 0 && (
             <div className="space-y-0.5">
               <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-                Visual review references
-              </div>
+                {t("trace.visualReferences")}</div>
               {visualRefs.map((link) => (
                 <ReferenceButton key={link} reference={link} onOpen={nav.openReference} />
               ))}
@@ -948,8 +939,7 @@ function ExecutionView({ result, params, nav }: ResultViewProps) {
       {hasPlanZone && (
         <div>
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-accent">
-            规划输入
-          </div>
+            {t("trace.planningInput")}</div>
           <div className="term-block relative">
             {interpreter !== null && (
               <span className="absolute right-1.5 top-1 rounded border border-accent/40 bg-accent-soft px-1 font-mono text-[10px] text-accent">
@@ -960,30 +950,28 @@ function ExecutionView({ result, params, nav }: ResultViewProps) {
             {commandLine !== null && (
               <div>
                 <span className="term-cmd">$ {commandLine}</span>
-                {interactive && <span className="opacity-50">（interactive）</span>}
+                {interactive && <span className="opacity-50">{t("trace.interactive")}</span>}
               </div>
             )}
             {isStdin && paramJobId !== null && (
               <div>
-                <JobChip id={paramJobId} /> 输入{" "}
+                <JobChip id={paramJobId} /> {t("trace.inputs")}{" "}
                 <span className="text-success">"{stdinText}"</span>
-                {stdinClose && <span className="opacity-50">（并关闭）</span>}
+                {stdinClose && <span className="opacity-50">{t("trace.closeAfterInput")}</span>}
               </div>
             )}
             {isCollect && paramJobId !== null && (
               <div>
                 <JobChip id={paramJobId} />
                 <br />
-                读取输出
-              </div>
+                {t("trace.readOutput")}</div>
             )}
           </div>
         </div>
       )}
       <div className={hasPlanZone ? "border-t border-line/60 pt-2" : ""}>
         <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-success">
-          执行结果
-        </div>
+          {t("trace.executionResult")}</div>
         <FactGrid>
           {jobId !== null && (
             <FactRow
@@ -1000,33 +988,32 @@ function ExecutionView({ result, params, nav }: ResultViewProps) {
             />
           )}
           {asString(result.kind) !== null && (
-            <FactRow label="kind" value={asString(result.kind)} />
+            <FactRow label={t("trace.kind")} value={asString(result.kind)} />
           )}
           {asString(result.state) !== null && (
             <FactRow
-              label="state"
+              label={t("trace.state")}
               value={<JobStateBadge state={asString(result.state)!} />}
             />
           )}
           {asNumber(result.exit_code) !== null && (
-            <FactRow label="exit code" value={asNumber(result.exit_code)} />
+            <FactRow label={t("common.exitCode")} value={asNumber(result.exit_code)} />
           )}
         </FactGrid>
         {stdout !== null && stdout !== "" && (
-          <Collapsible title={`stdout (${stdout.length} chars)`} defaultOpen={stdout.length <= 1500}>
+          <Collapsible title={t("trace.stdoutChars", { count: stdout.length })} defaultOpen={stdout.length <= 1500}>
             <div className="term-block">{stdout}</div>
           </Collapsible>
         )}
         {stderr !== null && stderr !== "" && (
-          <Collapsible title={`stderr (${stderr.length} chars)`} defaultOpen>
+          <Collapsible title={t("trace.stderrChars", { count: stderr.length })} defaultOpen>
             <div className="term-block"><span className="term-stderr">{stderr}</span></div>
           </Collapsible>
         )}
       </div>
       {(result.stdout_truncated === true || result.stderr_truncated === true) && (
         <div className="text-[11px] text-fg-faint">
-          Bounded read — the full output stays on the Job.
-        </div>
+          {t("trace.fullOutputHint")}</div>
       )}
       <LinksBlock payload={result} onOpen={nav.openReference} title={t("trace.resultResources")} />
     </div>
@@ -1046,6 +1033,7 @@ function JobStateBadge({ state }: { state: string }) {
 }
 
 function JobControlView({ result, params, nav }: ResultViewProps) {
+  const { t } = useI18n();
   if (result === null) return <EmptyResult />;
   const jobId = asString(result.job_id) ?? (params !== null ? asString(params.job_id) : null);
   const waitKind = asString(result.event_kind);
@@ -1053,26 +1041,26 @@ function JobControlView({ result, params, nav }: ResultViewProps) {
   return (
     <div className="space-y-2">
       <FactGrid>
-        {waitKind !== null && <FactRow label="waiting for" value={waitKind} />}
+        {waitKind !== null && <FactRow label={t("trace.waitingFor")} value={waitKind} />}
         {asString(result.topic) !== null && (
-          <FactRow label="topic" value={asString(result.topic)} />
+          <FactRow label={t("trace.topic")} value={asString(result.topic)} />
         )}
         {asString(result.source) !== null && (
-          <FactRow label="source" value={asString(result.source)} />
+          <FactRow label={t("trace.source")} value={asString(result.source)} />
         )}
         {asString(result.event_id) !== null && (
-          <FactRow label="event" value={asString(result.event_id)} />
+          <FactRow label={t("trace.event")} value={asString(result.event_id)} />
         )}
-        {timeout !== null && <FactRow label="timeout" value={`${timeout}s`} />}
+        {timeout !== null && <FactRow label={t("common.timeout")} value={`${timeout}s`} />}
         {asString(result.summary) !== null && asString(result.summary) !== "" && (
-          <FactRow label="summary" value={asString(result.summary)} />
+          <FactRow label={t("trace.summary")} value={asString(result.summary)} />
         )}
         {result.ready !== undefined && (
-          <FactRow label="ready" value={result.ready === true ? "yes" : "no"} />
+          <FactRow label={t("common.ready")} value={result.ready === true ? "yes" : "no"} />
         )}
         {asString(result.state) !== null && (
           <FactRow
-            label="job state"
+            label={t("trace.jobState")}
             value={<JobStateBadge state={asString(result.state)!} />}
           />
         )}
@@ -1083,7 +1071,7 @@ function JobControlView({ result, params, nav }: ResultViewProps) {
           className="text-[12px] text-accent hover:underline"
           onClick={() => nav.openJob(jobId)}
         >
-          Open job {jobId}
+          {t("trace.openJob")}{jobId}
         </button>
       )}
       {asString(result.action) === null && jobId === null && waitKind === null && (
@@ -1104,14 +1092,14 @@ function AcpView({ action, result, nav }: ResultViewProps) {
     <div className="space-y-2">
       <FactGrid>
         {connectionId !== null && (
-          <FactRow label="connection" value={connectionId} />
+          <FactRow label={t("trace.connection")} value={connectionId} />
         )}
         {result.disconnected === true && (
-          <FactRow label="connection" value="disconnected" />
+          <FactRow label={t("trace.connection")} value="disconnected" />
         )}
         {asString(result.state) !== null && (
           <FactRow
-            label="job state"
+            label={t("trace.jobState")}
             value={<JobStateBadge state={asString(result.state)!} />}
           />
         )}
@@ -1122,17 +1110,17 @@ function AcpView({ action, result, nav }: ResultViewProps) {
           className="text-[12px] text-accent hover:underline"
           onClick={() => nav.openJob(jobId)}
         >
-          Open delegated job {jobId}
+          {t("trace.openDelegatedJob")}{jobId}
         </button>
       )}
       {agents !== null && (
-        <Collapsible title={`Configured agents (${agents.length})`}>
+        <Collapsible title={t("trace.configuredAgentCount", { count: agents.length })}>
           <JsonTree value={agents} defaultExpanded={false} />
         </Collapsible>
       )}
       {outputText !== null && outputText.trim() !== "" && (
         <div className="space-y-1">
-          <div className="text-[11px] font-medium text-fg-faint">输出内容</div>
+          <div className="text-[11px] font-medium text-fg-faint">{t("trace.output")}</div>
           <Excerpt text={outputText} max={4000} />
         </div>
       )}
@@ -1163,7 +1151,7 @@ function McpView({ result, params, nav }: ResultViewProps) {
   const servers = Array.isArray(result.servers) ? result.servers : null;
   return (
     <div className="space-y-2">
-      {isError && <Badge tone="red">remote tool reported an error</Badge>}
+      {isError && <Badge tone="red">{t("trace.remoteToolError")}</Badge>}
       {servers !== null && (
         <div className="flex flex-wrap gap-1">
           {servers.map((entry, index) => {
@@ -1174,7 +1162,7 @@ function McpView({ result, params, nav }: ResultViewProps) {
         </div>
       )}
       {items !== null && (
-        <Collapsible title={`Directory items (${items.length})`} defaultOpen={items.length <= 6}>
+        <Collapsible title={t("trace.directoryItemCount", { count: items.length })} defaultOpen={items.length <= 6}>
           <JsonTree value={items} defaultExpanded={false} />
         </Collapsible>
       )}
@@ -1195,20 +1183,18 @@ function McpView({ result, params, nav }: ResultViewProps) {
 // ---------------------------------------------------------------------------
 
 function SessionOrganizeView({ result, nav }: ResultViewProps) {
+  const { t } = useI18n();
   if (result === null) return <EmptyResult />;
   const changed = asStringArray(result.changed_refs);
   const created = asObject(result.created_refs);
   return (
     <div className="space-y-2">
       <div className="text-[11px] text-fg-faint">
-        Semantic interpretation changes only — the recorded conversation facts
-        are immutable and were not edited.
-      </div>
+        {t("trace.interpretationHint")}</div>
       {created !== null && Object.keys(created).length > 0 && (
         <div className="space-y-0.5">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Created interpretations
-          </div>
+            {t("trace.createdInterpretations")}</div>
           {Object.entries(created).map(([name, ref]) => (
             <div key={name} className="flex items-baseline gap-2">
               <span className="shrink-0 text-[11px] text-fg-faint">{name}</span>
@@ -1222,8 +1208,7 @@ function SessionOrganizeView({ result, nav }: ResultViewProps) {
       {changed.length > 0 && (
         <div className="space-y-0.5">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Changed refs
-          </div>
+            {t("trace.changedRefs")}</div>
           {changed.map((ref) => (
             <ReferenceButton key={ref} reference={ref} onOpen={nav.openReference} />
           ))}
@@ -1238,6 +1223,7 @@ function SessionOrganizeView({ result, nav }: ResultViewProps) {
 
 /** Home review/diff and Memory persistent writes (Reflection scope). */
 function ReflectionWriteView({ action, result, params, nav }: ResultViewProps) {
+  const { t } = useI18n();
   if (result === null) return <EmptyResult />;
   const items = Array.isArray(result.items) ? result.items : null;
   const link = asString(result.ref);
@@ -1246,14 +1232,14 @@ function ReflectionWriteView({ action, result, params, nav }: ResultViewProps) {
     <div className="space-y-2">
       {link !== null && (
         <div className="flex items-baseline gap-2">
-          <span className="shrink-0 text-[11px] text-fg-faint">committed</span>
+          <span className="shrink-0 text-[11px] text-fg-faint">{t("trace.committed")}</span>
           <ReferenceButton reference={link} onOpen={nav.openReference} />
-          {result.written === true && <Badge tone="green">written</Badge>}
+          {result.written === true && <Badge tone="green">{t("chat.written")}</Badge>}
         </div>
       )}
       {markdown !== null && markdown.trim() !== "" &&
         (action === "memory.write" || action === "memory.write_daily") && (
-        <Collapsible title={`提交内容（${markdown.length} 字符）`} defaultOpen={markdown.length <= 1200}>
+        <Collapsible title={t("trace.submittedContentChars", { count: markdown.length })} defaultOpen={markdown.length <= 1200}>
           <Markdown className="md-calm text-[12px]" origin={{ ref: "" }}>
             {markdown}
           </Markdown>
@@ -1281,13 +1267,13 @@ function ReflectionWriteView({ action, result, params, nav }: ResultViewProps) {
                     {itemLink !== null ? (
                       <ReferenceButton reference={itemLink} onOpen={nav.openReference} />
                     ) : (
-                      <span className="text-[12px] text-fg-muted">item {index + 1}</span>
+                      <span className="text-[12px] text-fg-muted">{t("trace.item")}{index + 1}</span>
                     )}
                   </span>
-                  {item.reviewed === true && <Badge tone="green">reviewed</Badge>}
+                  {item.reviewed === true && <Badge tone="green">{t("trace.reviewed")}</Badge>}
                   {item.reviewed === false && (
                     <Badge tone="gray" title={reason ?? undefined}>
-                      not reviewed{reason !== null ? `: ${reason}` : ""}
+                      {t("trace.notReviewed")}{reason !== null ? `: ${reason}` : ""}
                     </Badge>
                   )}
                   {decision !== null && (
@@ -1315,6 +1301,7 @@ function ReflectionWriteView({ action, result, params, nav }: ResultViewProps) {
  * references. core.ask's interactive card lives in the conversation stream.
  */
 function CoreDialogView({ result, nav }: ResultViewProps) {
+  const { t } = useI18n();
   if (result === null) return <EmptyResult />;
   const text = asString(result.text);
   const references = asStringArray(result.references);
@@ -1323,8 +1310,7 @@ function CoreDialogView({ result, nav }: ResultViewProps) {
     <div className="space-y-2">
       {options !== null && (
         <div className="text-[11px] text-fg-faint">
-          The interactive question card lives in the conversation stream.
-        </div>
+          {t("trace.questionHint")}</div>
       )}
       {text !== null && <Excerpt text={text} max={2000} />}
       {options !== null && (
@@ -1349,8 +1335,7 @@ function CoreDialogView({ result, nav }: ResultViewProps) {
       {references.length > 0 && (
         <div className="space-y-0.5">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            References
-          </div>
+            {t("trace.references")}</div>
           {references.map((reference) => (
             <ReferenceButton
               key={reference}
@@ -1372,10 +1357,10 @@ function CoreDialogView({ result, nav }: ResultViewProps) {
 // ---------------------------------------------------------------------------
 
 function EmptyResult() {
+  const { t } = useI18n();
   return (
     <div className="rounded-lg border border-line bg-bg-elev px-3 py-2 text-[12px] text-fg-faint">
-      No result payload was recorded for this action.
-    </div>
+      {t("trace.noPayload")}</div>
   );
 }
 
@@ -1390,8 +1375,7 @@ export function GenericView({ result, params }: Omit<ResultViewProps, "action">)
   return (
     <div className="space-y-2">
       <div className="rounded-lg border border-dashed border-line px-2.5 py-1.5 text-[11px] text-fg-faint">
-        未识别的动作类型，以下为原始数据。
-      </div>
+        {t("trace.unknownAction")}</div>
       {result !== null && (
         <div className="space-y-1">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">

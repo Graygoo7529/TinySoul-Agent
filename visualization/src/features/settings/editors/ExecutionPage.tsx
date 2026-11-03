@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { useI18n } from "../../../i18n";
 import { NetworkPolicyField } from "./NetworkPolicyEditor";
 /**
  * Execution & Jobs settings (config-coverage §4.1/§4.2): the running
@@ -15,12 +15,13 @@ import { FieldSection, SettingsPageBody } from "./controls";
 const INTERPRETERS = ["python", "bash", "powershell", "cmd"] as const;
 
 export function ExecutionPage() {
+  const { t } = useI18n();
   return (
     <SettingsPageBody>
-      <NetworkPolicyField path="execution.network" title="执行环境代理" />
-      <details><summary className="cursor-pointer text-sm text-fg-muted">解释器代理覆盖</summary>
-        {INTERPRETERS.map((id) => <NetworkPolicyField key={id} path={`execution.interpreters.${id}.network`} title={id} parentLabel="执行环境代理" />)}
-        <p className="p-3 text-xs text-fg-muted">代理通过环境变量传入。PowerShell HTTP 命令需使用 PowerShell 7；其它程序依其自身支持情况使用代理。</p>
+      <NetworkPolicyField path="execution.network" title={t("settings.executionProxy")} />
+      <details><summary className="cursor-pointer text-sm text-fg-muted">{t("settings.interpreterProxy")}</summary>
+        {INTERPRETERS.map((id) => <NetworkPolicyField key={id} path={`execution.interpreters.${id}.network`} title={id} parentLabel={t("settings.executionProxy")} />)}
+        <p className="p-3 text-xs text-fg-muted">{t("settings.executionProxyHint")}</p>
       </details>
       <RunningStrip />
       <FieldSection
@@ -73,6 +74,7 @@ export function ExecutionPage() {
 
 /** The running generation's effective execution facts (read-only). */
 function RunningStrip() {
+  const { t } = useI18n();
   const active = useConfigDraftStore((s) => s.active);
   if (active === null) return null;
   const enabled = activeValue(active, "execution.enabled") === true;
@@ -84,13 +86,13 @@ function RunningStrip() {
       title={t("settings.currentlyInEffect")}
       description={t("settings.valuesOfTheRunningGenerationChangesBelowActivateOn")}
       actions={
-        enabled ? <Badge tone="green">启用</Badge> : <Badge tone="gray">禁用</Badge>
+        enabled ? <Badge tone="green">{t("settings.enabled")}</Badge> : <Badge tone="gray">{t("settings.disabled")}</Badge>
       }
     >
       <div className="flex flex-wrap items-center gap-2 text-[12px] text-fg-muted">
-        <span>解释器：</span>
+        <span>{t("settings.interpreterLabel")}</span>
         {interpreters.length === 0 ? (
-          <span className="text-fg-faint">无</span>
+          <span className="text-fg-faint">{t("common.none")}</span>
         ) : (
           interpreters.map((id) => (
             <span key={id} className="rounded-md bg-hover px-1.5 py-0.5 font-mono text-[11px] text-fg">

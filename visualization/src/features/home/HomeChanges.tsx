@@ -123,8 +123,7 @@ export function HomeChanges({ epoch }: { epoch: number }): ReactElement {
                 <Badge tone={KIND_TONES[entry.kind] ?? "gray"}>{entry.kind}</Badge>
                 {entry.baselineDiverged && (
                   <Badge tone="orange" title={t("home.actualBaselineChangedSinceOverlayChangeRecorded")}>
-                    diverged
-                  </Badge>
+                    {t("home.diverged")}</Badge>
                 )}
               </button>
             ))}

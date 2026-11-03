@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, LocalizedText } from "../../i18n";
 /**
  * The shared page-level search panel (plan §13).
  *
@@ -261,7 +261,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
       <header className="flex items-center gap-2 border-b border-line bg-bg-elev px-3 py-2.5">
         <Search size={14} className="shrink-0 text-fg-faint" />
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</h2>
-        <IconButton label="关闭搜索" onClick={onClose}>
+        <IconButton label={t("resources.closeSearch")} onClick={onClose}>
           <X size={15} />
         </IconButton>
       </header>
@@ -270,14 +270,12 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
         {caps === "loading" && (
           <div className="flex items-center gap-2 px-1 py-2 text-[12px] text-fg-faint">
             <Loader2 size={13} className="animate-spin-slow" />
-            正在读取检索能力…
-          </div>
+            {t("resources.searching")}</div>
         )}
         {caps === "error" && (
           <div className="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-[12px] text-danger">
             <AlertTriangle size={12} className="shrink-0" />
-            当前世代未为此所有者声明检索。
-          </div>
+            {t("resources.searchUnavailable")}</div>
         )}
 
         {capabilities !== null && (
@@ -293,14 +291,14 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder={placeholder}
-                aria-label="检索内容"
+                aria-label={t("home.searchContent")}
                 className="h-8 w-full rounded-lg border border-line bg-bg-elev px-3 text-[13px] outline-none focus-ring focus:border-accent"
               />
               <div className="flex items-center gap-2">
                 <select
                   value={scopeChoice?.id ?? ""}
                   onChange={(event) => setScopeId(event.target.value)}
-                  aria-label="检索范围"
+                  aria-label={t("resources.scope")}
                   className="h-7 min-w-0 flex-1 rounded-lg border border-line bg-bg-elev px-2 text-[12px] outline-none focus:border-accent"
                 >
                   {scopes.map((choice) => (
@@ -316,8 +314,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                   loading={busy === "search"}
                   disabled={query.trim() === "" || staleResults}
                 >
-                  搜索
-                </Button>
+                  {t("resources.search")}</Button>
               </div>
 
               <button
@@ -326,9 +323,8 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                 className="flex items-center gap-1 text-[11px] text-fg-faint hover:text-fg"
               >
                 {advancedOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-                条件
-                {capabilities.lexicalSyntax && (
-                  <span className="text-fg-faint/70">· 精确/正则</span>
+                {t("resources.conditions")}{capabilities.lexicalSyntax && (
+                  <span className="text-fg-faint/70">{t("resources.exactRegex")}</span>
                 )}
                 {capabilities.whereFields.length > 0 && (
                   <span className="text-fg-faint/70">
@@ -341,7 +337,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                   {capabilities.lexicalSyntax && (
                     <div className="flex flex-wrap items-center gap-3 text-[12px] text-fg-muted">
                       <CheckField
-                        label="精确文本"
+                        label={t("resources.literal")}
                         checked={lexical.literal}
                         onChange={(value) =>
                           setLexical((current) => ({
@@ -352,7 +348,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                         }
                       />
                       <CheckField
-                        label="正则"
+                        label={t("resources.regex")}
                         checked={lexical.regex}
                         onChange={(value) =>
                           setLexical((current) => ({
@@ -363,7 +359,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                         }
                       />
                       <CheckField
-                        label="区分大小写"
+                        label={t("resources.caseSensitive")}
                         checked={lexical.caseSensitive}
                         onChange={(value) =>
                           setLexical((current) => ({ ...current, caseSensitive: value }))
@@ -387,17 +383,17 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                             [field.name]: event.target.value,
                           }))
                         }
-                        placeholder="任意"
+                        placeholder={t("resources.any")}
                         className="h-6.5 min-w-0 flex-1 rounded-md border border-line bg-bg-elev px-2 text-[12px] outline-none focus:border-accent"
                       />
                     </label>
                   ))}
                   <label className="flex items-center gap-2 text-[12px] text-fg-muted">
-                    <span className="w-16 shrink-0">排除</span>
+                    <span className="w-16 shrink-0">{t("resources.exclude")}</span>
                     <input
                       value={excludeText}
                       onChange={(event) => setExcludeText(event.target.value)}
-                      placeholder="多个引用以空格分隔"
+                      placeholder={t("resources.refsSeparated")}
                       className="h-6.5 min-w-0 flex-1 rounded-md border border-line bg-bg-elev px-2 font-mono text-[11px] outline-none focus:border-accent"
                     />
                   </label>
@@ -416,7 +412,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                     title={documentAnchor.ref}
                   >
                     <Search size={11} />
-                    查找与 {documentAnchor.label} 相关的文档
+                    {t("resources.findRelated", { label: documentAnchor.label })}
                   </Button>
                 )}
             </form>
@@ -424,15 +420,14 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
             {error !== null && (
               <div className="flex items-start gap-2 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-[12px] text-danger">
                 <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-                <span className="min-w-0 flex-1">{error.message}</span>
+                <span className="min-w-0 flex-1"><LocalizedText value={error.message} /></span>
                 {error.kind === "expired" && (
                   <button
                     type="button"
                     onClick={startSearch}
                     className="shrink-0 font-medium hover:underline"
                   >
-                    重新检索
-                  </button>
+                    {t("resources.research")}</button>
                 )}
               </div>
             )}
@@ -441,21 +436,20 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
               <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-[12px] text-warning">
                 <AlertTriangle size={12} className="shrink-0" />
                 <span className="min-w-0 flex-1">
-                  页面上下文已变化——这些结果已冻结。
+                  {t("resources.resultsFrozen")}
                 </span>
                 <button
                   type="button"
                   onClick={startSearch}
                   className="shrink-0 font-medium hover:underline"
                 >
-                  重新检索
-                </button>
+                  {t("resources.research")}</button>
               </div>
             )}
 
             {appliedSteps.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[11px] text-fg-faint">步骤：</span>
+                <span className="text-[11px] text-fg-faint">{t("resources.stepsLabel")}</span>
                 {appliedSteps.map((step, index) => (
                   <Badge key={index} tone="blue" title={stepTitle(step)}>
                     {step.op}
@@ -482,8 +476,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                 </div>
                 {results.items.length === 0 && busy === null && error === null && (
                   <div className="rounded-lg border border-line bg-bg-elev px-3 py-3 text-[12px] text-fg-faint">
-                    没有结果——没有匹配项，或步骤排除了全部候选。
-                  </div>
+                    {t("resources.noResults")}</div>
                 )}
                 {results.items.map((item, index) => (
                   <SearchResultRow
@@ -525,15 +518,15 @@ function coverageNoteOf(page: SearchPage): string {
   const coverage = page.coverage;
   const parts: string[] = [];
   if (typeof coverage.final_count === "number") {
-    parts.push(`${coverage.final_count} 条结果`);
+    parts.push(t("resources.searchResultCount", { count: coverage.final_count }));
   } else {
-    parts.push(`显示 ${page.items.length} 条`);
+    parts.push(t("resources.searchShownCount", { count: page.items.length }));
   }
-  if (typeof coverage.scanned === "number") parts.push(`已扫描 ${coverage.scanned}`);
+  if (typeof coverage.scanned === "number") parts.push(t("resources.searchScannedCount", { count: coverage.scanned }));
   if (typeof coverage.omitted_candidates === "number" && coverage.omitted_candidates > 0) {
-    parts.push(`${coverage.omitted_candidates} 个因预算省略`);
+    parts.push(t("resources.searchOmittedCount", { count: coverage.omitted_candidates }));
   }
-  if (coverage.source_complete === false) parts.push("来源未完整扫描");
+  if (coverage.source_complete === false) parts.push(t("resources.sourceNotFullyScanned"));
   return parts.join(" · ");
 }
 
@@ -659,7 +652,7 @@ function SearchResultRow({
           <Badge tone={meta.tone}><KindIcon size={10} />{meta.label}</Badge>
         )}
         {item.content_coverage !== "full" && (
-          <Badge tone="yellow" title={`Content coverage: ${item.content_coverage}`}>
+          <Badge tone="yellow" title={t("resources.contentCoverage", { coverage: item.content_coverage })}>
             {item.content_coverage}
           </Badge>
         )}

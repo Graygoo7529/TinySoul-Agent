@@ -39,8 +39,7 @@ export function RefreshNotice({
   return (
     <div className="flex items-center gap-2 rounded-lg border border-line bg-bg-sunken px-3 py-1.5 text-[12px] text-fg-muted">
       <span className="min-w-0 flex-1">
-        The installed context changed — refresh to see the latest view.
-      </span>
+        {t("context.changed")}</span>
       <button
         type="button"
         onClick={onRefresh}
@@ -59,12 +58,12 @@ export function RefreshNotice({
 
 /** The bound turn ended; everything on screen is the last captured view. */
 export function ClosedBanner({ action }: { action?: ReactNode }): ReactElement {
+  const { t } = useI18n();
   return (
     <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-[12px] text-warning">
       <AlertTriangle size={12} className="shrink-0" />
       <span className="min-w-0 flex-1">
-        This turn has ended — what you see is the last captured view.
-      </span>
+        {t("context.ended")}</span>
       {action}
     </div>
   );

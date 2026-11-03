@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -128,7 +129,7 @@ describe("SettingsPage shell", () => {
     await flush();
 
     const button = [...container.querySelectorAll("button")].find((item) =>
-      item.textContent?.includes("运行方案"),
+      item.textContent?.includes(t("settings.page.plans.title")),
     );
     expect(button).toBeDefined();
     await act(async () => {
@@ -195,7 +196,7 @@ describe("SettingsPage shell", () => {
 
     // The nav count lands on the Credentials page.
     const navRow = [...container.querySelectorAll("nav button")].find((item) =>
-      item.textContent?.includes("凭据"),
+      item.textContent?.includes(t("settings.page.credentials.title")),
     );
     expect(navRow?.textContent).toContain("1");
 
@@ -211,11 +212,11 @@ describe("SettingsPage shell", () => {
     expect(useSettingsUiStore.getState().page).toBe("credentials");
 
     // The page keeps its own Discard button as the equivalent path…
-    expect(text()).toContain("放弃 1 项凭据修改");
+    expect(text()).toContain(`${t("common.discard")}1 ${t("settings.credentialChanges")}`);
 
     // …and the bottom bar reset now withdraws the credentials draft.
     const reset = [...container.querySelectorAll("button")].find((item) =>
-      item.textContent?.includes("重置此页"),
+      item.textContent?.includes(t("settings.bottom.resetPage")),
     ) as HTMLButtonElement | undefined;
     expect(reset).toBeDefined();
     expect(reset!.disabled).toBe(false);
@@ -226,7 +227,7 @@ describe("SettingsPage shell", () => {
     expect(Object.keys(useConfigDraftStore.getState().drafts)).toHaveLength(0);
     expect(
       [...container.querySelectorAll("nav button")].find((item) =>
-        item.textContent?.includes("凭据"),
+        item.textContent?.includes(t("settings.page.credentials.title")),
       )?.textContent,
     ).not.toContain("1");
   });
@@ -250,7 +251,7 @@ describe("SettingsPage shell", () => {
     expect(text()).not.toContain('"expected"');
 
     const toggle = [...container.querySelectorAll("button")].find(
-      (item) => item.textContent === "查看详情",
+      (item) => item.textContent === t("settings.overview.showDetails"),
     );
     expect(toggle).toBeDefined();
     await act(async () => {
@@ -270,7 +271,7 @@ describe("SettingsPage shell", () => {
     await flush();
     expect(
       [...container.querySelectorAll("button")].find(
-        (item) => item.textContent === "查看详情",
+        (item) => item.textContent === t("settings.overview.showDetails"),
       ),
     ).toBeUndefined();
   });

@@ -42,22 +42,26 @@ it("serializes saves while keeping newer edits visible and sending only changed 
 it("retains failed edits until explicit retry or discard; ordinary refresh cannot overwrite them", async () => {
   endpoint.on("PATCH", route, () => errorResponse(500, "presentation.io_failed"));
   await refreshInterface();
-  updateInterface({ fontSize: 17 });
+  updateInterface({ locale: "en-US", fontSize: 17 });
   await vi.waitFor(() => expect(useUiPrefsStore.getState().saveError).not.toBeNull());
+  expect(useUiPrefsStore.getState().pending.locale).toBe("en-US");
+  expect(useUiPrefsStore.getState().saved.locale).toBe("zh-CN");
   updateInterface({ reducedMotion: true });
   await refreshInterface();
   expect(endpoint.calls(route)).toHaveLength(1);
   expect(endpoint.calls(route, "PATCH")).toHaveLength(1);
-  endpoint.on("PATCH", route, () => jsonResponse({ ...config, values: { ...config.values, font_size: 17, reduced_motion: true } }));
+  endpoint.on("PATCH", route, () => jsonResponse({ ...config, values: { ...config.values, locale: "en-US", font_size: 17, reduced_motion: true } }));
   await retryInterfaceSave();
   expect(useUiPrefsStore.getState().saved.fontSize).toBe(17);
+  expect(useUiPrefsStore.getState().saved.locale).toBe("en-US");
   expect(useUiPrefsStore.getState().saveError).toBeNull();
   endpoint.on("PATCH", route, () => errorResponse(500, "presentation.io_failed"));
-  updateInterface({ theme: "dark" });
+  updateInterface({ locale: "zh-CN", theme: "dark" });
   await vi.waitFor(() => expect(useUiPrefsStore.getState().saveError).not.toBeNull());
   await refreshInterface(true);
   expect(useUiPrefsStore.getState().pending).toEqual({});
   expect(useUiPrefsStore.getState().saved.theme).toBe("light");
+  expect(useUiPrefsStore.getState().saved.locale).toBe(config.values.locale);
 });
 
 it("does not apply old project responses or replay their changes after switching projects", async () => {

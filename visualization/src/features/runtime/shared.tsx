@@ -28,7 +28,7 @@ export function ReadError({
   return (
     <div className="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-[12px] text-danger">
       <AlertTriangle size={12} className="shrink-0" />
-      <span className="min-w-0 flex-1">The read failed ({message}).</span>
+      <span className="min-w-0 flex-1">{t("common.readFailedDetail", { detail: message })}</span>
       {onRetry !== undefined && (
         <button
           type="button"

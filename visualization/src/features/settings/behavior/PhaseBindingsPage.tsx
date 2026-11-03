@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { useI18n } from "../../../i18n";
 /**
  * Phase Bindings settings page (config-coverage §3.1): which task chain the
  * framework Phase1/Phase2 tasks call. The pickers read the projected
@@ -22,6 +22,7 @@ const PHASE1_PATH = "loop.cycle.phase1_task_profile";
 const PHASE2_PATH = "loop.cycle.phase2_task_profile";
 
 export function PhaseBindingsPage() {
+  const { t } = useI18n();
   return (
     <SettingsPageBody>
       <FieldSection
@@ -57,6 +58,7 @@ function TaskChainRefControl({
   api: DraftFieldApi;
   ownerDefault: string;
 }) {
+  const { t } = useI18n();
   const state = useConfigDraftStore();
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
   const chains = projectCollection(state, "llm.tasks");
@@ -66,7 +68,7 @@ function TaskChainRefControl({
   return (
     <span className="flex items-center gap-1.5">
       <select
-        aria-label={`${api.path} task chain`}
+        aria-label={t("settings.consumerTaskChain", { consumer: api.path })}
         className="h-8 w-56 rounded-md border border-line bg-bg px-2 font-mono text-[12.5px] text-fg outline-none transition-colors focus:border-accent disabled:opacity-50"
         value={current}
         disabled={api.readOnly !== null}
@@ -86,7 +88,7 @@ function TaskChainRefControl({
         {chains.map((chain) => (
           <option key={chain.id} value={chain.id}>
             {chain.id}
-            {chain.isNew ? " (new in draft)" : ""}
+            {chain.isNew ? t("settings.newDraftSuffix") : ""}
           </option>
         ))}
       </select>

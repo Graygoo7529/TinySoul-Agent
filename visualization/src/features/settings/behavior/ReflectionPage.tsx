@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { useI18n } from "../../../i18n";
 /**
  * Reflection Schedule settings page (config-coverage §3.5): the daily
  * reflection switch, its local wall-clock time, the business timezone and the
@@ -17,6 +17,7 @@ import {
 } from "../editors/controls";
 
 export function ReflectionPage() {
+  const { t } = useI18n();
   return (
     <SettingsPageBody>
       <SectionCard
@@ -50,6 +51,7 @@ export function ReflectionPage() {
  * draft.
  */
 function DailyTimeControl({ api }: { api: DraftFieldApi }) {
+  const { t } = useI18n();
   const display = typeof api.value === "string" ? api.value : "";
   const [text, setText] = useState(display);
   const [invalid, setInvalid] = useState(false);

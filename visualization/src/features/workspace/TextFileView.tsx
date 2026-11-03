@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, message } from "../../i18n";
 /**
  * Text resource read and edit (plan §10/P06).
  *
@@ -128,9 +128,7 @@ export function TextFileView({
         .getState()
         .pushToast(
           "error",
-          `This file cannot be edited in the page (full read rejected): ${
-            error instanceof Error ? error.message : String(error)
-          }`,
+          message("workspace.editReadFailed", { detail: error instanceof Error ? error.message : String(error) }),
         );
     }
   };
@@ -158,9 +156,9 @@ export function TextFileView({
             {isMarkdown && (
               <Tabs<EditorView>
                 items={[
-                  { value: "edit", label: "Edit" },
-                  { value: "split", label: "Split" },
-                  { value: "preview", label: "Preview" },
+                  { value: "edit", label: t("workspace.editorEdit") },
+                  { value: "split", label: t("workspace.editorSplit") },
+                  { value: "preview", label: t("workspace.editorPreview") },
                 ]}
                 value={editorView}
                 onChange={setEditorView}
@@ -173,8 +171,7 @@ export function TextFileView({
               onClick={() => setDraft(draftKey, null)}
             >
               <X size={12} />
-              Discard
-            </Button>
+              {t("common.discard")}</Button>
             <Button
               variant="primary"
               size="xs"
@@ -194,12 +191,12 @@ export function TextFileView({
                 onClick={() => setSourceView((value) => !value)}
               >
                 <Eye size={12} />
-                {sourceView ? "Rendered" : "Source"}
+                {sourceView ? t("workspace.rendered") : t("runtime.source")}
               </Button>
             )}
             {targetLines !== null && (
               <span className="flex items-center gap-2 text-[11px] text-accent">
-                Lines {targetLines.startLine}
+                {t("workspace.lines")}{targetLines.startLine}
                 {targetLines.endLine !== targetLines.startLine &&
                   `–${targetLines.endLine}`}
                 {isMarkdown && (
@@ -211,20 +208,18 @@ export function TextFileView({
                       onConsumeFragment();
                     }}
                   >
-                    Show rendered
-                  </button>
+                    {t("workspace.showRendered")}</button>
                 )}
               </span>
             )}
             {text.truncated && (
-              <span className="text-[11px] text-fg-faint">truncated page</span>
+              <span className="text-[11px] text-fg-faint">{t("workspace.truncatedPage")}</span>
             )}
             <span className="flex-1" />
             {isActive && text.editable && (
               <Button variant="outline" size="xs" onClick={() => void startEdit()}>
                 <Pencil size={12} />
-                Edit
-              </Button>
+                {t("common.edit")}</Button>
             )}
           </>
         )}
@@ -257,7 +252,7 @@ export function TextFileView({
                 }
               }}
               spellCheck={false}
-              aria-label="File editor"
+              aria-label={t("workspace.fileEditor")}
               className="min-h-0 min-w-0 flex-1 resize-none bg-bg px-4 py-3 font-mono text-[12.5px] leading-5 text-fg outline-none"
             />
           )}
@@ -276,7 +271,7 @@ export function TextFileView({
             }
           />
           {text.complete && text.text === "" && (
-            <div className="px-3 py-2 text-[12px] text-fg-faint">Empty file.</div>
+            <div className="px-3 py-2 text-[12px] text-fg-faint">{t("workspace.emptyFile")}</div>
           )}
         </div>
       ) : (

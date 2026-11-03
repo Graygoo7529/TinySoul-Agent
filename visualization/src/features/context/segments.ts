@@ -1,3 +1,4 @@
+import { t, effectiveLocale, type Locale } from "../../i18n";
 /**
  * Pure view-model helpers of the Context drawer (plan §8/P04).
  *
@@ -20,7 +21,7 @@ export interface SlotGroup {
 }
 
 /** Group segments into Background/Trace/Working buckets, preserving order. */
-export function groupBySlot(segments: SegmentView[]): SlotGroup[] {
+export function groupBySlot(segments: SegmentView[], locale: Locale = effectiveLocale()): SlotGroup[] {
   const groups = new Map<string, SegmentView[]>();
   for (const segment of segments) {
     const list = groups.get(segment.slot) ?? [];
@@ -31,24 +32,24 @@ export function groupBySlot(segments: SegmentView[]): SlotGroup[] {
   for (const slot of SLOT_ORDER) {
     const list = groups.get(slot);
     if (list !== undefined) {
-      ordered.push({ slot, label: slotLabel(slot), segments: list });
+      ordered.push({ slot, label: slotLabel(slot, locale), segments: list });
       groups.delete(slot);
     }
   }
   for (const [slot, list] of groups) {
-    ordered.push({ slot, label: slotLabel(slot), segments: list });
+    ordered.push({ slot, label: slotLabel(slot, locale), segments: list });
   }
   return ordered;
 }
 
-export function slotLabel(slot: string): string {
+export function slotLabel(slot: string, locale: Locale = effectiveLocale()): string {
   switch (slot) {
     case "background":
-      return "Background";
+      return t("context.slot.background", undefined, locale);
     case "trace":
-      return "Trace";
+      return t("context.slot.trace", undefined, locale);
     case "working":
-      return "Working";
+      return t("context.slot.working", undefined, locale);
     default:
       return slot;
   }
@@ -120,10 +121,10 @@ export function classifyRef(ref: string): RefOwner {
 }
 
 /** Usage is measured in characters and inline image bytes, never tokens. */
-export function usageLine(segment: SegmentView): string {
-  const parts = [`${segment.chars.toLocaleString("en-US")} chars`];
+export function usageLine(segment: SegmentView, locale: Locale = effectiveLocale()): string {
+  const parts = [t("context.characterUsage", { count: segment.chars.toLocaleString(locale) }, locale)];
   if (segment.image_bytes > 0) {
-    parts.push(`${formatBytes(segment.image_bytes)} of images`);
+    parts.push(t("context.imageUsage", { size: formatBytes(segment.image_bytes) }, locale));
   }
   return parts.join(" · ");
 }
@@ -135,17 +136,17 @@ function formatBytes(bytes: number): string {
 }
 
 /** One-line shape-aware status for the overview row. */
-export function segmentStatusLine(segment: SegmentView): string | null {
-  if (segment.chars === 0 && segment.root_refs.length === 0) return "empty";
+export function segmentStatusLine(segment: SegmentView, locale: Locale = effectiveLocale()): string | null {
+  if (segment.chars === 0 && segment.root_refs.length === 0) return t("common.empty", undefined, locale);
   switch (segment.shape) {
     case "heap": {
       const partition = partitionHeapRefs(segment);
-      return `${partition.installed.length} installed · ${partition.available.length} available`;
+      return t("context.heapStatus", { installed: partition.installed.length, available: partition.available.length }, locale);
     }
     case "stack":
     case "map":
       return segment.root_refs.length > 0
-        ? `${segment.root_refs.length} root ${segment.root_refs.length === 1 ? "ref" : "refs"}`
+        ? t("context.rootRefs", { count: segment.root_refs.length }, locale)
         : null;
     default:
       return null;

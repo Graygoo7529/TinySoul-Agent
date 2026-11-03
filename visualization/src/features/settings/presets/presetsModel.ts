@@ -1,3 +1,4 @@
+import { t, type MessageId } from "../../../i18n";
 /**
  * Pure run-plan (preset) model (implementation plan §19/P14).
  *
@@ -28,12 +29,12 @@ import { isPlainRecord } from "../draft/model";
 export type PresetScopeId = "tasks" | "routing" | "retrieval" | "budgets";
 
 export interface PresetScopeInfo { id: PresetScopeId; title: string }
-const SCOPE_TITLES: Record<PresetScopeId, string> = {
-  tasks: "任务链", routing: "路由", retrieval: "检索", budgets: "预算",
+const SCOPE_TITLES: Record<PresetScopeId, MessageId> = {
+  tasks: "settings.taskChains", routing: "settings.routing", retrieval: "settings.retrieval", budgets: "settings.page.budgets.title",
 };
 export function presetScopes(preset: PresetSummary): PresetScopeInfo[] {
   return preset.included_scopes.filter((scope): scope is PresetScopeId => scope in SCOPE_TITLES)
-    .map((id) => ({ id, title: SCOPE_TITLES[id] }));
+    .map((id) => ({ id, title: t(SCOPE_TITLES[id]) }));
 }
 
 export interface CaptureInput { includeBudgets: boolean }

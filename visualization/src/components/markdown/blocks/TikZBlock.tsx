@@ -1,3 +1,4 @@
+import { useI18n } from "../../../i18n";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { BlockFrame } from "./BlockFrame";
 import { requestTikzSlot, type TikzSlot } from "./tikzSlots";
@@ -87,6 +88,7 @@ export function TikZBlock({
   /** Compile immediately instead of waiting for the block to enter the viewport. */
   eager?: boolean;
 }): ReactElement {
+  const { t } = useI18n();
   const [containerRef, visible] = useInViewport<HTMLDivElement>(eager);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [run, setRun] = useState<{ source: string; state: RenderState }>({
@@ -252,7 +254,7 @@ export function TikZBlock({
       {srcDoc !== null && (
         <iframe
           ref={iframeRef}
-          title="tikzjax 编译容器"
+          title={t("common.tikzContainer")}
           srcDoc={srcDoc}
           sandbox="allow-scripts allow-same-origin"
           style={{ display: "none" }}

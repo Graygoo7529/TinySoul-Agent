@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
@@ -131,7 +132,7 @@ describe("ImageLightbox", () => {
     const img = container.querySelector("img")!;
     expect(img.style.transform).not.toContain("scale(1)");
     act(() => {
-      (container.querySelector('button[aria-label="复位到 100%"]') as HTMLButtonElement).click();
+      (container.querySelector(`button[aria-label="${t("workspace.resetZoom")}"]`) as HTMLButtonElement).click();
     });
     expect(container.textContent).toContain("100%");
     expect(img.style.transform).toContain("scale(1)");
@@ -147,11 +148,11 @@ describe("ImageLightbox", () => {
     const onClose = vi.fn();
     renderLightbox({ onDownload, onClose });
     act(() => {
-      (container.querySelector('button[aria-label="下载"]') as HTMLButtonElement).click();
+      (container.querySelector(`button[aria-label="${t("settings.download")}"]`) as HTMLButtonElement).click();
     });
     expect(onDownload).toHaveBeenCalledTimes(1);
     act(() => {
-      (container.querySelector('button[aria-label="关闭"]') as HTMLButtonElement).click();
+      (container.querySelector(`button[aria-label="${t("common.close")}"]`) as HTMLButtonElement).click();
     });
     expect(onClose).toHaveBeenCalledTimes(1);
   });

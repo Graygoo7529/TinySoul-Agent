@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { t, useI18n } from "../../../i18n";
 /**
  * Dedicated Providers settings page (plan §16.4): the
  * `infra.model_services.providers` object_list atom — embedding and
@@ -43,12 +43,13 @@ import {
 export const PROVIDERS_PATH = "infra.model_services.providers";
 export const MODEL_SERVICES_SOURCE = "project:configs/infra/model_services.toml";
 
-const ADAPTER_OPTIONS = [
-  { value: "openai_embedding", label: "OpenAI-compatible Embedding" },
-  { value: "typesafe_system_one", label: "Typesafe System One (decision model)" },
-];
+function adapterOptions() { return [
+  { value: "openai_embedding", label: t("settings.openaiEmbedding") },
+  { value: "typesafe_system_one", label: t("settings.typesafeDecision") },
+]; }
 
 export function DedicatedProvidersPage() {
+  const { t } = useI18n();
   const state = useConfigDraftStore();
   const atom = useMemo(
     () => projectAtomEntries(state, PROVIDERS_PATH),
@@ -100,8 +101,8 @@ export function DedicatedProvidersPage() {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <EmptyState
-          title="专用供应商没有可写来源"
-          description={`The ${PROVIDERS_PATH} list is owned by a read-only source or no model-services include exists yet. Add configs/infra/model_services.toml to the project includes to manage these providers here.`}
+          title={t("settings.providerNotWritable")}
+          description={t("settings.modelServicesReadOnly", { path: PROVIDERS_PATH })}
         />
       </div>
     );
@@ -123,7 +124,7 @@ export function DedicatedProvidersPage() {
             id: entry.id,
             dirty: false,
             isNew: false,
-            summary: "delete pending — select to restore",
+            summary: t("settings.deletePendingRestore"),
           })),
         ]}
         selected={selected}
@@ -136,12 +137,12 @@ export function DedicatedProvidersPage() {
         headerBadges={
           current !== null && (
             <>
-              {current.status === "new" && <Badge tone="accent">草稿新增</Badge>}
-              {current.status === "modified" && <Badge tone="accent">已修改</Badge>}
+              {current.status === "new" && <Badge tone="accent">{t("settings.draftCreated")}</Badge>}
+              {current.status === "modified" && <Badge tone="accent">{t("common.modified")}</Badge>}
               {current.value.enabled === true ? (
-                <Badge tone="blue">启用</Badge>
+                <Badge tone="blue">{t("settings.enabled")}</Badge>
               ) : (
-                <Badge tone="gray">禁用</Badge>
+                <Badge tone="gray">{t("settings.disabled")}</Badge>
               )}
             </>
           )
@@ -161,7 +162,7 @@ export function DedicatedProvidersPage() {
         )}
         {current === null && deletedEntries.length > 0 && (
           <div className="space-y-2 px-5 py-4">
-            <div className="text-[12px] font-medium text-fg">待删除项</div>
+            <div className="text-[12px] font-medium text-fg">{t("settings.deletedItems")}</div>
             {deletedEntries.map((entry) => (
               <div
                 key={entry.id}
@@ -182,7 +183,7 @@ export function DedicatedProvidersPage() {
       </ObjectEditorLayout>
 
       <CreateObjectModal
-        title="New dedicated provider"
+        title={t("settings.newDedicatedProvider")}
         idTitle={t("settings.providerId")}
         idDescription="Stable identifier referenced by specialized model bindings; dots, outer whitespace and numeric-only ids are not allowed."
         existing={atom.entries.map((entry) => entry.id)}
@@ -206,7 +207,7 @@ export function DedicatedProvidersPage() {
         }}
       />
       <DeleteObjectModal
-        title="Delete dedicated provider"
+        title={t("settings.deleteDedicatedProvider")}
         objectId={deleting ?? ""}
         references={
           deleting !== null ? serviceProviderReferences(models, deleting) : []
@@ -226,7 +227,7 @@ export function DedicatedProvidersPage() {
 
 function providerSummary(value: Record<string, JsonValue>): string {
   const parts = [
-    value.enabled === true ? "enabled" : "disabled",
+    value.enabled === true ? t("runtime.enabled") : t("settings.disabled"),
     stringField(value, "adapter"),
   ];
   const baseUrl = stringField(value, "base_url");
@@ -251,6 +252,7 @@ function DedicatedProviderEditor({
   entry: Record<string, JsonValue>;
   onPatch: (patch: Record<string, JsonValue>) => void;
 }) {
+  const { t } = useI18n();
   const apiKeyEnv = stringField(entry, "api_key_env");
   return (
     <div>
@@ -260,7 +262,7 @@ function DedicatedProviderEditor({
       >
         <FieldRow title={t("settings.enabled")}>
           <Toggle
-            ariaLabel="Enabled"
+            ariaLabel={t("settings.enabled")}
             checked={entry.enabled === true}
             onChange={(next) => onPatch({ enabled: next })}
           />
@@ -275,15 +277,15 @@ function DedicatedProviderEditor({
           description={t("settings.embeddingProvidersServeVectorModelsDecisionModelProvidersServe")}
         >
           <SelectInput
-            ariaLabel="Adapter"
+            ariaLabel={t("settings.adapter")}
             value={stringField(entry, "adapter")}
-            options={ADAPTER_OPTIONS}
+            options={adapterOptions()}
             onChange={(value) => onPatch({ adapter: value })}
           />
         </FieldRow>
         <FieldRow title={t("settings.baseUrl")}>
           <TextInput
-            ariaLabel="Base URL"
+            ariaLabel={t("settings.baseUrl")}
             value={stringField(entry, "base_url")}
             placeholder="https://api.example.com/v1"
             mono
@@ -295,7 +297,7 @@ function DedicatedProviderEditor({
           description={t("settings.requestTimeoutInSeconds")}
         >
           <NumberInput
-            ariaLabel="Timeout"
+            ariaLabel={t("settings.timeout")}
             min={0.1}
             suffix="s"
             value={typeof entry.timeout_seconds === "number" ? entry.timeout_seconds : 30}
@@ -307,7 +309,7 @@ function DedicatedProviderEditor({
           description={t("settings.additionalAttemptsAfterARetryableFailure05")}
         >
           <NumberInput
-            ariaLabel="Max retries"
+            ariaLabel={t("settings.maxRetries")}
             integer
             min={0}
             max={5}
@@ -315,8 +317,8 @@ function DedicatedProviderEditor({
             onCommit={(value) => onPatch({ max_retries: value })}
           />
         </FieldRow>
-        <FieldRow title="代理设置">
-          <NetworkPolicyEditor value={entry.network} parentLabel="系统网络默认配置"
+        <FieldRow title={t("settings.proxySettings")}>
+          <NetworkPolicyEditor value={entry.network} parentLabel={t("settings.systemNetwork")}
             onChange={(network) => onPatch({ network })} />
         </FieldRow>
       </FieldSection>
@@ -326,7 +328,7 @@ function DedicatedProviderEditor({
       >
         <FieldRow title={t("settings.credentialName")}>
           <TextInput
-            ariaLabel="Credential name"
+            ariaLabel={t("settings.credentialName")}
             value={apiKeyEnv}
             placeholder="PROVIDER_API_KEY"
             mono

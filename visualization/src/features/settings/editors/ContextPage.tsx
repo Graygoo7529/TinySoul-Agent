@@ -25,13 +25,14 @@ const MEBIBYTE = 1024 * 1024;
  * and owners; each value still writes through the shared settings draft.
  */
 export function ContextPage() {
+  const { t } = useI18n();
   return (
     <SettingsPageBody>
       <ContextUsageCard />
       <div className="context-rail grid grid-cols-3 overflow-hidden rounded-xl border border-line bg-bg-elev">
         {[
           ["Background", "Session · Home · Memory", "background"],
-          ["Trace", "TurnTrace and progressive history", "trace"],
+          ["Trace", t("settings.traceRail"), "trace"],
           ["Working", "Plan · Workspace · Jobs", "working"],
         ].map(([title, detail, slot], index) => (
           <div key={slot} className={`relative px-3.5 py-3 ${index > 0 ? "border-l border-line" : ""}`}>
@@ -98,19 +99,20 @@ export function ContextPage() {
 }
 
 function RelatedContextLinks() {
+  const { t } = useI18n();
   const navigateTo = useSettingsUiStore((state) => state.navigateTo);
   const links: readonly [string, string, SettingsPageId][] = [
-    ["Home / Memory", "Resource reads, documents and rebuildable search caches.", "home" as const],
-    ["Workspace", "Read, write, analysis and image boundaries.", "workspace" as const],
-    ["Retrieval", "Candidate input, snapshot and page budgets.", "search-policies" as const],
-    ["Task and model limits", "LLM output budgets and provider windows remain owner facts.", "llm-tasks" as const],
-    ["Model windows", "Nominal model windows and provider bindings.", "llm-models" as const],
+    ["Home / Memory", t("settings.homeMemoryLimits"), "home" as const],
+    ["Workspace", t("settings.workspaceLimits"), "workspace" as const],
+    ["Retrieval", t("settings.retrievalLimits"), "search-policies" as const],
+    [t("settings.taskLimits"), t("settings.taskLimitsHint"), "llm-tasks" as const],
+    [t("settings.modelWindows"), t("settings.modelWindowsHint"), "llm-models" as const],
   ];
   return (
     <SectionCard title={t("settings.relatedOwnerLimits")} description={t("settings.theseLimitsAffectContextInputsOrResultsButRemain")}>
       <div className="grid gap-1.5 sm:grid-cols-2">
         {links.map(([title, detail, page]) => (
-          <button key={title} type="button" className="group rounded-md border border-line bg-bg-sunken px-3 py-2 text-left hover:border-line-strong" onClick={() => navigateTo(page)}>
+          <button key={page} type="button" className="group rounded-md border border-line bg-bg-sunken px-3 py-2 text-left hover:border-line-strong" onClick={() => navigateTo(page)}>
             <div className="flex items-center justify-between gap-2 text-[12px] font-medium text-fg"><span>{title}</span><span className="text-accent">→</span></div>
             <div className="mt-0.5 text-[11px] leading-4 text-fg-muted">{detail}</div>
           </button>
@@ -201,15 +203,15 @@ function ContextUsageCard() {
         {overview ? (
           <>
             <div className="grid grid-cols-3 gap-2 text-[12px]">
-              <UsageMetric label="Segments" value={String(overview.segments.length)} />
-              <UsageMetric label="Characters" value={chars.toLocaleString()} />
-              <UsageMetric label="Images" value={`${(imageBytes / (1024 * 1024)).toFixed(2)} MiB`} />
+              <UsageMetric label={t("settings.segmentsLabel")} value={String(overview.segments.length)} />
+              <UsageMetric label={t("settings.charactersLabel")} value={chars.toLocaleString()} />
+              <UsageMetric label={t("settings.imagesLabel")} value={`${(imageBytes / (1024 * 1024)).toFixed(2)} MiB`} />
             </div>
             <div className="mt-3 divide-y divide-line rounded-md border border-line bg-bg-sunken">
               {slotRows.map((row) => (
                 <div key={row.slot} className="flex items-center gap-3 px-3 py-2 text-[11px]">
                   <span className="w-20 shrink-0 font-semibold uppercase tracking-wide text-fg-muted">{row.slot}</span>
-                  <span className="min-w-0 flex-1 text-fg-faint">{row.count} segments</span>
+                  <span className="min-w-0 flex-1 text-fg-faint">{row.count} {t("settings.segmentCount")}</span>
                   <span className="font-mono text-fg-muted">{row.chars.toLocaleString()} {t("home.chars")}</span>
                   {row.imageBytes > 0 && <span className="font-mono text-fg-faint">{(row.imageBytes / (1024 * 1024)).toFixed(2)} MiB</span>}
                 </div>

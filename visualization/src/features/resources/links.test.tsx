@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -129,7 +130,7 @@ describe("Markdown resource links", () => {
   it("keeps the hover reference actions out of the reading layout", async () => {
     await renderMarkdown("See `session:map` or the next reference.");
     const copy = container.querySelector(
-      'button[aria-label="复制引用"]',
+      `button[aria-label="${t("resources.copyReference")}"]`,
     ) as HTMLButtonElement | null;
     expect(copy).not.toBeNull();
     // Hidden actions reserve no width: no wide gap after an inline reference.
@@ -161,7 +162,7 @@ describe("Markdown images", () => {
     await renderMarkdown("![diagram](home:top/agent/diagram.png)");
     await flush();
     expect(container.querySelector("img")).toBeNull();
-    expect(container.textContent).toContain("not embeddable");
+    expect(container.textContent).toContain(t("resources.notEmbeddable"));
     expect(container.textContent).toContain("diagram");
   });
 

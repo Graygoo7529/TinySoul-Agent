@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, message } from "../../i18n";
 /**
  * Workspace page sidebar (plan §10/P06): the day selector (active writable,
  * archived read-only), the manifest-driven directory tree with tags, filter
@@ -108,7 +108,7 @@ export function Sidebar({
         .getState()
         .pushToast(
           "info",
-          "Content search reads the active workspace — switched back to it.",
+          message("workspace.searchActive"),
         );
       return;
     }
@@ -151,13 +151,13 @@ export function Sidebar({
             {days === null && <option value="">{t("workspace.activeWorkspace")}</option>}
             {days?.map((entry) => (
               <option key={entry.day} value={entry.active ? "" : entry.day}>
-                {entry.active ? `活动 · ${entry.day}` : `${entry.day}（已归档）`}
+                {entry.active ? t("workspace.activeDay", { day: entry.day }) : t("workspace.archivedDay", { day: entry.day })}
               </option>
             ))}
             {days !== null &&
               viewDay !== null &&
               !days.some((entry) => entry.day === viewDay) && (
-                <option value={viewDay}>{viewDay} (archived)</option>
+                <option value={viewDay}>{viewDay} {t("memory.archived")}</option>
               )}
           </select>
           <IconButton label={t("workspace.search")} onClick={openSearch}>
@@ -166,8 +166,8 @@ export function Sidebar({
         </div>
         <Tabs
           items={[
-            { value: "files", label: "文件" },
-            { value: "trash", label: "回收站" },
+            { value: "files", label: t("workspace.filesTab") },
+            { value: "trash", label: t("workspace.trashTab") },
           ]}
           value={panel}
           onChange={setPanel}
@@ -227,14 +227,13 @@ export function Sidebar({
             {manifestLoading ? (
               <div className="flex items-center gap-2 px-2 py-3 text-[12px] text-fg-faint">
                 <Loader2 size={13} className="animate-spin-slow" />
-                Reading the manifest…
-              </div>
+                {t("workspace.loadingManifest")}</div>
             ) : tree.length === 0 ? (
               <EmptyState
-                title={filter === "" ? "No files yet" : "No matches"}
+                title={filter === "" ? t("workspace.noFiles") : t("memory.matches")}
                 description={
                   filter === "" && isActive
-                    ? "Create a file or drop files here to upload."
+                    ? t("workspace.createHint")
                     : undefined
                 }
               />
@@ -262,7 +261,7 @@ export function Sidebar({
         <PathInputModal
           title={t("workspace.newFile")}
           label={t("workspace.pathEGNotesTodoMd")}
-          submitLabel="创建文件"
+          submitLabel={t("workspace.createFile")}
           busy={mutations.busy}
           onSubmit={(path) => {
             void mutations.createFile(path).then((created) => {
@@ -279,7 +278,7 @@ export function Sidebar({
         <PathInputModal
           title={t("workspace.newFolder")}
           label={t("workspace.pathEGNotesAssets")}
-          submitLabel="创建文件夹"
+          submitLabel={t("workspace.createFolder")}
           busy={mutations.busy}
           onSubmit={(path) => {
             void mutations.createDirectory(path).then((created) => {
@@ -407,7 +406,7 @@ function TreeNodeRow({
       style={{ paddingLeft: `${depth * 12 + 17}px` }}
       title={
         node.record !== null
-          ? `${node.path}\nModified ${formatDateTime(node.record.mtime_ns / 1e9)}`
+          ? t("workspace.fileModified", { path: node.path, date: formatDateTime(node.record.mtime_ns / 1e9) })
           : node.path
       }
     >
@@ -477,8 +476,7 @@ function TrashPanel({
     return (
       <div className="flex items-center gap-2 px-3 py-3 text-[12px] text-fg-faint">
         <Loader2 size={13} className="animate-spin-slow" />
-        Reading the trash…
-      </div>
+        {t("workspace.loadingTrash")}</div>
     );
   }
   if (trash.items.length === 0) {
@@ -487,7 +485,7 @@ function TrashPanel({
         icon={<Trash2 size={22} />}
         title={t("workspace.trashEmpty")}
         description={
-          trash.error !== null ? trash.error : "回收的资源保留在这里，可以恢复。"
+          trash.error !== null ? trash.error : t("workspace.trashHint")
         }
         action={
           trash.error !== null ? (
@@ -518,8 +516,7 @@ function TrashPanel({
             <span>{formatDateTime(item.trashed_at)}</span>
             {item.descendants.length > 0 && (
               <Badge tone="gray" className="px-1 text-[9.5px]">
-                +{item.descendants.length} inside
-              </Badge>
+                +{item.descendants.length} {t("workspace.inside")}</Badge>
             )}
             {item.day !== "" && <span>· {item.day}</span>}
           </div>
@@ -534,7 +531,7 @@ function TrashPanel({
                     if (ok) {
                       useAppStore.getState().pushToast(
                         "success",
-                        `Restored ${item.original.relative_path}.`,
+                        message("workspace.restored", { path: item.original.relative_path }),
                       );
                       trash.reload();
                     }

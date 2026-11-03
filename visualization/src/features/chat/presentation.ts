@@ -1,3 +1,4 @@
+import { message, type UiText } from "../../i18n/core";
 /**
  * Chat presentation types — pure presentation models for UI consumption.
  *
@@ -107,7 +108,7 @@ export interface PhaseHeadline {
   startedAt?: number;
   finishedAt?: number;
   phase: PhaseName | null;
-  label: string;
+  label: UiText;
   domain?: string;
   skill?: string;
 }
@@ -115,10 +116,10 @@ export interface PhaseHeadline {
 export type PhaseName = "phase1" | "phase2" | "phase3";
 
 /** Running sentences from c479ca0; tint belongs only to the Details timeline. */
-export const PHASE_META: Record<PhaseName, { title: string; running: string; tint: string }> = {
-  phase1: { title: "Context & Domains", running: "Maintaining context and selecting domains…", tint: "bg-pink-500/5 dark:bg-pink-400/6" },
-  phase2: { title: "Action Planning", running: "Generating action parameters…", tint: "bg-sky-500/7 dark:bg-sky-400/8" },
-  phase3: { title: "Action Execution", running: "Executing actions…", tint: "bg-lime-500/6 dark:bg-lime-400/6" },
+export const PHASE_META: Record<PhaseName, { title: UiText; running: UiText; tint: string }> = {
+  phase1: { title: message("chat.phase.context"), running: message("chat.phase.contextRunning"), tint: "bg-pink-500/5 dark:bg-pink-400/6" },
+  phase2: { title: message("chat.phase.planning"), running: message("chat.phase.planningRunning"), tint: "bg-sky-500/7 dark:bg-sky-400/8" },
+  phase3: { title: message("chat.phase.execution"), running: message("chat.phase.executionRunning"), tint: "bg-lime-500/6 dark:bg-lime-400/6" },
 };
 
 /**
@@ -171,7 +172,7 @@ export type ActivityStepContent =
   | { type: "domain_select"; domains: string[]; state: "requested" | "accepted" | "rejected" }
   | { type: "skill_mount"; refs: string[] }
   | { type: "background"; refs: string[]; operation: "load" | "evict" }
-  | { type: "control_failure"; operation: string; feedback: string }
+  | { type: "control_failure"; operation: UiText; feedback: UiText }
   | { type: "action_plan"; glimpse: ActionGlimpseData }
   | { type: "action_result"; glimpse: ActionGlimpseData }
   | { type: "provider_retry"; provider: string; attempt: number }
@@ -198,7 +199,7 @@ export interface ActionGlimpseData {
   result?: {
     status: "success" | "failure" | "timeout" | "cancelled" | "not_executed" | "result_unknown";
     durationMs?: number;
-    preview?: string;  // First N lines
+    preview?: UiText;  // First N lines
   };
 }
 

@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, tStatus, type MessageId } from "../../i18n";
 /**
  * One Session inspect page (plan §7, API-08 `/v2/session/inspect`): the
  * detail pushed for a topic, an interpretation edge, a turn or a single fact
@@ -103,14 +103,14 @@ export function SessionRefPanel({
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Locate within this scope…"
+            placeholder={t("history.locateScope")}
             className="h-7 min-w-0 flex-1 rounded-lg border border-line bg-bg-elev px-2.5 text-[12px] outline-none focus-ring focus:border-accent"
           />
         </form>
       </div>
       {query !== null && (
         <div className="flex items-center gap-1.5">
-          <Badge tone="blue">Locate: {query}</Badge>
+          <Badge tone="blue">{t("history.locateLabel")}{query}</Badge>
           <button
             type="button"
             onClick={() => setQuery(null)}
@@ -140,7 +140,7 @@ export function SessionRefPanel({
       )}
 
       {parsed.children.length > 0 && (
-        <PanelSection title={query !== null ? "定位" : "内容"}>
+        <PanelSection title={query !== null ? t("settings.overview.locate") : t("trace.content")}>
           {parsed.children.map((child) => (
             <HintRow
               key={child.ref}
@@ -166,8 +166,8 @@ export function SessionRefPanel({
       {nothing && (
         <div className="px-1 py-2 text-[12px] text-fg-faint">
           {query !== null
-            ? "Nothing in this scope matches the locate text."
-            : "Nothing recorded under this reference."}
+            ? t("history.noLocateMatch")
+            : t("history.noReferenceRecords")}
         </div>
       )}
       <SequenceStatus seq={seq} empty={null} />
@@ -243,7 +243,7 @@ function ContentCard({
         <AlertTriangle size={12} className="shrink-0" />
         {typeof item.message === "string"
           ? item.message
-          : "This source has no available record in this view."}
+          : t("history.sourceNoRecord")}
       </div>
     );
   }
@@ -275,7 +275,7 @@ function ContentCard({
       );
     case "session_output":
       return (
-        <FactCard label="Answer">
+        <FactCard label={t("history.answer")}>
           <FactText text={typeof item.narrative === "string" ? item.narrative : typeof item.text === "string" ? item.text : ""} />
           <ReferenceList value={item.references} />
         </FactCard>
@@ -337,7 +337,7 @@ function TurnHeaderCard({ item }: { item: JsonObject }) {
         </span>
         {typeof item.status === "string" && (
           <Badge tone={item.status === "answered" ? "green" : "gray"}>
-            {item.status}
+            {tStatus(item.status)}
           </Badge>
         )}
       </div>
@@ -350,7 +350,7 @@ function TurnHeaderCard({ item }: { item: JsonObject }) {
           <span className="min-w-0">
             {typeof (failure as JsonObject).message === "string"
               ? String((failure as JsonObject).message)
-              : "finish failure"}
+              : t("history.finishFailure")}
           </span>
         </div>
       ))}
@@ -358,20 +358,22 @@ function TurnHeaderCard({ item }: { item: JsonObject }) {
   );
 }
 
-const INTERACTION_ROLE_LABEL: Record<string, string> = {
-  "user.input": "You",
-  "user.append": "You · added",
-  "user.reply": "Your reply",
-  "agent.question": "Question",
-  "agent.reason": "Reasoning",
-  "agent.output": "Answer",
+const INTERACTION_ROLE_MESSAGE: Record<string, MessageId> = {
+  "user.input": "history.you",
+  "user.append": "history.youAdded",
+  "user.reply": "history.yourReply",
+  "agent.question": "history.agentQuestion",
+  "agent.reason": "history.agentReasoning",
+  "agent.output": "history.agentAnswer",
 };
 
 function InteractionCard({ item }: { item: JsonObject }) {
+  const { t } = useI18n();
   const role = typeof item.role === "string" ? item.role : "";
   const options = Array.isArray(item.options) ? item.options : [];
+  const labelId = INTERACTION_ROLE_MESSAGE[role];
   return (
-    <FactCard label={INTERACTION_ROLE_LABEL[role] ?? (role || "Interaction")}>
+    <FactCard label={labelId !== undefined ? t(labelId) : role || t("history.interaction")}>
       <FactText text={typeof item.narrative === "string" ? item.narrative : typeof item.text === "string" ? item.text : ""} />
       {typeof item.action === "string" && role === "agent.action" && (
         <div className="mt-0.5 text-[11px] text-fg-faint">
@@ -410,10 +412,10 @@ function ActionFactCard({ item }: { item: JsonObject }) {
       ? (item.failure as JsonObject)
       : null;
   return (
-    <FactCard label="Action">
+    <FactCard label={t("history.action")}>
       <div className="flex items-center gap-2 text-[13px]">
         <span className="font-medium">
-          {typeof item.action === "string" ? item.action : "action"}
+          {typeof item.action === "string" ? item.action : t("history.action")}
         </span>
         {outcome !== "" && (
           <Badge tone={OUTCOME_TONE[outcome] ?? "gray"}>{outcome}</Badge>
@@ -421,7 +423,7 @@ function ActionFactCard({ item }: { item: JsonObject }) {
       </div>
       {failure !== null && (
         <div className="mt-1 text-[12px] text-danger">
-          {typeof failure.reason === "string" ? failure.reason : "failed"}
+          {typeof failure.reason === "string" ? failure.reason : t("common.failed")}
           {typeof failure.feedback === "string" && ` — ${failure.feedback}`}
         </div>
       )}
@@ -448,16 +450,15 @@ function ResourceFactCard({ item }: { item: JsonObject }) {
     <FactCard label={t("history.referencedResource")}>
       <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
         <code className="rounded bg-bg-sunken px-1.5 py-0.5 font-mono text-[11px] break-all">
-          {typeof item.ref === "string" ? item.ref : "(unknown link)"}
+          {typeof item.ref === "string" ? item.ref : t("history.unknownLink")}
         </code>
         {typeof item.source_day === "string" && (
-          <Badge tone="gray">day {item.source_day}</Badge>
+          <Badge tone="gray">{t("common.day")}{item.source_day}</Badge>
         )}
       </div>
       {item.unresolved_origin === true && (
         <div className="mt-1 text-[11px] text-warning">
-          The original binding of this dynamic reference was not recorded.
-        </div>
+          {t("history.bindingUnknown")}</div>
       )}
     </FactCard>
   );
@@ -495,6 +496,7 @@ function AnnotationCard({
   day: string;
   item: AnnotationView;
 }) {
+  const { t } = useI18n();
   const retracted = item.status === "retracted";
   return (
     <div
@@ -509,9 +511,8 @@ function AnnotationCard({
               {item.kind}
             </Badge>
             <span className="text-[10px] tracking-wide text-fg-faint uppercase">
-              interpretation
-            </span>
-            {retracted && <Badge tone="yellow">retracted</Badge>}
+              {t("history.interpretation")}</span>
+            {retracted && <Badge tone="yellow">{t("history.retracted")}</Badge>}
           </div>
           <div
             className={`mt-1 text-[13px] font-medium break-words ${retracted ? "line-through" : ""}`}
@@ -524,9 +525,8 @@ function AnnotationCard({
           <div className="flex items-center gap-1.5">
             <Badge tone="purple">{item.relation}</Badge>
             <span className="text-[10px] tracking-wide text-fg-faint uppercase">
-              interpretation
-            </span>
-            {retracted && <Badge tone="yellow">retracted</Badge>}
+              {t("history.interpretation")}</span>
+            {retracted && <Badge tone="yellow">{t("history.retracted")}</Badge>}
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12px]">
             <EndpointChip epoch={epoch} day={day} ref_={item.source} />
@@ -586,6 +586,7 @@ function RelationRow({
   day: string;
   relation: { source: string; target: string; relation: string; basis: string };
 }) {
+  const { t } = useI18n();
   return (
     <div className="flex items-center gap-1.5 rounded-lg border border-line bg-bg-elev px-3 py-1.5 text-[12px]">
       <EndpointChip epoch={epoch} day={day} ref_={relation.source} />
@@ -596,8 +597,7 @@ function RelationRow({
       <EndpointChip epoch={epoch} day={day} ref_={relation.target} />
       {relation.basis === "interpretation" && (
         <Badge tone="accent" className="ml-auto">
-          interpretation
-        </Badge>
+          {t("history.interpretation")}</Badge>
       )}
     </div>
   );

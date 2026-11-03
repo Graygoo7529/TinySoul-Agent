@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, tStatus } from "../../i18n";
 /**
  * Environment tab (plan §14 Environment): API-01 `runtime.sources` owner
  * projections next to a directed API-17 window of what was actually
@@ -85,18 +85,14 @@ export function EnvironmentTab({ epoch }: { epoch: number }): ReactElement {
     <div className="space-y-4">
       <section className="space-y-1.5">
         <h3 className="text-[12px] font-medium text-fg-faint">
-          Sources — owner projections
-        </h3>
+          {t("runtime.sources")}</h3>
         {anyFailed && (
           <div className="rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-[12px] text-warning">
-            A source failed — only live watching is affected; formal Workspace
-            operations stay available.
-          </div>
+            {t("runtime.sourceFailed")}</div>
         )}
         {sources.length === 0 ? (
           <div className="rounded-lg border border-line bg-bg-elev px-4 py-3 text-[12px] text-fg-faint">
-            No environment sources are bound to this generation.
-          </div>
+            {t("runtime.noSources")}</div>
         ) : (
           <div className="space-y-1">
             {sources.map((source) => (
@@ -106,11 +102,11 @@ export function EnvironmentTab({ epoch }: { epoch: number }): ReactElement {
               >
                 <span className="text-[13px] font-medium">{source.source}</span>
                 <Badge tone={SOURCE_STATE_TONES[source.state] ?? "yellow"}>
-                  {source.state}
+                  {tStatus(source.state)}
                 </Badge>
                 {source.topics.length > 0 && (
                   <span className="text-fg-faint">
-                    topics: {source.topics.join(", ")}
+                    {t("runtime.topics")}{source.topics.join(", ")}
                   </span>
                 )}
                 {source.error_type !== null && (
@@ -125,11 +121,10 @@ export function EnvironmentTab({ epoch }: { epoch: number }): ReactElement {
       <section className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-[12px] font-medium text-fg-faint">
-            Recorded environment events
-          </h3>
+            {t("runtime.events")}</h3>
           <span className="flex-1" />
           <FilterSelect
-            label="source"
+            label={t("trace.source")}
             value={filters.source}
             options={options.sources}
             onChange={(source) =>
@@ -137,7 +132,7 @@ export function EnvironmentTab({ epoch }: { epoch: number }): ReactElement {
             }
           />
           <FilterSelect
-            label="topic"
+            label={t("trace.topic")}
             value={filters.topic}
             options={options.topics}
             onChange={(topic) =>
@@ -145,7 +140,7 @@ export function EnvironmentTab({ epoch }: { epoch: number }): ReactElement {
             }
           />
           <FilterSelect
-            label="turn"
+            label={t("runtime.turn")}
             value={filters.turn}
             options={turnOptions}
             display={shortTurnId}
@@ -161,7 +156,7 @@ export function EnvironmentTab({ epoch }: { epoch: number }): ReactElement {
             {t("runtime.reRead")}</Button>
         </div>
         {window_.kind === "loading" && (
-          <LoadingRow text="Reading the retained observation…" />
+          <LoadingRow text={t("runtime.readObservation")} />
         )}
         {window_.kind === "error" && (
           <ReadError
@@ -174,12 +169,10 @@ export function EnvironmentTab({ epoch }: { epoch: number }): ReactElement {
             {window_.value.truncated && <TruncationNotice />}
             {matched.length === 0 ? (
               <div className="rounded-lg border border-line bg-bg-elev px-4 py-3 text-[12px] text-fg-faint">
-                No environment events in the retained window
-                {filters !== EMPTY_ENVIRONMENT_FILTERS
-                  ? " match these filters"
+                {t("runtime.noEvents")}{filters !== EMPTY_ENVIRONMENT_FILTERS
+                  ? t("runtime.noEventsFiltered")
                   : ""}
-                . Only what was actually recorded is shown.
-              </div>
+                {t("runtime.recordedOnly")}</div>
             ) : (
               <div className="space-y-1">
                 {[...matched].reverse().map((event) => (
@@ -210,6 +203,7 @@ function FilterSelect({
   titles?: string[];
   onChange: (value: string | null) => void;
 }): ReactElement {
+  const { t } = useI18n();
   return (
     <label className="flex items-center gap-1 text-[11px] text-fg-faint">
       {label}
@@ -220,7 +214,7 @@ function FilterSelect({
         }
         className="h-7 max-w-40 rounded-md border border-line bg-bg-elev px-1.5 text-[12px] text-fg"
       >
-        <option value="">all</option>
+        <option value="">{t("runtime.all")}</option>
         {options.map((option, index) => (
           <option
             key={option}
@@ -236,6 +230,7 @@ function FilterSelect({
 }
 
 function EventRow({ event }: { event: ObservationEvent }): ReactElement {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const turn = relatedTurn(event);
   return (
@@ -264,7 +259,7 @@ function EventRow({ event }: { event: ObservationEvent }): ReactElement {
         )}
         {turn !== null && (
           <span className="shrink-0 text-[11px] text-fg-muted" title={turn}>
-            turn {shortTurnId(turn)}
+            {t("runtime.turn")}{shortTurnId(turn)}
           </span>
         )}
         <span className="min-w-0 flex-1 truncate text-[12px] text-fg-muted">

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../../i18n";
 /**
  * Data & Knowledge page tests: the embedding_use reference picker (draft-aware,
  * embedding-kind only) and the Session page's owned-elsewhere budget row.
@@ -193,7 +194,7 @@ describe("SessionPage background budget", () => {
     ).toBeNull();
 
     const jump = [...container.querySelectorAll("button")].find((item) =>
-      item.textContent?.includes("Edit in Context") || item.textContent?.includes("前往 Context"),
+      item.textContent?.includes(t("settings.editInContext")) || item.textContent?.includes("前往 Context"),
     );
     expect(jump).toBeDefined();
     await act(async () => {

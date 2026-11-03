@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../../i18n";
 /**
  * Models & Services page behavior tests (plan §16): provider deletion reports
  * referencing models before staging subtree deletes; credential edits stage
@@ -273,10 +274,10 @@ it("only applies retrieved Anthropic candidates after explicit adoption", async 
   await renderSelected("kimi-k2");
   expect(fetchImpl).not.toHaveBeenCalled();
   const before = draftOperations(store());
-  await act(async () => buttonByText("读取 Anthropic 模型能力").click());
+  await act(async () => buttonByText(t("settings.readAnthropicCapabilities")).click());
   expect(fetchImpl).toHaveBeenCalledOnce();
   expect(draftOperations(store())).toEqual(before);
-  await act(async () => buttonByText("采纳候选建议").click());
+  await act(async () => buttonByText(t("settings.adoptSuggestions")).click());
   const model = projectCollection(store(), "llm.models").find((item) => item.id === "kimi-k2")!;
   expect(model.value.reasoning_effort).toBeUndefined();
   expect(model.value.adapter_options).toEqual({ choices: { thinking: ["adaptive"], reasoning_effort: ["high"] } });
@@ -303,28 +304,28 @@ it.each([
   }), { status: 200, headers: { "content-type": "application/json" } });
 
   await renderSelected("kimi-k2");
-  await act(async () => buttonByText("读取 Anthropic 模型能力").click());
+  await act(async () => buttonByText(t("settings.readAnthropicCapabilities")).click());
   if (change === "model") {
     await renderSelected("glm-latest");
   } else {
     await act(async () => store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.providers", [{ provider: "kimi", provider_model: "new-model" }]));
   }
-  expect(buttonByText("读取 Anthropic 模型能力").disabled).toBe(false);
-  await act(async () => buttonByText("读取 Anthropic 模型能力").click());
+  expect(buttonByText(t("settings.readAnthropicCapabilities")).disabled).toBe(false);
+  await act(async () => buttonByText(t("settings.readAnthropicCapabilities")).click());
   const before = draftOperations(store());
   await act(async () => {
     if (oldFailure) pending[0]!.reject(new Error("old request failed"));
     else pending[0]!.resolve(response("kimi-k2", "max"));
   });
-  expect(container.textContent).not.toContain("采纳候选建议");
-  expect(container.textContent).not.toContain("读取失败");
-  expect(buttonByText("读取 Anthropic 模型能力").disabled).toBe(true);
+  expect(container.textContent).not.toContain(t("settings.adoptSuggestions"));
+  expect(container.textContent).not.toContain(t("common.readFailed"));
+  expect(buttonByText(t("settings.readAnthropicCapabilities")).disabled).toBe(true);
   expect(draftOperations(store())).toEqual(before);
 
   const selected = change === "model" ? "glm-latest" : "kimi-k2";
   await act(async () => pending[1]!.resolve(response(change === "model" ? selected : "new-model", "high")));
-  expect(buttonByText("读取 Anthropic 模型能力").disabled).toBe(false);
-  await act(async () => buttonByText("采纳候选建议").click());
+  expect(buttonByText(t("settings.readAnthropicCapabilities")).disabled).toBe(false);
+  await act(async () => buttonByText(t("settings.adoptSuggestions")).click());
   expect(projectCollection(store(), "llm.models").find((model) => model.id === selected)!.value.adapter_options).toEqual({
     choices: { thinking: ["adaptive"], reasoning_effort: ["high"] },
   });
@@ -342,7 +343,7 @@ describe("LlmProvidersPage", () => {
     };
     store().setValue(PROVIDERS, "llm.providers.kimi.endpoints", { "openai-chat": endpoint });
     await act(async () => root.render(<LlmProvidersPage />));
-    const disclosure = [...container.querySelectorAll("summary")].find((node) => node.textContent === "入口代理覆盖")!;
+    const disclosure = [...container.querySelectorAll("summary")].find((node) => node.textContent === t("settings.entrypointProxy"))!;
     const mode = disclosure.parentElement!.querySelector<HTMLSelectElement>("select")!;
     await act(async () => {
       mode.value = "direct";
@@ -359,7 +360,7 @@ describe("LlmProvidersPage", () => {
 
   it("adds an API endpoint while preserving the shared credential and existing endpoint", async () => {
     await act(async () => root.render(<LlmProvidersPage />));
-    const mode = container.querySelector<HTMLSelectElement>('select[aria-label="Add API mode"]')!;
+    const mode = container.querySelector<HTMLSelectElement>(`select[aria-label="${t("settings.addApiMode")}"]`)!;
     await act(async () => { mode.value = "openai-responses"; mode.dispatchEvent(new Event("change", { bubbles: true })); });
     const url = container.querySelector<HTMLInputElement>('input[aria-label="openai-responses Base URL"]')!;
     await act(async () => setInputValue(url, "https://example.test/responses"));
@@ -388,7 +389,7 @@ describe("LlmProvidersPage", () => {
     await flush();
 
     await act(async () => {
-      buttonByText("删除").click();
+      buttonByText(t("settings.delete")).click();
     });
     await flush();
 
@@ -399,7 +400,7 @@ describe("LlmProvidersPage", () => {
 
     const modal = container.querySelector(".fixed.inset-0");
     const confirm = [...(modal?.querySelectorAll("button") ?? [])].find(
-      (item) => item.textContent?.trim() === "删除",
+      (item) => item.textContent?.trim() === t("settings.delete"),
     );
     await act(async () => {
       (confirm as HTMLButtonElement).click();
@@ -421,11 +422,11 @@ describe("LlmProvidersPage", () => {
 
     // Set a new value through the inline credential editor.
     await act(async () => {
-      buttonByText("设置值").click();
+      buttonByText(t("settings.setValue")).click();
     });
     await flush();
     const input = container.querySelector(
-      'input[aria-label="New value for KIMI_API_KEY"]',
+      `input[aria-label="${t("settings.newValueFor", { name: "KIMI_API_KEY" })}"]`,
     ) as HTMLInputElement;
     await act(async () => {
       setInputValue(input, "sk-new-secret");
@@ -453,9 +454,9 @@ describe("LlmProvidersPage", () => {
 describe("LlmModelsPage", () => {
   it("shows the nominal window and links to the global budget without editing the model", async () => {
     await renderSelected("kimi-k2");
-    const input = container.querySelector<HTMLInputElement>('input[aria-label="Context window tokens"]')!;
+    const input = container.querySelector<HTMLInputElement>(`input[aria-label="${t("settings.contextWindowTokens")}"]`)!;
     expect(input.value).toBe("1000000");
-    await act(async () => buttonByText("设置全局窗口上限").click());
+    await act(async () => buttonByText(t("settings.configureTheGlobalWindowLimit")).click());
     expect(useSettingsUiStore.getState().page).toBe("context");
     expect(draftOperations(store())).toEqual([]);
   });
@@ -480,13 +481,13 @@ describe("LlmModelsPage", () => {
     store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-k2.reasoning_effort", "high");
     await renderSelected("kimi-k2");
     const before = draftOperations(store());
-    const adapter = container.querySelector<HTMLSelectElement>('select[aria-label="Adapter"]')!;
+    const adapter = container.querySelector<HTMLSelectElement>(`select[aria-label="${t("settings.adapter")}"]`)!;
     await act(async () => { adapter.value = "minimax"; adapter.dispatchEvent(new Event("change", { bubbles: true })); });
     expect(draftOperations(store())).toEqual(before);
     const checkbox = [...container.querySelectorAll("label")].find((label) => label.textContent?.includes("保留目标 adapter"))!.querySelector("input")!;
     expect(checkbox.checked).toBe(true);
     if (!retain) await act(async () => checkbox.click());
-    await act(async () => buttonByText("切换适配器").click());
+    await act(async () => buttonByText(t("settings.switchAdapter")).click());
     const model = projectCollection(store(), "llm.models").find((item) => item.id === "kimi-k2")!;
     expect(model.value.adapter).toBe("minimax");
     expect(model.value.adapter_options).toEqual(retain ? { choices: { thinking: ["disabled"], reasoning_effort: ["high"] } } : undefined);
@@ -504,7 +505,7 @@ describe("LlmModelsPage", () => {
     await act(async () => candidates.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
     expect(container.textContent).not.toContain("invalid selected effort");
     expect(projectCollection(store(), "llm.models").find((item) => item.id === "kimi-k2")!.value.reasoning_effort).toBeUndefined();
-    const choice = container.querySelector<HTMLSelectElement>('select[aria-label="Reasoning effort"]')!;
+    const choice = container.querySelector<HTMLSelectElement>(`select[aria-label="${t("settings.reasoningEffort")}"]`)!;
     await act(async () => { choice.value = "max"; choice.dispatchEvent(new Event("change", { bubbles: true })); });
     const model = projectCollection(store(), "llm.models").find((item) => item.id === "kimi-k2")!;
     expect(model.value.adapter_options).toEqual({ choices: { reasoning_effort: ["xhigh", "max"] } });
@@ -521,7 +522,7 @@ describe("LlmModelsPage", () => {
     const select = vi.fn();
     await act(async () => root.render(<ModelSelectionList models={projectCollection(store(), "llm.models")} value={null} onSelect={select} />));
     expect(container.textContent).not.toContain("claude-latest");
-    const toggle = [...container.querySelectorAll("label")].find((label) => label.textContent?.includes("尚未接入调用"))!.querySelector("input")!;
+    const toggle = [...container.querySelectorAll("label")].find((label) => label.textContent?.includes(t("settings.notCallable")))!.querySelector("input")!;
     await act(async () => toggle.click());
     await act(async () => buttonByText("claude-latest").click());
     expect(select).toHaveBeenCalledWith("claude-latest");
@@ -570,12 +571,12 @@ describe("LlmModelsPage", () => {
   }
 
   async function createModel(id: string, family: string, isNew = false): Promise<void> {
-    await act(async () => (container.querySelector('button[aria-label="New model"]') as HTMLButtonElement).click());
-    await fill("Model ID", id);
-    await choose("Family", isNew ? "__new__" : family);
-    if (isNew) await fill("New family", family);
-    await choose("Adapter", "kimi");
-    await fill("Provider model", `remote-${id}`);
+    await act(async () => (container.querySelector(`button[aria-label="${t("settings.newModel")}"]`) as HTMLButtonElement).click());
+    await fill(t("settings.modelId"), id);
+    await choose(t("settings.family"), isNew ? "__new__" : family);
+    if (isNew) await fill(t("settings.newFamilyName"), family);
+    await choose(t("settings.adapter"), "kimi");
+    await fill(t("settings.providerModel"), `remote-${id}`);
     await confirm("创建");
   }
 
@@ -583,8 +584,8 @@ describe("LlmModelsPage", () => {
     await act(async () => root.render(<LlmModelsPage />));
     const source = "project:configs/llm/models/qwen.toml";
     await createModel("qwen-latest", "Qwen", true);
-    await act(async () => buttonByText("重命名").click());
-    await fill("New id", "qwen-pro");
+    await act(async () => buttonByText(t("settings.rename")).click());
+    await fill(t("settings.newIdPlaceholder"), "qwen-pro");
     await confirm("重命名");
     expect(draftOperations(store())).toContainEqual({ op: "create_source", source_id: source });
     expect(draftOperations(store()).some((op) => "path" in op && op.path.includes("qwen-latest"))).toBe(false);
@@ -595,11 +596,11 @@ describe("LlmModelsPage", () => {
     expect(operations.filter((op) => op.op === "set").map((op) => [op.source_id, op.path])).toEqual([
       [source, "llm.models.qwen-flash"], [source, "llm.models.qwen-pro"],
     ]);
-    await act(async () => buttonByText("删除").click());
+    await act(async () => buttonByText(t("settings.delete")).click());
     await confirm("删除");
     expect(draftOperations(store())).toContainEqual({ op: "create_source", source_id: source });
     await renderSelected("qwen-pro");
-    await act(async () => buttonByText("删除").click());
+    await act(async () => buttonByText(t("settings.delete")).click());
     await confirm("删除");
     expect(draftOperations(store())).toEqual([]);
   });
@@ -623,13 +624,13 @@ describe("LlmModelsPage", () => {
   it("selects adapters independently and offers only compatible providers", async () => {
     store().setValue(PROVIDERS, "llm.providers.chat", { endpoints: { "openai-chat": { base_url: "https://example.test/v1" } } });
     await act(async () => root.render(<LlmModelsPage />));
-    await act(async () => (container.querySelector('button[aria-label="New model"]') as HTMLButtonElement).click());
-    await choose("Adapter", "openai-chat");
-    const provider = container.querySelector('.fixed select[aria-label="Provider"]') as HTMLSelectElement;
+    await act(async () => (container.querySelector(`button[aria-label="${t("settings.newModel")}"]`) as HTMLButtonElement).click());
+    await choose(t("settings.adapter"), "openai-chat");
+    const provider = container.querySelector(`.fixed select[aria-label="${t("settings.provider")}"]`) as HTMLSelectElement;
     expect([...provider.options].filter((option) => option.value !== "").map((option) => option.value)).toEqual(["chat", "kimi"]);
-    await choose("Adapter", "kimi");
+    await choose(t("settings.adapter"), "kimi");
     expect(provider.value).toBe("chat");
-    expect((container.querySelector('.fixed select[aria-label="Adapter"]') as HTMLSelectElement).value).toBe("kimi");
+    expect((container.querySelector(`.fixed select[aria-label="${t("settings.adapter")}"]`) as HTMLSelectElement).value).toBe("kimi");
     await confirm("取消");
     expect(draftOperations(store()).every((op) => op.op === "set" && op.path.startsWith("llm.providers."))).toBe(true);
   });
@@ -653,20 +654,20 @@ describe("LlmModelsPage", () => {
   it("rename with references stages the move and rewrites the task chain", async () => {
     await renderSelected("glm-latest");
     await act(async () => {
-      buttonByText("重命名").click();
+      buttonByText(t("settings.rename")).click();
     });
     await flush();
 
     // References are listed before anything is staged.
     expect(container.textContent).toContain("llm.tasks.default.models");
     const input = container.querySelector(
-      'input[aria-label="New id"]',
+      `input[aria-label="${t("settings.newIdPlaceholder")}"]`,
     ) as HTMLInputElement;
     await act(async () => {
       setInputValue(input, "glm-latest-2");
     });
     const rename = [...container.querySelectorAll(".fixed.inset-0 button")].find(
-      (item) => item.textContent?.trim() === "重命名",
+      (item) => item.textContent?.trim() === t("settings.rename"),
     );
     await act(async () => {
       (rename as HTMLButtonElement).click();
@@ -697,8 +698,8 @@ describe("LlmModelsPage", () => {
 
   it("models can be deleted or renamed according to the collection policy", async () => {
     await renderSelected("kimi-k2");
-    const deleteButton = buttonByText("删除");
-    const renameButton = buttonByText("重命名");
+    const deleteButton = buttonByText(t("settings.delete"));
+    const renameButton = buttonByText(t("settings.rename"));
     expect(deleteButton.disabled).toBe(false);
     expect(renameButton.disabled).toBe(false);
   });
@@ -710,7 +711,7 @@ describe("LlmModelsPage", () => {
         (node) => node.textContent === text,
       );
     // One section heading only; the field row carries the more specific label.
-    expect(container.textContent).toContain("功能能力");
+    expect(container.textContent).toContain(t("settings.featureCapabilities"));
     expect(exactDivs("模型能力")).toHaveLength(1);
   });
 });
@@ -733,10 +734,10 @@ describe("LlmTaskChainsPage", () => {
     await act(async () => root.render(<LlmTaskChainsPage />));
     const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="Model 1"]')!;
     expect(trigger.textContent).toBe("kimi-k2");
-    expect(container.querySelector('[aria-label="模型 family"]')).toBeNull();
+    expect(container.querySelector(`[aria-label="${t("settings.modelFamily")}"]`)).toBeNull();
     await act(async () => trigger.click());
     expect(document.activeElement?.getAttribute("aria-label")).toBe("搜索模型");
-    await act(async () => buttonByText("未分组").click());
+    await act(async () => buttonByText(t("settings.ungrouped")).click());
     expect(modalModel("glm-latest").disabled).toBe(true);
     expect(draftOperations(store())).toEqual(prior);
     await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
@@ -755,7 +756,7 @@ describe("LlmTaskChainsPage", () => {
     store().createSource(source);
     store().setValue(source, "llm.models.qwen-latest", { family: "Qwen", adapter: "kimi", providers: [{ provider: "kimi", provider_model: "remote-qwen" }] });
     await act(async () => root.render(<LlmTaskChainsPage />));
-    await act(async () => buttonByText("添加模型").click());
+    await act(async () => buttonByText(t("settings.addModel")).click());
     expect(modalModel("kimi-k2").disabled).toBe(true);
     await act(async () => modalModel("qwen-latest").click());
     expect(container.querySelector('button[aria-label="Model 3"]')?.textContent).toBe("qwen-latest");
@@ -763,18 +764,18 @@ describe("LlmTaskChainsPage", () => {
     expect(operations[0]).toEqual({ op: "create_source", source_id: source });
     expect(operations).toContainEqual({ op: "set", source_id: TASKS, path: "llm.tasks.default.models", value: ["kimi-k2", "glm-latest", "qwen-latest"] });
     expect(operations.filter((op) => "path" in op && op.path === "llm.models.qwen-latest")).toHaveLength(1);
-    await act(async () => buttonByText("添加模型").click());
+    await act(async () => buttonByText(t("settings.addModel")).click());
     expect(modalModel("qwen-latest").disabled).toBe(true);
   });
 
   it("requires an explicit first model and keeps it selected when filtering candidates", async () => {
     await act(async () => root.render(<LlmTaskChainsPage />));
-    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="New task chain"]')!.click());
+    await act(async () => container.querySelector<HTMLButtonElement>(`button[aria-label="${t("settings.newTaskChain")}"]`)!.click());
     const id = container.querySelector<HTMLInputElement>(".fixed input:not([aria-label='搜索模型'])")!;
     await act(async () => setInputValue(id, "new-task"));
-    const create = [...container.querySelectorAll<HTMLButtonElement>(".fixed button")].find((item) => item.textContent?.trim() === "创建")!;
+    const create = [...container.querySelectorAll<HTMLButtonElement>(".fixed button")].find((item) => item.textContent?.trim() === t("settings.create"))!;
     expect(create.disabled).toBe(true);
-    await act(async () => buttonByText("未分组").click());
+    await act(async () => buttonByText(t("settings.ungrouped")).click());
     expect(create.disabled).toBe(true);
     expect(draftOperations(store())).toEqual([]);
     await act(async () => modalModel("glm-latest").click());
@@ -793,7 +794,7 @@ describe("LlmTaskChainsPage", () => {
 
     // Select the "default" chain (the only one) and move kimi-k2 down.
     const moveDown = container.querySelector(
-      'button[aria-label="Move down"]',
+      `button[aria-label="${t("settings.moveDown")}"]`,
     ) as HTMLButtonElement;
     expect(moveDown.disabled).toBe(false);
     await act(async () => {
@@ -817,7 +818,7 @@ describe("LlmTaskChainsPage", () => {
       root.render(<LlmTaskChainsPage />);
     });
     await flush();
-    expect(container.textContent).toContain("引用位置");
+    expect(container.textContent).toContain(t("settings.usedBy"));
     expect(container.textContent).toContain("loop.cycle.phase1_task_profile");
   });
 });
@@ -828,15 +829,15 @@ describe("shared model candidate list", () => {
     const select = vi.fn();
     await act(async () => root.render(<ModelSelectionList models={projectCollection(store(), "llm.models")} value="kimi-old" onSelect={select} />));
     expect(container.textContent).not.toContain("kimi-old");
-    expect(container.textContent).toContain("未分组");
-    const search = container.querySelector<HTMLInputElement>('input[aria-label="搜索模型"]')!;
+    expect(container.textContent).toContain(t("settings.ungrouped"));
+    const search = container.querySelector<HTMLInputElement>(`input[aria-label="${t("settings.searchModels")}"]`)!;
     await act(async () => setInputValue(search, "kimi-old"));
     expect(container.textContent).toContain("kimi-old");
-    expect(container.textContent).toContain("默认折叠");
-    await act(async () => buttonByText("未分组").click());
+    expect(container.textContent).toContain(t("settings.collapsedByDefault"));
+    await act(async () => buttonByText(t("settings.ungrouped")).click());
     expect(container.textContent).toContain("没有匹配的模型");
     expect(select).not.toHaveBeenCalled();
-    await act(async () => { setInputValue(search, ""); buttonByText("全部").click(); });
+    await act(async () => { setInputValue(search, ""); buttonByText(t("settings.all")).click(); });
     await act(async () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
     await act(async () => buttonByText("kimi-old").click());
     expect(select).toHaveBeenCalledExactlyOnceWith("kimi-old");

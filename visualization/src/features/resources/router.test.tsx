@@ -105,7 +105,7 @@ describe("resolveReference", () => {
     const outcome = await resolveReference(clients(), "memory:latest", {});
     expect(outcome.status).toBe("unbound");
     if (outcome.status !== "unbound") return;
-    expect(outcome.detail).toContain("binding");
+    expect(outcome.detail).toMatchObject({ id: "resources.unbound" });
   });
 
   it("binds a dynamic memory reference through API-18 with the origin facts", async () => {
@@ -233,7 +233,7 @@ describe("openReference routing", () => {
     const toasts = useAppStore.getState().toasts;
     const last = toasts[toasts.length - 1];
     expect(last?.kind).toBe("info");
-    expect(last?.text).toContain("no longer available");
+    expect(last?.text).toMatchObject({ id: "resources.traceClosed" });
   });
 
   it("surfaces an unbound dynamic memory reference without navigating", async () => {

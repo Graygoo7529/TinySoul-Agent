@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -107,20 +108,20 @@ describe("stack behaviour", () => {
     expect(container.textContent).toContain("b body");
     expect(container.textContent).not.toContain("a body");
     expect(container.textContent).not.toContain("a title");
-    expect(mainPanel().querySelector('[aria-label="返回"]')).not.toBeNull();
+    expect(mainPanel().querySelector(`[aria-label="${t("common.back")}"]`)).not.toBeNull();
   });
 
   it("pops when Back is clicked; the caller re-renders the shorter stack", () => {
     const onPop = vi.fn();
     const onClose = vi.fn();
     renderHost({ entries: [entry({ key: "a" }), entry({ key: "b" })], onPop, onClose });
-    click(mainPanel().querySelector('[aria-label="返回"]')!);
+    click(mainPanel().querySelector(`[aria-label="${t("common.back")}"]`)!);
     expect(onPop).toHaveBeenCalledTimes(1);
     expect(onClose).not.toHaveBeenCalled();
 
     renderHost({ entries: [entry({ key: "a" })], onPop, onClose });
     expect(container.textContent).toContain("a body");
-    expect(mainPanel().querySelector('[aria-label="返回"]')).toBeNull();
+    expect(mainPanel().querySelector(`[aria-label="${t("common.back")}"]`)).toBeNull();
   });
 
   it("replaces the top entry in place when the caller swaps it", () => {
@@ -131,7 +132,7 @@ describe("stack behaviour", () => {
     expect(container.textContent).toContain("c body");
     expect(container.textContent).not.toContain("a body");
     // still a single level: no Back button
-    expect(mainPanel().querySelector('[aria-label="返回"]')).toBeNull();
+    expect(mainPanel().querySelector(`[aria-label="${t("common.back")}"]`)).toBeNull();
   });
 
   it("renders the subtitle under the title", () => {
@@ -345,7 +346,7 @@ describe("sub-drawer", () => {
     expect((document.activeElement as HTMLElement).textContent).toBe("Sub title");
 
     // Back closes the sub layer only; the caller then drops the prop
-    click(subPanel.querySelector('[aria-label="返回"]')!);
+    click(subPanel.querySelector(`[aria-label="${t("common.back")}"]`)!);
     expect(onCloseSub).toHaveBeenCalledTimes(1);
     renderHost({
       entries: [entry({ key: "a" })],
@@ -386,7 +387,7 @@ describe("sub-drawer", () => {
     });
     const subPanel = dialogs()[1];
     const subAction = buttonWithText(subPanel, "sub action");
-    const subBack = subPanel.querySelector('[aria-label="返回"]') as HTMLElement;
+    const subBack = subPanel.querySelector(`[aria-label="${t("common.back")}"]`) as HTMLElement;
 
     subAction.focus();
     pressKey(subAction, "Tab");
@@ -451,7 +452,7 @@ describe("motion", () => {
     );
     // content is usable immediately, animations never gate it
     expect(panel.textContent).toContain("b body");
-    click(panel.querySelector('[aria-label="返回"]')!);
+    click(panel.querySelector(`[aria-label="${t("common.back")}"]`)!);
     expect(onPop).toHaveBeenCalledTimes(1);
   });
 });

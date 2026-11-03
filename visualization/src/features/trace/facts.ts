@@ -1,3 +1,4 @@
+import { t, message, type UiText } from "../../i18n";
 /**
  * Process facts from the Observation event stream (plan §9.1/§9.3).
  *
@@ -72,12 +73,12 @@ export function actionTarget(params: JsonObject | null): string | null {
     asString(asObject(params.source)?.query) ?? asString(params.query) ?? asString(params.path);
 }
 
-export function actionResultSummary(payload: JsonObject | null): string | undefined {
+export function actionResultSummary(payload: JsonObject | null): UiText | undefined {
   if (!payload) return undefined;
   const items = Array.isArray(payload.items) ? payload.items : null;
-  if (items) return `${items.length} results`;
+  if (items) return message("trace.resultCount", { count: items.length });
   const code = asNumber(payload.exit_code);
-  if (code !== null) return `Exit ${code}`;
+  if (code !== null) return message("trace.exitCode", { code });
   return asString(payload.summary) ?? asString(payload.ref) ?? undefined;
 }
 
@@ -446,23 +447,23 @@ export function actionTraceStatus(trace: ActionTrace): {
   label: string;
 } {
   if (trace.result !== null) {
-    if (trace.result.status === "success") return { kind: "success", label: "success" };
-    if (trace.result.status === "timeout") return { kind: "timeout", label: "timeout" };
-    return { kind: "failed", label: "failed" };
+    if (trace.result.status === "success") return { kind: "success", label: t("trace.status.success") };
+    if (trace.result.status === "timeout") return { kind: "timeout", label: t("trace.status.timeout") };
+    return { kind: "failed", label: t("trace.status.failed") };
   }
   const last = trace.executions[trace.executions.length - 1];
-  if (last === undefined) return { kind: "unknown", label: "no execution record" };
+  if (last === undefined) return { kind: "unknown", label: t("trace.status.noRecord") };
   switch (last.state) {
     case "settled":
-      return { kind: "unknown", label: "settled without result" };
+      return { kind: "unknown", label: t("trace.status.noResult") };
     case "cancelled":
-      return { kind: "cancelled", label: "cancelled" };
+      return { kind: "cancelled", label: t("trace.status.cancelled") };
     case "not_executed":
-      return { kind: "not_executed", label: "not executed" };
+      return { kind: "not_executed", label: t("trace.status.notExecuted") };
     case "unknown":
-      return { kind: "unknown", label: "outcome unknown" };
+      return { kind: "unknown", label: t("trace.status.unknown") };
     default:
-      return { kind: "running", label: "in progress" };
+      return { kind: "running", label: t("trace.status.running") };
   }
 }
 

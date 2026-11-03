@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../../i18n";
 /**
  * System page: process-owned items render read-only with their ownership
  * reason, the endpoint listener is a projection, and the genuinely writable
@@ -128,7 +129,7 @@ describe("SystemPage", () => {
     expect(container.textContent).toContain("127.0.0.1");
     expect(container.textContent).toContain("8765");
     expect(container.textContent).toContain("inst-abc");
-    expect(container.textContent).toContain("进程管理");
+    expect(container.textContent).toContain(t("settings.processManaged"));
   });
 
   it("marks process-owned fields read-only and never offers a control", async () => {
@@ -138,7 +139,7 @@ describe("SystemPage", () => {
     await flush();
     const row = container.querySelector('[data-field-path="agent.interactive"]');
     expect(row).not.toBeNull();
-    expect(row!.textContent).toContain("只读");
+    expect(row!.textContent).toContain(t("settings.readOnly"));
     expect(row!.querySelector("[role='switch']")).toBeNull();
     expect(row!.querySelector("input")).toBeNull();
   });

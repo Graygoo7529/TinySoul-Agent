@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, message } from "../../i18n";
 /**
  * Home page (plan §11/P07).
  *
@@ -104,7 +104,7 @@ export function HomePage(): ReactElement {
         .getState()
         .pushToast(
           "info",
-          "Content search reads effective Home — switched to the effective view.",
+          message("home.searchEffective"),
         );
       return;
     }
@@ -123,7 +123,7 @@ export function HomePage(): ReactElement {
           onChange={(value) => useHomePage.getState().setView(value)}
         />
         <span className="text-[11px] text-fg-faint">
-          {view === "effective" ? "下一轮运行使用的内容" : "已接受的基线"}
+          {view === "effective" ? t("home.effectiveHint") : t("home.actualHint")}
         </span>
         <div className="flex-1" />
         <Button
@@ -159,11 +159,11 @@ export function HomePage(): ReactElement {
                 title={t("shell.home")}
                 description={
                   view === "effective"
-                    ? "下一轮运行使用的身份、偏好、技能与指导。从目录选择一项查看。"
-                    : "已接受的基线。切回「生效中」可查看运行实际使用的内容。"
+                    ? t("home.effectiveEmpty")
+                    : t("home.actualEmpty")
                 }
                 action={
-                  <Badge tone="purple">{view === "effective" ? "生效中视图" : "基线视图"}</Badge>
+                  <Badge tone="purple">{view === "effective" ? t("home.effectiveView") : t("home.actualView")}</Badge>
                 }
               />
             </div>

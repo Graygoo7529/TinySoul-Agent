@@ -33,7 +33,7 @@ export function directReferences(items: Array<{ ref: string; [key: string]: unkn
     const text = typeof item.text === "string" ? item.text : "";
     const previous = result.get(item.ref);
     result.set(item.ref, { ref: item.ref,
-      title: typeof item.title === "string" ? item.title : "Referenced resource",
+      title: typeof item.title === "string" ? item.title : item.ref,
       clue: (previous?.clue ?? "") + text });
   }
   return [...result.values()];

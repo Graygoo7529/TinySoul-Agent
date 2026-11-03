@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, tStatus } from "../../i18n";
 /**
  * One day's turns (plan §7): the committed Session summaries
  * (`/v2/session/turns?day=`), paged by continuation. On the active day the
@@ -50,11 +50,11 @@ export function DayTurnsPanel({ epoch, day }: { epoch: number; day: DayEntry }) 
     return (
       <EmptyState
         icon={<MessageSquareText size={26} />}
-        title={`No conversations on ${day.day} yet`}
+        title={t("history.noConversationsOn", { day: day.day })}
         description={
           day.active
-            ? "Finished turns appear here once they are committed."
-            : "This archived day has no committed conversations."
+            ? t("history.finishedTurnsHint")
+            : t("history.archiveNoTurns")
         }
       />
     );
@@ -64,7 +64,7 @@ export function DayTurnsPanel({ epoch, day }: { epoch: number; day: DayEntry }) 
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-          {day.active ? "This day" : "Archived · read-only"}
+          {day.active ? t("history.thisDay") : t("workspace.archivedReadOnly")}
         </span>
         <Button
           variant="ghost"
@@ -77,7 +77,7 @@ export function DayTurnsPanel({ epoch, day }: { epoch: number; day: DayEntry }) 
 
       {activeTurnId !== null && (
         <div className="space-y-1.5">
-          <SectionLabel text="In progress" />
+          <SectionLabel text={t("chat.inProgress")} />
           <button
             type="button"
             onClick={() => backToLiveTurn(epoch)}
@@ -88,18 +88,17 @@ export function DayTurnsPanel({ epoch, day }: { epoch: number; day: DayEntry }) 
               <span className="min-w-0 flex-1 truncate font-mono text-[12px]">
                 {activeTurnId}
               </span>
-              <Badge tone="accent">live</Badge>
+              <Badge tone="accent">{t("common.live")}</Badge>
             </span>
             <span className="mt-0.5 block text-[12px] text-fg-muted">
-              Return to the running conversation
-            </span>
+              {t("history.returnLive")}</span>
           </button>
         </div>
       )}
 
       {queuedTurnIds.length > 0 && (
         <div className="space-y-1.5">
-          <SectionLabel text="Queued" />
+          <SectionLabel text={t("common.queued")} />
           {queuedTurnIds.map((turnId) => (
             <div
               key={turnId}
@@ -110,8 +109,7 @@ export function DayTurnsPanel({ epoch, day }: { epoch: number; day: DayEntry }) 
                 {turnId}
               </span>
               <span className="shrink-0 text-fg-faint">
-                starts after the current work
-              </span>
+                {t("history.queuedHint")}</span>
             </div>
           ))}
         </div>
@@ -119,7 +117,7 @@ export function DayTurnsPanel({ epoch, day }: { epoch: number; day: DayEntry }) 
 
       {!nothingCommitted && (
         <div className="space-y-1.5">
-          <SectionLabel text="Completed" />
+          <SectionLabel text={t("trace.completed")} />
           {seq.items.map((turn) => (
             <CommittedTurnRow
               key={turn.turn_id}
@@ -152,6 +150,7 @@ function CommittedTurnRow({
   day: string;
   turn: SessionTurnSummary;
 }) {
+  const { t } = useI18n();
   return (
     <button
       type="button"
@@ -160,10 +159,10 @@ function CommittedTurnRow({
     >
       <span className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-          {turn.initial_input_excerpt || "(no input)"}
+          {turn.initial_input_excerpt || t("history.noInput")}
         </span>
         <Badge tone={turn.status === "answered" ? "green" : "gray"}>
-          {turn.status}
+          {tStatus(turn.status)}
         </Badge>
       </span>
       {turn.output_excerpt !== "" && (
@@ -173,7 +172,7 @@ function CommittedTurnRow({
       )}
       {turn.question_count > 0 && (
         <span className="mt-1 block text-[11px] text-fg-faint">
-          {turn.question_count} question{turn.question_count > 1 ? "s" : ""}
+          {turn.question_count} {t("history.question")}{turn.question_count > 1 ? "s" : ""}
         </span>
       )}
     </button>

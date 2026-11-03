@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 /**
  * Memory catalog decoding (plan §12).
  *
@@ -48,11 +49,11 @@ export interface MemoryStatusMeta {
 export function memoryStatusMeta(status: string): MemoryStatusMeta {
   switch (status) {
     case "merged":
-      return { label: "已合并", tone: "gray" };
+      return { label: t("memory.status.merged"), tone: "gray" };
     case "superseded":
-      return { label: "已被取代", tone: "gray" };
+      return { label: t("memory.status.superseded"), tone: "gray" };
     case "retracted":
-      return { label: "已撤回", tone: "orange" };
+      return { label: t("memory.status.retracted"), tone: "orange" };
     default:
       return { label: status, tone: "gray" };
   }

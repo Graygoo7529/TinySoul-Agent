@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, LocalizedText } from "../../i18n";
 import {
   AlertTriangle,
   ArrowRight,
@@ -200,6 +200,7 @@ function PresetRow({
   preset: PresetSummary;
   onOpen: () => void;
 }) {
+  const { t } = useI18n();
   const issueCount = preset.validation_issues.length;
   return (
     <button
@@ -218,7 +219,7 @@ function PresetRow({
               tone="yellow"
               title={t("settings.overview.presetDependencyMissing")}
             >
-              {issueCount} {issueCount === 1 ? "issue" : "issues"}
+              {t("settings.issueCount", { count: issueCount })}
             </Badge>
           )}
         </div>
@@ -275,7 +276,7 @@ export function ApplyFailureBanner({ failure }: { failure: ApplyFailure }) {
                     ? translate("settings.overview.failure.api", { code: failure.code })
                     : translate("settings.overview.failure.unknown")}
         </div>
-        <div className="mt-0.5 break-words opacity-90">{failure.message}</div>
+        <div className="mt-0.5 break-words opacity-90"><LocalizedText value={failure.message} /></div>
         {failure.kind === "config-invalid" && failure.key !== null && (
           <div className="mt-0.5 font-mono text-[11px] break-all opacity-90">
             key: {failure.key}

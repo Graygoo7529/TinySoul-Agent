@@ -1,3 +1,4 @@
+import { message } from "../../../i18n/core";
 /** Saving a plan captures current configuration; application uses the shared config publication boundary. */
 import type { V2Clients } from "../../../api/v2/clients";
 import { isTinySoulApiError } from "../../../api/v2/errors";
@@ -31,13 +32,13 @@ export async function createPreset(
       .getState()
       .pushToast(
         "success",
-        `Plan "${preset.name}" captured. The configuration and your local changes are untouched.`,
+        message("settings.planCaptured", { name: preset.name }),
       );
     return preset;
   } catch (error) {
     useAppStore
       .getState()
-      .pushToast("error", `Could not capture the plan: ${describeError(error)}`);
+      .pushToast("error", message("settings.plancaptureFailed", { detail: describeError(error) }));
     return null;
   }
 }
@@ -58,7 +59,7 @@ export async function renamePreset(
   } catch (error) {
     useAppStore
       .getState()
-      .pushToast("error", `Could not rename the plan: ${describeError(error)}`);
+      .pushToast("error", message("settings.planrenameFailed", { detail: describeError(error) }));
     return false;
   }
 }
@@ -78,12 +79,12 @@ export async function recapturePreset(
     await loadConfig(clients);
     useAppStore
       .getState()
-      .pushToast("success", "Plan definition overwritten from the current configuration.");
+      .pushToast("success", message("settings.planRecaptured"));
     return true;
   } catch (error) {
     useAppStore
       .getState()
-      .pushToast("error", `Could not overwrite the plan: ${describeError(error)}`);
+      .pushToast("error", message("settings.planoverwriteFailed", { detail: describeError(error) }));
     return false;
   }
 }
@@ -100,13 +101,13 @@ export async function deletePreset(
       .getState()
       .pushToast(
         "success",
-        `Plan "${preset.name}" deleted. The current configuration is unchanged.`,
+        message("settings.planDeleted", { name: preset.name }),
       );
     return true;
   } catch (error) {
     useAppStore
       .getState()
-      .pushToast("error", `Could not delete the plan: ${describeError(error)}`);
+      .pushToast("error", message("settings.plandeleteFailed", { detail: describeError(error) }));
     return false;
   }
 }
@@ -138,7 +139,7 @@ export async function applyPreset(
     useConfigDraftStore.getState().failApply({
       kind: "uncertain",
       message:
-        "The plan activation result was ambiguous. Refresh and check the configuration status before trying again; your local changes are kept.",
+        message("settings.applyUncertain"),
     });
     return false;
   }
@@ -150,7 +151,7 @@ export async function applyPreset(
     .getState()
     .pushToast(
       "success",
-      `Plan "${preset.name}" applied${result.generation_id ? ` — generation ${result.generation_id}` : ""}.`,
+      message("settings.planApplied", { name: preset.name }),
     );
   return true;
 }

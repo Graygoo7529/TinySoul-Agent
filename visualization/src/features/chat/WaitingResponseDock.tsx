@@ -1,3 +1,4 @@
+import { useI18n } from "../../i18n";
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -22,6 +23,7 @@ const EMPTY_ITEMS: ReturnType<typeof useTurnStore.getState>["items"] = [];
  * - Spring animation for natural feel
  */
 export function WaitingResponseDock() {
+  const { t } = useI18n();
   const [submitted, setSubmitted] = useState<{ targetId: string; question: TurnQuestion } | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -95,7 +97,7 @@ export function WaitingResponseDock() {
           ${collapsed ? "" : "max-h-[min(72vh,38rem)]"}
         `}
         role="dialog"
-        aria-label="等待你的回复"
+        aria-label={t("chat.waitingReply")}
         aria-live="polite"
         aria-expanded={!collapsed}
       >
@@ -107,13 +109,13 @@ export function WaitingResponseDock() {
           <button
             onClick={() => setCollapsed(!collapsed)}
             className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-hover/50 rounded-t-2xl"
-            aria-label={collapsed ? "Expand question" : "Collapse question"}
+            aria-label={collapsed ? t("chat.expandQuestion") : t("chat.collapseQuestion")}
           >
             {/* Indicator */}
             <div className="flex items-center gap-2 text-accent">
               <Loader2 size={14} className="animate-spin-slow" />
               <span className="text-[12px] font-medium">
-                {collapsed ? "Agent is waiting for your reply" : "Question"}
+                {collapsed ? t("chat.replyHint") : t("chat.questionTitle")}
               </span>
             </div>
 
@@ -121,7 +123,7 @@ export function WaitingResponseDock() {
             <div className="ml-auto flex items-center gap-2">
               {collapsed && (
                 <span className="text-[11px] text-fg-faint">
-                  {question.options.length} {question.options.length === 1 ? "option" : "options"}
+                  {t("chat.optionCount", { count: question.options.length })}
                 </span>
               )}
               {collapsed ? (

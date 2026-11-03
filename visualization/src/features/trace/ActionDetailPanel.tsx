@@ -132,7 +132,7 @@ function ActionDetail({
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
         {trace.cycleId !== null && (
           <>
-            <dt className="text-fg-faint">位置</dt>
+            <dt className="text-fg-faint">{t("trace.position")}</dt>
             <dd className="text-fg-muted">
               {cycleLabel(trace.cycleId)}
               {trace.phase !== null && (
@@ -146,7 +146,7 @@ function ActionDetail({
         )}
         {trace.call !== null && (
           <>
-            <dt className="text-fg-faint">调用</dt>
+            <dt className="text-fg-faint">{t("trace.invocation")}</dt>
             <dd>
               <IdChip id={trace.call.callId} />
             </dd>
@@ -154,7 +154,7 @@ function ActionDetail({
         )}
         {trace.invokeId !== null && (
           <>
-            <dt className="text-fg-faint">执行 ID</dt>
+            <dt className="text-fg-faint">{t("trace.executionId")}</dt>
             <dd>
               <IdChip id={trace.invokeId} />
             </dd>
@@ -162,7 +162,7 @@ function ActionDetail({
         )}
         {executionChain !== "" && (
           <>
-            <dt className="text-fg-faint">执行链</dt>
+            <dt className="text-fg-faint">{t("trace.executionChain")}</dt>
             <dd className="text-fg-muted">{executionChain}</dd>
           </>
         )}
@@ -172,7 +172,7 @@ function ActionDetail({
         <div className="space-y-1 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-[12px]">
           <div className="flex items-center gap-1.5 font-medium text-danger">
             <AlertTriangle size={12} className="shrink-0" />
-            {typeof failure.reason === "string" ? failure.reason : "failed"}
+            {typeof failure.reason === "string" ? failure.reason : t("common.failed")}
             {typeof failure.stage === "string" && (
               <span className="font-normal text-danger/80">· {failure.stage}</span>
             )}
@@ -187,14 +187,14 @@ function ActionDetail({
 
       {trace.result === null && (
         <div className="rounded-lg border border-line bg-bg-elev px-3 py-2 text-[12px] text-fg-faint">
-          No result was recorded for this action —{" "}
+          {t("trace.noActionResult")}{" "}
           {status.kind === "not_executed"
-            ? "it was not executed."
+            ? t("trace.actionNotExecuted")
             : status.kind === "cancelled"
-              ? "it was cancelled."
+              ? t("trace.actionCancelled")
               : status.kind === "unknown"
-                ? "its outcome is unknown; the observation does not say more."
-                : "it has not settled yet."}
+                ? t("trace.actionUnknown")
+                : t("trace.actionUnsettled")}
         </div>
       )}
 
@@ -209,8 +209,7 @@ function ActionDetail({
       {(trace.llmTaskIds.length > 0 || trace.searchIds.length > 0) && (
         <div className="space-y-1.5">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Model calls
-          </div>
+            {t("trace.modelCalls")}</div>
           <div className="flex flex-wrap gap-1.5">
             {trace.llmTaskIds.map((taskId) => (
               <button
@@ -242,7 +241,7 @@ function ActionDetail({
           onClick={() => nav.openJob(jobId)}
           className="text-[12px] text-accent hover:underline"
         >
-          Open job {jobId}
+          {t("trace.openJob")}{jobId}
         </button>
       )}
 
@@ -266,8 +265,7 @@ function ActionDetail({
           onClick={nav.openProcess}
           className="text-[12px] text-accent hover:underline"
         >
-          Open the whole-Turn process
-        </button>
+          {t("trace.openProcess")}</button>
       </div>
     </div>
   );

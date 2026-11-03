@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -160,7 +161,7 @@ function dialogButton(label: string) {
 }
 
 async function preview(): Promise<void> {
-  await click(button("应用方案"));
+  await click(button(t("settings.applyPlan")));
   await flush();
 }
 
@@ -177,7 +178,7 @@ describe("PlansPage content and comparison", () => {
     expect(text()).toContain("100000");
     expect(text()).not.toContain("方案范围");
     const reads = endpoint.calls("/v2/config/presets/id-2", "GET").length;
-    await click(button("应用变化"));
+    await click(button(t("settings.planChanges")));
     expect(endpoint.calls("/v2/config/presets/id-2", "GET").length).toBeGreaterThan(reads);
     expect(text()).toContain("当前值");
     expect(text()).toContain("200000");
@@ -193,12 +194,12 @@ describe("PlansPage content and comparison", () => {
       validation_issues: [{ key: "llm.models.missing-model", message: "Model is not defined" }],
     }));
     await openOther();
-    await click(button("应用变化"));
+    await click(button(t("settings.planChanges")));
     expect(text()).toContain("暂时无法比较方案");
     await preview();
     expect(dialogButton("应用方案")?.disabled).toBe(true);
     await click(dialogButton("取消"));
-    await click(button("查看配置"));
+    await click(button(t("settings.viewConfiguration")));
     expect(useSettingsUiStore.getState().page).toBe("llm-models");
     expect(useSettingsUiStore.getState().focusPath).toBe("llm.models.missing-model");
   });
@@ -220,7 +221,7 @@ describe("shared apply preview", () => {
     await openOther();
     await act(async () => seedDraft());
     await preview();
-    expect(text()).toContain("不包含在以上比较中");
+    expect(text()).toContain(t("settings.planPendingDraft", {"count":1}));
     await click(dialogButton("取消"));
     expect(Object.keys(useConfigDraftStore.getState().drafts)).toHaveLength(1);
     await preview();
@@ -263,11 +264,11 @@ describe("capture and records", () => {
     endpoint.post("/v2/config/presets", () => jsonResponse(PRESET_ACTIVE));
     await render();
     await act(async () => seedDraft());
-    await click(button("新建方案"));
+    await click(button(t("settings.newPlan")));
     expect(container.querySelectorAll("input[type='radio']")).toHaveLength(0);
     expect(container.querySelectorAll(".fixed input")).toHaveLength(3);
     expect(text()).toContain("未应用的修改不包含在方案中");
-    await act(async () => setValue(container.querySelector('input[aria-label="方案名称"]')!, "Daily"));
+    await act(async () => setValue(container.querySelector(`input[aria-label="${t("settings.planName")}"]`)!, "Daily"));
     await click(dialogButton("保存方案"));
     expect(bodyJson(endpoint.calls("/v2/config/presets", "POST")[0])).toEqual({ name: "Daily", include_budgets: true });
     expect(Object.keys(useConfigDraftStore.getState().drafts)).toHaveLength(1);
@@ -277,11 +278,11 @@ describe("capture and records", () => {
   it("rename leaves the definition alone, while recapture sends only its budget option", async () => {
     endpoint.on("PUT", "/v2/config/presets/", () => jsonResponse(PRESET_ACTIVE));
     await render();
-    await click(container.querySelector<HTMLButtonElement>('button[aria-label="重命名"]'));
-    await act(async () => setValue(container.querySelector('input[aria-label="Plan name"]')!, "Renamed"));
+    await click(container.querySelector<HTMLButtonElement>(`button[aria-label="${t("settings.rename")}"]`));
+    await act(async () => setValue(container.querySelector(`input[aria-label="${t("settings.planName")}"]`)!, "Renamed"));
     await click(dialogButton("保存"));
     expect(bodyJson(endpoint.calls("/v2/config/presets/id-1", "PUT")[0])).toEqual({ name: "Renamed", description: "" });
-    await click(button("重新保存"));
+    await click(button(t("settings.resave")));
     await click(dialogButton("重新保存"));
     expect(bodyJson(endpoint.calls("/v2/config/presets/id-1", "PUT")[1])).toEqual({ capture: { include_budgets: false } });
   });
@@ -289,7 +290,7 @@ describe("capture and records", () => {
   it("delete confirms and removes only the record", async () => {
     endpoint.on("DELETE", "/v2/config/presets/", () => jsonResponse({ deleted: true, preset_id: "id-1" }));
     await render();
-    await click(container.querySelector<HTMLButtonElement>('button[aria-label="删除方案"]'));
+    await click(container.querySelector<HTMLButtonElement>(`button[aria-label="${t("settings.deletePlan")}"]`));
     await click(dialogButton("删除方案"));
     expect(endpoint.calls("/v2/config/presets/id-1", "DELETE")).toHaveLength(1);
     expect(endpoint.calls("/v2/config/apply", "POST")).toHaveLength(0);

@@ -1,3 +1,4 @@
+import { useI18n } from "../../i18n";
 import { Settings } from "lucide-react";
 
 import { selectDraftCount, useConfigDraftStore } from "./draft/store";
@@ -8,16 +9,16 @@ import { selectDraftCount, useConfigDraftStore } from "./draft/store";
  * count). Clicking it returns to the settings overview.
  */
 export function SettingsDraftChip({ onOpen }: { onOpen: () => void }) {
+  const { t } = useI18n();
   const draftCount = useConfigDraftStore(selectDraftCount);
   if (draftCount === 0) return null;
   return (
     <button
       onClick={onOpen}
       className="absolute bottom-3 left-3 z-(--z-overlay) inline-flex items-center gap-1.5 rounded-full border border-line bg-bg-elev px-3 py-1.5 text-[12px] font-medium text-fg shadow-pop transition-colors hover:border-accent/50 hover:text-accent"
-      title="有未应用的设置修改，点击返回设置"
+      title={t("settings.pendingHint")}
     >
       <Settings size={13} />
-      {draftCount} 项未保存设置修改
-    </button>
+      {draftCount} {t("settings.unsavedCountUnit")}</button>
   );
 }

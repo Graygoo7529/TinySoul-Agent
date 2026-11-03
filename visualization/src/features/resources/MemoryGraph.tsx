@@ -1,3 +1,4 @@
+import { useI18n } from "../../i18n";
 /**
  * The Memory ego graph (plan §12 improvement 7): the current document sits at
  * the center, documents referencing it (explicit backlinks) form the left
@@ -78,6 +79,7 @@ function edgePath(fromX: number, fromY: number, toX: number, toY: number): strin
 }
 
 export function MemoryGraph(props: MemoryGraphProps): ReactElement {
+  const { t } = useI18n();
   const { anchor, anchorTitle, directRefs, backlinks, backlinksState, onOpenRef } = props;
   const [hovered, setHovered] = useState<string | null>(null);
   const [expandLeft, setExpandLeft] = useState(false);
@@ -98,8 +100,7 @@ export function MemoryGraph(props: MemoryGraphProps): ReactElement {
     return (
       <div className="flex flex-col items-center gap-2 py-10 text-center text-[12px] text-fg-faint">
         <Unlink size={18} />
-        这篇文档还没有引用边。
-      </div>
+        {t("resources.noEdges")}</div>
     );
   }
 
@@ -220,7 +221,7 @@ export function MemoryGraph(props: MemoryGraphProps): ReactElement {
         transform={`translate(${x},${y})`}
         role="button"
         tabIndex={0}
-        aria-label={`展开该侧其余 ${hidden} 个节点`}
+        aria-label={t("resources.expandGraphNodes", { count: hidden })}
         className="cursor-pointer outline-none"
         onClick={() => (side === "left" ? setExpandLeft(true) : setExpandRight(true))}
         onKeyDown={(event) => {
@@ -244,18 +245,18 @@ export function MemoryGraph(props: MemoryGraphProps): ReactElement {
           fontSize={11}
           style={{ fill: "var(--fg-muted)" }}
         >
-          +{hidden} 更多
-        </text>
+          +{hidden} {t("common.more")}</text>
       </g>
     );
   };
 
   return (
+    <div className="w-full overflow-x-auto">
     <svg
       viewBox={`0 0 ${SVG_W} ${height}`}
-      className="block w-full"
+      className="block w-full min-w-[480px]"
       role="img"
-      aria-label={`${centerLabel} 的引用关系图`}
+      aria-label={t("resources.referenceGraphOf", { label: centerLabel })}
     >
       <defs>
         <marker
@@ -283,14 +284,11 @@ export function MemoryGraph(props: MemoryGraphProps): ReactElement {
       </defs>
 
       <text x={LEFT_X + NODE_W / 2} y={17} textAnchor="middle" fontSize={10} style={{ fill: "var(--fg-faint)" }}>
-        被引用 ↓
-      </text>
+        {t("resources.incomingArrow")}</text>
       <text x={CENTER_X + NODE_W / 2} y={17} textAnchor="middle" fontSize={10} style={{ fill: "var(--accent)" }}>
-        当前文档
-      </text>
+        {t("resources.currentDocument")}</text>
       <text x={RIGHT_X + NODE_W / 2} y={17} textAnchor="middle" fontSize={10} style={{ fill: "var(--fg-faint)" }}>
-        引用了 →
-      </text>
+        {t("resources.outgoingArrow")}</text>
 
       {leftNodes.map((node) => renderEdge(node, "left"))}
       {rightNodes.map((node) => renderEdge(node, "right"))}
@@ -305,10 +303,10 @@ export function MemoryGraph(props: MemoryGraphProps): ReactElement {
           style={{ fill: "var(--fg-faint)" }}
         >
           {backlinksState === "loading"
-            ? "正在查询被引用的文档…"
+            ? t("resources.readingReferences")
             : backlinksState === "error"
-              ? "反链查询失败"
-              : "此资源所有者未声明反链检索"}
+              ? t("resources.backlinksFailed")
+              : t("resources.backlinksUnavailable")}
         </text>
       )}
       {backlinksState === "ready" && leftItems.length === 0 && (
@@ -319,8 +317,7 @@ export function MemoryGraph(props: MemoryGraphProps): ReactElement {
           fontSize={11}
           style={{ fill: "var(--fg-faint)" }}
         >
-          无
-        </text>
+          {t("common.none")}</text>
       )}
       {directRefs.length === 0 && (
         <text
@@ -330,8 +327,7 @@ export function MemoryGraph(props: MemoryGraphProps): ReactElement {
           fontSize={11}
           style={{ fill: "var(--fg-faint)" }}
         >
-          无
-        </text>
+          {t("common.none")}</text>
       )}
 
       {leftNodes.map(renderNode)}
@@ -369,5 +365,6 @@ export function MemoryGraph(props: MemoryGraphProps): ReactElement {
         </text>
       </g>
     </svg>
+    </div>
   );
 }

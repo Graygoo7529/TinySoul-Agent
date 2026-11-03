@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { t, useI18n } from "../../../i18n";
 import { useEffect, useState } from "react";
 
 import type { NetworkProxyAddress, NetworkRouteStatus, NetworkStatus } from "../../../api/v2/types";
@@ -13,6 +13,7 @@ import { NetworkPolicyField } from "./NetworkPolicyEditor";
 
 /** Root network policy plus a read-only view of every configured consumer. */
 export function NetworkPage() {
+  const { t } = useI18n();
   const clients = useConnectionStore((state) => state.clients);
   const epoch = useConnectionStore((state) => state.epoch);
   const saved = useConfigDraftStore((state) => state.saved);
@@ -74,9 +75,10 @@ export function NetworkPage() {
 }
 
 function NetworkRouteRow({ route, root = false }: { route: NetworkRouteStatus; root?: boolean }) {
+  const { t } = useI18n();
   const navigateTo = useSettingsUiStore((state) => state.navigateTo);
   const page = pageForPath(route.path);
-  const modeLabel = { inherit: "继承", direct: "直连", override: "指定代理" }[route.mode];
+  const modeLabel = { inherit: t("settings.networkInherit"), direct: t("settings.networkDirect"), override: t("settings.networkOverride") }[route.mode];
   return (
     <div className={`space-y-1.5 ${root ? "rounded-lg border border-line bg-bg px-3 py-2" : "px-3 py-2.5"}`}>
       <div className="flex flex-wrap items-center gap-2">

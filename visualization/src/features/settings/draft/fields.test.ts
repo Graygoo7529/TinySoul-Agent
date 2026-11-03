@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { Configuration } from "../../../api/v2/types";
@@ -118,8 +119,8 @@ describe("readOnlyReason", () => {
       ],
     );
     expect(readOnlyReason(saved, "execution.enabled")).toBeNull();
-    expect(readOnlyReason(saved, "context.timezone")).toMatch(/environment/);
-    expect(readOnlyReason(saved, "agent.data_dir")).toMatch(/override/);
+    expect(readOnlyReason(saved, "context.timezone")).toBe(t("settings.environmentReadOnly"));
+    expect(readOnlyReason(saved, "agent.data_dir")).toBe(t("settings.cliReadOnly"));
     expect(readOnlyReason(saved, "never.declared")).toBeNull();
     expect(readOnlyReason(null, "execution.enabled")).not.toBeNull();
   });

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -73,7 +74,7 @@ async function flush(rounds = 8): Promise<void> {
 
 function cancelButtons(): HTMLButtonElement[] {
   return Array.from(container.querySelectorAll("button")).filter((button) =>
-    button.textContent?.includes("取消"),
+    button.textContent?.includes(t("runtime.cancel")),
   ) as HTMLButtonElement[];
 }
 
@@ -101,9 +102,9 @@ describe("ExecutionTab", () => {
     );
     await flush();
 
-    expect(container.textContent).toContain("waiting for a budget grant");
-    expect(container.textContent).toContain("cycle 3 needs a grant");
-    expect(container.textContent).toContain("在对话中打开");
+    expect(container.textContent).toContain(t("runtime.waitBudget"));
+    expect(container.textContent).toContain(`${t("runtime.cycle")}3 ${t("runtime.needsGrant")}`);
+    expect(container.textContent).toContain(t("runtime.openConversation"));
   });
 
   it("keeps an execution failure apart from after-finish diagnostics", async () => {
@@ -123,15 +124,15 @@ describe("ExecutionTab", () => {
     );
     await flush();
 
-    expect(container.textContent).toContain("执行失败");
-    expect(container.textContent).toContain("收尾与清理诊断");
+    expect(container.textContent).toContain(t("runtime.failed"));
+    expect(container.textContent).toContain(t("runtime.finishCleanupDiagnostics"));
     // The failure body is open; the after-finish diagnostics stay collapsed
     // until asked for — related, but never one merged red box.
     expect(container.textContent).toContain("turn.budget_exhausted");
     expect(container.textContent).not.toContain("session.commit_failed");
 
     const header = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("收尾与清理诊断"),
+      (button) => button.textContent?.includes(t("runtime.finishCleanupDiagnostics")),
     );
     await act(async () => (header as HTMLButtonElement).click());
     expect(container.textContent).toContain("在收尾或清理阶段产生");
@@ -149,7 +150,7 @@ describe("ExecutionTab", () => {
     await renderTab({ turnId: null, snapshot: null, error: null, settled: true });
     await flush();
 
-    expect(container.textContent).toContain("当前没有运行中的轮次");
+    expect(container.textContent).toContain(t("runtime.noActiveTurn"));
     expect(container.textContent).toContain("排队的轮次");
     expect(cancelButtons()).toHaveLength(2);
   });

@@ -3,14 +3,14 @@
  * shared by the model editor and the task-chain required-capabilities editor.
  */
 
-import type { SelectOption } from "./controls";
+import type { MessageId } from "../../../i18n/core";
 
-export const MODEL_CAPABILITIES: SelectOption[] = [
-  { value: "text_input", label: "Text input" },
-  { value: "image_input", label: "Image input" },
-  { value: "image_remote_url", label: "Remote image URLs" },
-  { value: "json_object_output", label: "JSON object output" },
-  { value: "tool_calling", label: "Tool calling" },
-  { value: "reasoning_output", label: "Reasoning output" },
-  { value: "prompt_cache", label: "Prompt cache" },
+export const MODEL_CAPABILITIES: { value: string; labelId: MessageId }[] = [
+  { value: "text_input", labelId: "settings.capability.text_input" },
+  { value: "image_input", labelId: "settings.capability.image_input" },
+  { value: "image_remote_url", labelId: "settings.capability.image_remote_url" },
+  { value: "json_object_output", labelId: "settings.capability.json_object_output" },
+  { value: "tool_calling", labelId: "settings.capability.tool_calling" },
+  { value: "reasoning_output", labelId: "settings.capability.reasoning_output" },
+  { value: "prompt_cache", labelId: "settings.capability.prompt_cache" },
 ];

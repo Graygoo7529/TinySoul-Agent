@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -102,9 +103,9 @@ describe("history entries", () => {
     await act(async () => {
       root.render(<ChatView />);
     });
-    expect(container.textContent).toContain("开始会话");
+    expect(container.textContent).toContain(t("chat.startConversation"));
     await act(async () => {
-      buttonByText("Browse earlier days").click();
+      buttonByText(t("chat.browseEarlier")).click();
     });
     const entries = useInspectorStore.getState().entries;
     expect(entries).toHaveLength(1);
@@ -118,7 +119,7 @@ describe("history entries", () => {
     });
     expect(container.querySelector("[data-turn-root]")).not.toBeNull();
     await act(async () => {
-      buttonByText("Earlier days").click();
+      buttonByText(t("chat.earlierDays")).click();
     });
     const entries = useInspectorStore.getState().entries;
     expect(entries).toHaveLength(1);
@@ -130,7 +131,7 @@ describe("history entries", () => {
       root.render(<TopBar />);
     });
     const history = container.querySelector(
-      'button[aria-label="历史"]',
+      `button[aria-label="${t("history.title")}"]`,
     ) as HTMLButtonElement;
     expect(history.disabled).toBe(false);
     await act(async () => {
@@ -147,7 +148,7 @@ describe("history entries", () => {
       root.render(<TopBar />);
     });
     const history = container.querySelector(
-      'button[aria-label="历史"]',
+      `button[aria-label="${t("history.title")}"]`,
     ) as HTMLButtonElement;
     expect(history.disabled).toBe(true);
   });
@@ -167,13 +168,13 @@ describe("history banner", () => {
     });
 
     expect(container.textContent).toContain(
-      "Read-only history · 2026-09-28 · archived day — current resources may differ",
+      `${t("chat.readOnlyHistory")} · 2026-09-28${t("chat.archiveHint")}`,
     );
     // Another turn is live: the back action returns to it, not to a day list.
-    expect(container.textContent).toContain("回到进行中的轮次");
+    expect(container.textContent).toContain(t("chat.returnRunning"));
 
     await act(async () => {
-      buttonByText("会话图").click();
+      buttonByText(t("history.sessionMap")).click();
     });
     const entries = useInspectorStore.getState().entries;
     expect(entries).toHaveLength(1);
@@ -189,13 +190,13 @@ describe("history banner", () => {
       root.render(<ChatView />);
     });
 
-    expect(container.textContent).toContain("Read-only history · 2026-09-29");
-    expect(container.textContent).not.toContain("archived day");
+    expect(container.textContent).toContain(`${t("chat.readOnlyHistory")} · 2026-09-29`);
+    expect(container.textContent).not.toContain(t("chat.archiveHint"));
 
     await act(async () => {
-      buttonByText("回到今天").click();
+      buttonByText(t("chat.returnToday")).click();
     });
     expect(useTurnStore.getState().turnId).toBeNull();
-    expect(container.textContent).toContain("开始会话");
+    expect(container.textContent).toContain(t("chat.startConversation"));
   });
 });

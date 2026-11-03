@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, message, resolveText, effectiveLocale, type UiText } from "../../i18n";
 /**
  * MCP tab (plan §14 MCP, API-16).
  *
@@ -78,7 +78,7 @@ export function McpTab({ epoch }: { epoch: number }): ReactElement {
   }, [servers.items, filter]);
 
   if (servers.loading) {
-    return <LoadingRow text="Reading the server directory…" />;
+    return <LoadingRow text={t("runtime.readServers")} />;
   }
   if (servers.items.length === 0 && servers.error === null) {
     return (
@@ -103,8 +103,7 @@ export function McpTab({ epoch }: { epoch: number }): ReactElement {
           className="h-8 w-64 rounded-lg border border-line bg-bg-elev px-2.5 text-[13px] outline-none placeholder:text-fg-faint focus:border-line-strong"
         />
         <span className="text-[11px] text-fg-faint">
-          Filtering never connects — only the explicit refresh does.
-        </span>
+          {t("runtime.filterHint")}</span>
       </div>
       {servers.error !== null && (
         <ReadError message={servers.error} onRetry={servers.reload} />
@@ -132,8 +131,7 @@ export function McpTab({ epoch }: { epoch: number }): ReactElement {
           loading={servers.loadingMore}
           onClick={servers.loadMore}
         >
-          More servers
-        </Button>
+          {t("runtime.moreServers")}</Button>
       )}
       {selectedServer !== null && (
         <ServerTools
@@ -161,7 +159,7 @@ function ServerRow({
 }): ReactElement {
   useI18n();
   const [refreshing, setRefreshing] = useState(false);
-  const [refreshNote, setRefreshNote] = useState<string | null>(null);
+  const [refreshNote, setRefreshNote] = useState<UiText | null>(null);
 
   const refresh = async (): Promise<void> => {
     setRefreshing(true);
@@ -172,7 +170,7 @@ function ServerRow({
       );
       if (result.status !== "available") {
         setRefreshNote(
-          result.reason ?? `refresh answered "${result.status}" — the known directory stays`,
+          result.reason ?? message("runtime.refreshStatus", { status: result.status }),
         );
       }
       onRefreshed();
@@ -203,21 +201,20 @@ function ServerRow({
           </span>
         </button>
         <Badge tone={server.enabled ? "green" : "gray"}>
-          {server.enabled ? "enabled" : "disabled"}
+          {server.enabled ? t("runtime.enabled") : t("settings.disabled")}
         </Badge>
         <Badge tone={server.connected ? "blue" : "gray"}>
-          {server.connected ? "connected" : "not connected"}
+          {server.connected ? t("runtime.connected") : t("runtime.notConnected")}
         </Badge>
         <Badge tone={server.discovered ? "teal" : "gray"}>
           {server.discovered
-            ? `已发现 · ${server.tool_count} 个工具`
-            : "未发现"}
+            ? t("runtime.discoveredCount", { count: server.tool_count })
+            : t("runtime.notDiscovered")}
         </Badge>
         {server.stale && <Badge tone="yellow">{t("settings.stale")}</Badge>}
         {server.error !== null && (
           <Badge tone="red" title={server.error}>
-            error
-          </Badge>
+            {t("common.error")}</Badge>
         )}
         <Button
           variant="outline"
@@ -226,8 +223,8 @@ function ServerRow({
           disabled={!server.enabled}
           title={
             server.enabled
-              ? "Refresh this server's directory"
-              : "Enable the server in settings before refreshing"
+              ? t("runtime.refreshServer")
+              : t("runtime.enableBeforeRefresh")
           }
           onClick={() => void refresh()}
         >
@@ -236,7 +233,7 @@ function ServerRow({
       </div>
       {refreshNote !== null && (
         <div className="border-t border-line px-3 py-1.5 text-[11px] text-warning">
-          Refresh failed ({refreshNote}); the previous directory stays.
+          {t("runtime.directoryRefreshFailed", { detail: resolveText(refreshNote, effectiveLocale()) })}
         </div>
       )}
       {server.error !== null && (
@@ -282,12 +279,12 @@ function ServerTools({
   );
 
   if (tools.loading) {
-    return <LoadingRow text="正在读取已发现的工具…" />;
+    return <LoadingRow text={t("runtime.readTools")} />;
   }
   return (
     <div className="space-y-1.5 rounded-lg border border-line bg-bg-sunken px-3 py-3">
       <div className="text-[12px] font-medium text-fg-faint">
-        Tools of {serverId}
+        {t("runtime.toolsOf")}{serverId}
       </div>
       {tools.error !== null && (
         <ReadError message={tools.error} onRetry={tools.reload} />
@@ -295,8 +292,8 @@ function ServerTools({
       {tools.items.length === 0 && tools.error === null ? (
         <div className="flex flex-wrap items-center gap-2 text-[12px] text-fg-faint">
           {discoveredRef.current === false
-            ? "尚未发现该服务器的目录——使用显式刷新读取工具。"
-            : "已发现的目录中没有工具。"}
+            ? t("runtime.discoverHint")
+            : t("runtime.directoryEmpty")}
         </div>
       ) : (
         tools.items.map((tool) => (
@@ -321,7 +318,7 @@ function ServerTools({
                 {tool.description}
               </span>
               {tool.callable ? (
-                <Badge tone="green">callable</Badge>
+                <Badge tone="green">{t("runtime.callable")}</Badge>
               ) : (
                 <Badge tone="red" title={tool.unavailable ?? "unavailable"}>
                   {t("settings.unavailable")}</Badge>
@@ -345,8 +342,7 @@ function ServerTools({
           loading={tools.loadingMore}
           onClick={tools.loadMore}
         >
-          More tools
-        </Button>
+          {t("runtime.moreTools")}</Button>
       )}
     </div>
   );
@@ -383,7 +379,7 @@ function ToolDetail({
 
   return (
     <div className="mt-1 space-y-2 rounded-lg border border-line bg-bg-elev px-3 py-2.5">
-      {read.kind === "loading" && <LoadingRow text="Reading the tool…" />}
+      {read.kind === "loading" && <LoadingRow text={t("runtime.readTool")} />}
       {read.kind === "error" && <ReadError message={read.message} />}
       {!tool.callable && tool.unavailable !== null && (
         <div className="text-[12px] text-danger">{tool.unavailable}</div>
@@ -391,12 +387,12 @@ function ToolDetail({
       {read.kind === "ready" && (
         <>
           <div className="flex flex-wrap items-center gap-2 text-[12px]">
-            <span className="text-fg-faint">Configuration selection</span>
+            <span className="text-fg-faint">{t("runtime.configuration")}</span>
             <Badge tone={read.value.selection.selected ? "green" : "gray"}>
-              {read.value.selection.selected ? "selected" : "not selected"}
+              {read.value.selection.selected ? t("runtime.selected") : t("settings.notSelected")}
             </Badge>
             <span className="text-fg-faint">
-              by {read.value.selection.basis}
+              {t("runtime.by")}{read.value.selection.basis === "tools override" ? t("runtime.toolOverride") : read.value.selection.basis === "server disabled" ? t("runtime.serverDisabled") : read.value.selection.basis}
             </span>
             <span className="flex-1" />
             <Button
@@ -404,16 +400,14 @@ function ToolDetail({
               size="xs"
               onClick={() => openMcpSettings(serverId)}
             >
-              Edit configuration
-            </Button>
+              {t("runtime.editConfiguration")}</Button>
             <Button
               variant="ghost"
               size="xs"
               onClick={() => useToolDraft(serverId, tool)}
             >
               <Send size={12} />
-              Use in conversation
-            </Button>
+              {t("runtime.useInChat")}</Button>
           </div>
           {read.value.definition !== null && (
             <Collapsible title={t("runtime.definition")}>

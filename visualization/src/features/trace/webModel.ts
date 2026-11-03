@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import type { JsonObject } from "../../api/v2/types";
 import { asNumber, asObject, asString } from "./facts";
 
@@ -106,9 +107,9 @@ export function webResult(actionId: string, payload: JsonObject): WebResult | nu
 }
 
 export function webPageStateLabel(state: string): string {
-  if (state === "visited") return "已访问";
-  if (state === "failed") return "失败";
-  if (state === "candidate") return "候选";
+  if (state === "visited") return t("trace.visited");
+  if (state === "failed") return t("trace.failed");
+  if (state === "candidate") return t("trace.candidate");
   return state;
 }
 

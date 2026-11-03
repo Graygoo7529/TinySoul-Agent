@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -251,11 +252,11 @@ describe("SegmentPanel body", () => {
     );
     clickText("显示更多");
     await flush();
-    expect(container.textContent).toContain("last captured view");
+    expect(container.textContent).toContain(t("context.ended"));
     expect(container.textContent).toContain("kept");
     // No retry loop, no further reads, no load-more affordance.
     expect(segmentCalls("inputs")).toHaveLength(2);
-    expect(container.textContent).not.toContain("显示更多");
+    expect(container.textContent).not.toContain(t("common.showMore"));
   });
 });
 
@@ -265,7 +266,7 @@ describe("SegmentPanel shapes", () => {
     expect(container.textContent).toContain("home:top/agent/AGENT");
     expect(container.textContent).toContain("home:top/skills/tinysoul-docs");
     expect(container.textContent).toMatch(/已安装|installed/);
-    expect(container.textContent).toContain("可用");
+    expect(container.textContent).toContain(t("context.available"));
     // The heap declares select/reclaim only: no SELECT/RECLAIM controls.
     expect(container.textContent).not.toContain("SELECT");
     expect(container.textContent).not.toContain("RECLAIM");
@@ -274,7 +275,8 @@ describe("SegmentPanel shapes", () => {
     const entries = useInspectorStore.getState().entries;
     const top = entries[entries.length - 1];
     expect(top?.key).toContain("context:resource:home:top/agent/AGENT");
-    expect(top?.subtitle).toBeDefined();
+    act(() => root.render(<>{top?.subtitle}</>));
+    expect(container.textContent).toBe(t("context.currentContent"));
   });
 
   it("stack: root refs open the live inspect route for this turn", async () => {
@@ -335,19 +337,19 @@ describe("SegmentPanel shapes", () => {
     clickText("详情");
     expect(container.textContent).toContain("capabilities");
     expect(container.textContent).toContain("read only");
-    expect(container.textContent).toContain("46 chars");
+    expect(container.textContent).toContain(t("context.characterUsage", {"count":"46"}));
   });
 
   it("working: the workspace segment refs out to its owner page", async () => {
     await renderSegment("workspace");
-    clickText("Open the Workspace page");
+    clickText(t("context.openWorkspace"));
     expect(useAppStore.getState().activeTab).toBe("workspace");
     expect(useInspectorStore.getState().entries).toHaveLength(0);
   });
 
   it("working: the jobs segment refs to runtime observation", async () => {
     await renderSegment("jobs");
-    clickText("Open Runtime observation");
+    clickText(t("context.openRuntime"));
     expect(useAppStore.getState().activeTab).toBe("runtime");
   });
 });

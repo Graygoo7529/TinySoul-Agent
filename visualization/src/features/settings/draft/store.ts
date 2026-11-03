@@ -1,3 +1,5 @@
+import type { UiText } from "../../../i18n/core";
+import { t } from "../../../i18n";
 /**
  * The shared ConfigDraft store (implementation plan §15): one zustand store
  * holds the formal snapshots (saved / active / catalog / presets), the local
@@ -54,7 +56,7 @@ export type ApplyFailure =
   | { kind: "activation-unavailable"; message: string }
   | { kind: "activation-failed"; message: string; details: JsonObject }
   | { kind: "api-error"; code: string; message: string; details: JsonObject }
-  | { kind: "uncertain"; message: string };
+  | { kind: "uncertain"; message: UiText };
 
 export interface ConfigSnapshot {
   saved: Configuration;
@@ -381,12 +383,12 @@ export function draftOperations(state: ConfigDraftState) {
 export function activationBlocker(state: ConfigDraftState): string | null {
   if (state.applyPhase !== "idle") {
     return state.applyPhase === "applying"
-      ? "Applying configuration…"
-      : "Reloading configuration…";
+      ? t("settings.applying")
+      : t("settings.reloading");
   }
   const activity = state.saved?.activity ?? state.active?.activity;
   if (activity === undefined || activity === null) {
-    return "Configuration status has not been loaded yet.";
+    return t("settings.statusNotLoaded");
   }
   if (!activity.can_reload) {
     return activityReasonText(activity.reason);
@@ -397,12 +399,12 @@ export function activationBlocker(state: ConfigDraftState): string | null {
 export function activityReasonText(reason: string): string {
   switch (reason) {
     case "turn_active":
-      return "The Agent is busy with a turn or a reflection.";
+      return t("settings.agentBusy");
     case "activation_active":
-      return "Another configuration activation is in progress.";
+      return t("settings.activationBusy");
     case "runtime_active":
-      return "The runtime is busy.";
+      return t("settings.runtimeBusy");
     default:
-      return reason !== "" ? reason : "Activation is currently unavailable.";
+      return reason !== "" ? reason : t("settings.activationUnavailable");
   }
 }

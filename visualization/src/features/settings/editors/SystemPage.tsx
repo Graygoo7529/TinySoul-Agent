@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { useI18n } from "../../../i18n";
 /**
  * System & Diagnostics settings (config-coverage §7): read-only process items
  * (endpoint listener, agent/config process fields) with their ownership
@@ -27,10 +27,11 @@ const PROCESS_FIELDS = [
 ];
 
 export function SystemPage() {
+  const { t } = useI18n();
   const navigateTo = useSettingsUiStore((state) => state.navigateTo);
   const policy = useConfigDraftStore((state) => savedValue(state.saved, "infra.network"));
   const mode = isPlainRecord(policy) ? policy.mode : "inherit";
-  const proxySummary = mode === "override" ? "已指定根代理" : mode === "direct" ? "根代理已关闭" : "继承环境代理";
+  const proxySummary = mode === "override" ? t("settings.rootProxyEnabled") : mode === "direct" ? t("settings.rootProxyDisabled") : t("settings.inheritEnvironment");
   return (
     <SettingsPageBody>
       <SectionCard
@@ -42,7 +43,7 @@ export function SystemPage() {
           </button>
         }
       >
-        <p className="text-xs text-fg-muted">{proxySummary}。模型、Web、MCP、ACP 与执行环境可单独设置。</p>
+        <p className="text-xs text-fg-muted">{proxySummary}{t("settings.proxyOverridesHint")}</p>
       </SectionCard>
       <ProcessShellCard />
       <SourcesCard />
@@ -62,6 +63,7 @@ export function SystemPage() {
 
 /** The endpoint listener projection; never editable through configuration. */
 function ProcessShellCard() {
+  const { t } = useI18n();
   const processShell = useConfigDraftStore((s) => s.saved?.process_shell);
   const endpoint = isEndpoint(processShell)
     ? (processShell.endpoint as JsonObject)
@@ -78,7 +80,7 @@ function ProcessShellCard() {
     <SectionCard
       title={t("settings.endpointListener")}
       description={t("settings.whereThisBackendListensTheListenerBelongsToThe")}
-      actions={<Badge tone="gray">进程管理</Badge>}
+      actions={<Badge tone="gray">{t("settings.processManaged")}</Badge>}
     >
       <dl className="grid grid-cols-[140px_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[12px]">
         {row("Host", endpoint?.host)}
@@ -101,6 +103,7 @@ function isEndpoint(value: unknown): value is JsonObject & { endpoint: JsonObjec
 
 /** The configuration sources with their writability, as projected by the backend. */
 function SourcesCard() {
+  const { t } = useI18n();
   const sources = useConfigDraftStore((s) => s.saved?.sources ?? []);
   return (
     <SectionCard
@@ -116,17 +119,17 @@ function SourcesCard() {
               {source.path || "—"}
             </span>
             <span className="flex shrink-0 items-center gap-1">
-              {!source.exists && <Badge tone="yellow">缺失</Badge>}
+              {!source.exists && <Badge tone="yellow">{t("settings.overview.sourceMissing")}</Badge>}
               {source.writable ? (
-                <Badge tone="green">可写</Badge>
+                <Badge tone="green">{t("settings.writable")}</Badge>
               ) : (
-                <Badge tone="gray">只读</Badge>
+                <Badge tone="gray">{t("settings.overview.sourceReadonly")}</Badge>
               )}
             </span>
           </div>
         ))}
         {sources.length === 0 && (
-          <div className="text-[12px] text-fg-faint">暂无配置来源。</div>
+          <div className="text-[12px] text-fg-faint">{t("settings.noSources")}</div>
         )}
       </div>
     </SectionCard>

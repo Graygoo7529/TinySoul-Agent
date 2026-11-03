@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { useI18n } from "../../../i18n";
 /**
  * Memory settings (config-coverage §5.4): the persistent Markdown store's
  * limits per document kind, inspect/search bounds and the embedding use.
@@ -7,6 +7,7 @@ import { t } from "../../../i18n";
 import { EmbeddingUseControl, FieldSection, SettingsPageBody } from "./controls";
 
 export function MemoryPage() {
+  const { t } = useI18n();
   return (
     <SettingsPageBody>
       <FieldSection

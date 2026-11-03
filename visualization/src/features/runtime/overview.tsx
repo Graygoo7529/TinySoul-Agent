@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, tStatus } from "../../i18n";
 import { requestIdForTurn } from "../../store/turnStore";
 /**
  * The compact overview strip of the runtime page (plan §14): Agent
@@ -101,15 +101,15 @@ export function useActiveTurnSnapshot(epoch: number): ActiveTurnRead {
 export function waitReasonLabel(reason: string): string {
   switch (reason) {
     case "input":
-      return "waiting for your input";
+      return t("runtime.waitInput");
     case "budget":
-      return "waiting for a budget grant";
+      return t("runtime.waitBudget");
     case "event":
-      return "waiting for an event";
+      return t("runtime.waitEvent");
     case "timer":
-      return "waiting on a timer";
+      return t("runtime.waitTimer");
     default:
-      return `waiting (${reason})`;
+      return t("runtime.waitReason", { reason });
   }
 }
 
@@ -128,23 +128,23 @@ export function OverviewStrip({
       <span className="flex items-center gap-1.5">
         <span className="text-fg-faint">Agent</span>
         {status === null ? (
-          <Badge tone="gray">no status</Badge>
+          <Badge tone="gray">{t("runtime.noStatus")}</Badge>
         ) : status.ready ? (
-          <Badge tone="green">ready</Badge>
+          <Badge tone="green">{t("common.ready")}</Badge>
         ) : (
-          <Badge tone="yellow">starting</Badge>
+          <Badge tone="yellow">{t("common.starting")}</Badge>
         )}
       </span>
       {status !== null && (
         <span className="flex items-center gap-1.5">
-          <span className="text-fg-faint">Day</span>
+          <span className="text-fg-faint">{t("common.day")}</span>
           <span className="font-medium">{status.active_day}</span>
         </span>
       )}
       <span className="flex min-w-0 items-center gap-1.5">
-        <span className="shrink-0 text-fg-faint">Turn</span>
+        <span className="shrink-0 text-fg-faint">{t("runtime.turn")}</span>
         {read.turnId === null ? (
-          <span className="text-fg-muted">none running</span>
+          <span className="text-fg-muted">{t("runtime.noneRunning")}</span>
         ) : (
           <>
             <span className="font-medium" title={read.turnId}>
@@ -155,7 +155,7 @@ export function OverviewStrip({
               <>
                 <Badge tone="accent">{snapshot.kind}</Badge>
                 <Badge tone={TURN_STATE_TONES[snapshot.state] ?? "gray"}>
-                  {snapshot.state}
+                  {tStatus(snapshot.state)}
                 </Badge>
                 {snapshot.wait_reason !== null && (
                   <span className="text-warning" title={snapshot.wait_reason}>
@@ -169,14 +169,13 @@ export function OverviewStrip({
               onClick={() => useAppStore.getState().setActiveTab("chat")}
               className="inline-flex shrink-0 items-center gap-0.5 text-accent hover:underline"
             >
-              conversation
-              <ArrowRight size={11} />
+              {t("runtime.conversation")}<ArrowRight size={11} />
             </button>
           </>
         )}
       </span>
       <span className="flex items-center gap-1.5">
-        <span className="text-fg-faint">Queue</span>
+        <span className="text-fg-faint">{t("runtime.queue")}</span>
         <span className="font-medium">{queued.length}</span>
       </span>
     </div>

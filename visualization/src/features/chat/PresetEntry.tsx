@@ -1,3 +1,4 @@
+import { useI18n } from "../../i18n";
 
 /**
  * The Composer run-plan quick entry (implementation plan §5.2).
@@ -36,6 +37,7 @@ import {
 import { PresetContent } from "../settings/presets/PresetChanges";
 
 export function PresetEntry() {
+  const { t } = useI18n();
   const phase = useConnectionStore((s) => s.phase);
   const clients = useConnectionStore((s) => s.clients);
   const connected = phase === "connected" && clients !== null;
@@ -56,7 +58,7 @@ export function PresetEntry() {
     <div data-slot="preset-entry" className="relative">
       <button
         type="button"
-        title="运行方案"
+        title={t("settings.overview.runPlans")}
         onClick={() => setOpen((value) => !value)}
         className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line bg-bg-elev px-2.5 text-[11.5px] font-medium text-fg-muted transition-colors hover:border-line-strong hover:text-fg"
       >
@@ -65,7 +67,7 @@ export function PresetEntry() {
         ) : (
           <Layers size={12} />
         )}
-        <span className="max-w-28 truncate">运行方案</span>
+        <span className="max-w-28 truncate">{t("settings.overview.runPlans")}</span>
         <ChevronUp size={11} className={open ? "rotate-180 transition-transform" : "transition-transform"} />
       </button>
       {open && (
@@ -88,7 +90,8 @@ function PresetPopover({
   loadError: string | null;
   onClose: () => void;
 }) {
-  const blocker = useConfigDraftStore(activationBlocker);
+  const { t } = useI18n();
+  const blocker = useConfigDraftStore((state) => activationBlocker(state));
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -129,29 +132,26 @@ function PresetPopover({
     >
       <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5">
         <span className="min-w-0 flex-1 text-[12.5px] font-semibold">
-          运行方案
-        </span>
+          {t("settings.overview.runPlans")}</span>
         <Button variant="ghost" size="xs" onClick={() => goToSettings("plans")}>
-          <Settings2 size={12} /> 管理方案
-        </Button>
+          <Settings2 size={12} /> {t("settings.overview.managePlans")}</Button>
       </div>
 
       {blocker !== null && (
         <div className="border-b border-line px-3.5 py-2 text-[11px] leading-4 text-fg-faint">
-          暂时无法应用方案：{blocker}
+          {t("chat.planApplyFailed")}{blocker}
         </div>
       )}
       {loadError !== null && (
         <div className="border-b border-line px-3.5 py-2 text-[11px] leading-4 text-warning">
-          无法刷新配置状态： {loadError}
+          {t("chat.configRefreshFailed")}{loadError}
         </div>
       )}
 
       <div className="max-h-72 overflow-y-auto p-1.5">
         {presets.length === 0 ? (
           <div className="px-2.5 py-3 text-[12px] text-fg-muted">
-            尚未创建运行方案，可前往设置保存当前配置。
-          </div>
+            {t("chat.noPlans")}</div>
         ) : (
           presets.map((preset) => (
             <PresetPopoverRow
@@ -190,6 +190,7 @@ function PresetPopoverRow({
   applying: boolean;
   onApply: () => void;
 }) {
+  const { t } = useI18n();
   const issueCount = parseValidationIssues(preset.validation_issues).length;
   const applicable = applyDisabledReason === null && issueCount === 0;
 
@@ -200,7 +201,7 @@ function PresetPopoverRow({
           type="button"
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
           onClick={onToggle}
-          title={expanded ? "收起详情" : "方案内容"}
+          title={expanded ? t("chat.hidePlanDetails") : t("settings.planContent")}
         >
           {expanded ? (
             <ChevronDown size={12} className="shrink-0 text-fg-faint" />
@@ -211,9 +212,9 @@ function PresetPopoverRow({
             {preset.name}
           </span>
         </button>
-        {preset.matches_current && <Badge tone="green">匹配当前配置</Badge>}
+        {preset.matches_current && <Badge tone="green">{t("settings.overview.matchesCurrent")}</Badge>}
         {issueCount > 0 && (
-          <Badge tone="yellow" title="此方案引用的配置存在问题">
+          <Badge tone="yellow" title={t("chat.planInvalid")}>
             <AlertTriangle size={10} /> {issueCount}
           </Badge>
         )}
@@ -224,12 +225,11 @@ function PresetPopoverRow({
             disabled={!applicable}
             loading={applying}
             title={
-              applyDisabledReason ?? "查看变化并应用方案"
+              applyDisabledReason ?? t("chat.reviewPlan")
             }
             onClick={onApply}
           >
-            应用
-          </Button>
+            {t("common.apply")}</Button>
         )}
       </div>
       {preset.description !== "" && (
@@ -244,6 +244,7 @@ function PresetPopoverRow({
 
 /** Stored declarations, loaded when a row is expanded. */
 function PresetRowDetail({ preset }: { preset: PresetSummary }) {
+  const { t } = useI18n();
   const clients = useConnectionStore((s) => s.clients);
   const current = useConfigDraftStore((state) => state.saved);
   const [detail, setDetail] = useState<Preset | null>(null);
@@ -268,19 +269,18 @@ function PresetRowDetail({ preset }: { preset: PresetSummary }) {
   if (error !== null) {
     return (
       <div className="mt-1.5 pl-5 text-[11px] text-danger">
-        无法读取方案内容： {error}
+        {t("chat.planReadFailedDetail")}{error}
       </div>
     );
   }
   if (detail === null) {
     return (
       <div className="mt-1.5 flex items-center gap-1.5 pl-5 text-[11px] text-fg-faint">
-        <Loader2 size={11} className="animate-spin-slow" /> 正在读取方案内容…
-      </div>
+        <Loader2 size={11} className="animate-spin-slow" /> {t("chat.planLoading")}</div>
     );
   }
   const definition = decodePresetDefinition(detail.definition);
   return <div className="mt-2 max-h-80 overflow-y-auto pl-5">
-    {definition ? <PresetContent definition={definition} /> : <p>无法读取方案内容。</p>}
+    {definition ? <PresetContent definition={definition} /> : <p>{t("chat.planReadFailed")}</p>}
   </div>;
 }

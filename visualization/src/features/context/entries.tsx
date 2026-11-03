@@ -41,7 +41,7 @@ export function pushSegment(
   useInspectorStore.getState().push({
     key: `context:segment:${turnId}:${segment.id}:${detailCounter}`,
     title: segment.id,
-    subtitle: `${segment.slot} · ${segment.shape} · owner ${segment.owner}`,
+    subtitle: <LocalizedText value={message("context.segmentSubtitle", { slot: segment.slot, shape: segment.shape, owner: segment.owner })} />,
     render: () => (
       <SegmentPanel
         epoch={epoch}

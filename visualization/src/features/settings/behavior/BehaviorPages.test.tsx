@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../../i18n";
 /**
  * Behavior & Invocation page tests (F2-C): phase bindings stage reference
  * edits against the draft-aware task-chain collection; the Actions page reads
@@ -425,7 +426,7 @@ describe("PhaseBindingsPage", () => {
     await flush();
 
     const select = container.querySelector(
-      'select[aria-label="loop.cycle.phase1_task_profile task chain"]',
+      `select[aria-label="${t("settings.consumerTaskChain", { consumer: "loop.cycle.phase1_task_profile" })}"]`,
     ) as HTMLSelectElement;
     expect(select.value).toBe("default");
     // Draft-created chains would appear too; here both saved chains are listed.
@@ -446,7 +447,7 @@ describe("PhaseBindingsPage", () => {
     ]);
 
     await act(async () => {
-      buttonByText("查看模型链").click();
+      buttonByText(t("settings.openChain")).click();
     });
     expect(useSettingsUiStore.getState().page).toBe("llm-tasks");
     expect(useSettingsUiStore.getState().focusPath).toBe("llm.tasks.vision");
@@ -481,7 +482,7 @@ describe("ActionsPage", () => {
     expect(container.textContent).toContain("home.search.rerank");
 
     const implementation = container.querySelector(
-      'select[aria-label="home.search.rerank implementation"]',
+      `select[aria-label="${t("settings.consumerImplementation", { consumer: "home.search.rerank" })}"]`,
     ) as HTMLSelectElement;
     expect(implementation.value).toBe("llm_task");
 
@@ -513,12 +514,12 @@ describe("ActionsPage", () => {
 
     // In the user scenario the deterministic action is hidden and model-free.
     expect(container.textContent).toContain("无需调用模型");
-    expect(container.textContent).toContain("Hidden by visibility configuration");
+    expect(container.textContent).toContain(t("settings.hiddenReason"));
     expect(draftOperations(store())).toEqual([]);
 
     endpoint.clear();
     const scenario = container.querySelector(
-      'select[aria-label="Scenario"]',
+      `select[aria-label="${t("settings.scenario")}"]`,
     ) as HTMLSelectElement;
     await act(async () => {
       setSelectValue(scenario, "memory_reflection");
@@ -536,7 +537,7 @@ describe("ActionsPage", () => {
     await renderAndSelect("home.search");
 
     const implementation = container.querySelector(
-      'select[aria-label="home.search.select implementation"]',
+      `select[aria-label="${t("settings.consumerImplementation", { consumer: "home.search.select" })}"]`,
     ) as HTMLSelectElement;
     await act(async () => {
       setSelectValue(implementation, "decision");
@@ -544,7 +545,7 @@ describe("ActionsPage", () => {
     await flush();
 
     const use = container.querySelector(
-      'select[aria-label="home.search.select decision model use"]',
+      `select[aria-label="${t("settings.consumerDecisionUse", { consumer: "home.search.select" })}"]`,
     ) as HTMLSelectElement;
     const labels = [...use.options].map((option) => option.value);
     expect(labels).toContain("decision_default");
@@ -627,7 +628,7 @@ describe("SearchPoliciesPage", () => {
     // Withdraw restores exactly this action's saved entry.
     await act(async () => {
       container
-        .querySelector('button[aria-label="Withdraw this policy change"]')
+        .querySelector(`button[aria-label="${t("settings.withdrawPolicy")}"]`)
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await flush();
@@ -708,7 +709,7 @@ describe("BudgetsPage", () => {
       pressEnter(input);
     });
     await flush();
-    expect(container.textContent).toContain("Must be ≥ 1");
+    expect(container.textContent).toContain(t("settings.validation.minimum", {"value":1}));
     expect(draftOperations(store())).toEqual([
       { op: "set", source_id: TINYSOUL, path: "loop.user.max_cycles", value: 12 },
     ]);
@@ -728,7 +729,7 @@ describe("BudgetsPage", () => {
     expect(
       container.querySelector('[data-field-path="context.max_image_bytes"]')
         ?.textContent,
-    ).toContain("bytes");
+    ).toContain(t("common.bytes"));
   });
 
   it("restore default deletes the override; unbounded numbers keep a plain input", async () => {
@@ -738,7 +739,7 @@ describe("BudgetsPage", () => {
     await flush();
 
     const restore = container.querySelector(
-      '[data-field-path="loop.user.max_cycles"] button[aria-label="Restore the owner default"]',
+      `[data-field-path="loop.user.max_cycles"] button[aria-label="${t("settings.restoreOwnerDefault")}"]`,
     ) as HTMLButtonElement;
     expect(restore.disabled).toBe(false);
     await act(async () => {

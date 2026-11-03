@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 /**
  * Tolerant decoder for `GET /v2/config/actions?scenario=` (ConfigActionsView).
  * The wire value is a JsonObject produced by the running generation's
@@ -372,11 +373,11 @@ export function decodeActionsView(raw: ConfigActionsView): ActionsView | null {
 export function unavailableReasonText(reason: string | null): string | null {
   switch (reason) {
     case "not_granted":
-      return "Not granted in this scenario";
+      return t("settings.notGrantedReason");
     case "executor_unavailable":
-      return "Executor not supported by the running generation";
+      return t("settings.executorUnavailableReason");
     case "hidden":
-      return "Hidden by visibility configuration";
+      return t("settings.hiddenReason");
     default:
       return reason;
   }

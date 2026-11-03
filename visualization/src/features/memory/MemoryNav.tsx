@@ -30,8 +30,8 @@ import { useMemoryPage } from "./store";
 
 type KindFilter = "all" | "daily" | "entity" | "concept" | "fact" | "note";
 
-const KIND_TABS: { value: KindFilter; label: ReactNode }[] = [
-  { value: "all", label: "全部" },
+function kindTabs(): { value: KindFilter; label: ReactNode }[] { return [
+  { value: "all", label: t("settings.all") },
   ...(["daily", "entity", "concept", "fact", "note"] as const).map((kind) => {
     const meta = memoryKindMeta(kind);
     const Icon = meta.icon;
@@ -40,7 +40,7 @@ const KIND_TABS: { value: KindFilter; label: ReactNode }[] = [
       label: <span className="inline-flex items-center gap-1 whitespace-nowrap"><Icon size={11} className={`shrink-0 ${meta.iconClass}`} />{meta.label}</span>,
     };
   }),
-];
+]; }
 
 export function MemoryNav({
   epoch,
@@ -84,21 +84,19 @@ function ActiveNav({ days }: { days: DayEntry[] | null }): ReactElement {
             {days === null && <option value="">{t("history.activeDay")}</option>}
             {days?.map((entry) => (
               <option key={entry.day} value={entry.active ? "" : entry.day}>
-                {entry.active ? `Active · ${entry.day}` : `${entry.day} (archived)`}
+                {entry.active ? t("memory.activeDate", { day: entry.day }) : t("memory.archivedDate", { day: entry.day })}
               </option>
             ))}
             {days !== null &&
               activeDay !== null &&
               !days.some((entry) => entry.day === activeDay) && (
-                <option value={activeDay}>{activeDay} (archived)</option>
+                <option value={activeDay}>{activeDay} {t("memory.archived")}</option>
               )}
           </select>
         </label>
       </div>
       <div className="px-3 py-2 text-[11px] leading-4.5 text-fg-faint">
-        The day binds only this Memory.md reading — persistent knowledge below
-        is not reinterpreted as that day's version.
-      </div>
+        {t("memory.dayScope")}</div>
     </>
   );
 }
@@ -160,7 +158,7 @@ function KnowledgeNav({
       <div className="space-y-2 border-b border-line px-3 py-2">
         <Tabs<KindFilter>
           className="flex-wrap"
-          items={KIND_TABS}
+          items={kindTabs()}
           value={(kind ?? "all") as KindFilter}
           onChange={(value) =>
             useMemoryPage.getState().setKind(value === "all" ? null : value)
@@ -178,11 +176,10 @@ function KnowledgeNav({
         {catalog.loading ? (
           <div className="flex items-center gap-2 px-2 py-3 text-[12px] text-fg-faint">
             <Loader2 size={13} className="animate-spin-slow" />
-            Reading the knowledge catalog…
-          </div>
+            {t("memory.loadingCatalog")}</div>
         ) : catalog.error !== null && items.length === 0 ? (
           <EmptyState
-            title="目录读取失败"
+            title={t("common.directoryFailed")}
             description={String(catalog.error)}
             action={
               <Button variant="outline" size="sm" onClick={catalog.reload}>
@@ -204,8 +201,7 @@ function KnowledgeNav({
                     onClick={() => useAppStore.getState().setActiveTab("chat")}
                   >
                     <MessagesSquare size={13} />
-                    Start a conversation
-                  </Button>
+                    {t("memory.startConversation")}</Button>
                   <Button variant="outline" size="sm" onClick={onOrganize}>
                     <Sparkles size={13} />
                     {t("memory.organize")}</Button>
@@ -215,7 +211,7 @@ function KnowledgeNav({
           ) : (
             <EmptyState
               title={t("memory.matches")}
-              description={`No knowledge documents match this filter.`}
+              description={t("memory.noFilterMatch")}
             />
           )
         ) : (
@@ -238,9 +234,8 @@ function KnowledgeNav({
                 <KindIcon size={12} className={`shrink-0 ${meta.iconClass}`} />
                 <span className="min-w-0 flex-1 truncate">{item.display}</span>
                 {item.redirectTo !== null && (
-                  <Badge tone="orange" title={`Redirects to ${item.redirectTo}`}>
-                    重定向
-                  </Badge>
+                  <Badge tone="orange" title={t("memory.redirectTo", { ref: item.redirectTo })}>
+                    {t("memory.redirect")}</Badge>
                 )}
                 {item.status !== "" && item.status !== "active" && (
                   <Badge tone={status.tone}>{status.label}</Badge>

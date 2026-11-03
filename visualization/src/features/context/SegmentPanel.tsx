@@ -143,8 +143,7 @@ export function SegmentPanel({
 
       <section>
         <h3 className="px-1 pb-1.5 text-[11px] font-semibold tracking-wide text-fg-faint uppercase">
-          Installed body
-        </h3>
+          {t("context.installedBody")}</h3>
         {seq.items.length > 0 && <MessageList items={seq.items} />}
         <ContextSequenceStatus
           seq={seq}
@@ -266,8 +265,7 @@ function HeapRefs({
   return (
     <section className="space-y-2">
       <h3 className="px-1 text-[11px] font-semibold tracking-wide text-fg-faint uppercase">
-        Declared resources
-      </h3>
+        {t("context.declaredResources")}</h3>
       {partition.installed.length > 0 && (
         <div className="space-y-1.5">
           {partition.installed.map((ref) => (
@@ -276,7 +274,7 @@ function HeapRefs({
               reference={ref}
               badges={<Badge tone="accent">{t("context.installed")}</Badge>}
               onOpen={openRef(ref)}
-              hint="Installed in this turn's context; opening reads the owner's current content."
+              hint={t("context.loadedResourceHint")}
             />
           ))}
         </div>
@@ -289,20 +287,17 @@ function HeapRefs({
               reference={ref}
               badges={<Badge>{t("context.available")}</Badge>}
               onOpen={openRef(ref)}
-              hint="Declared but not loaded into this turn's context; opening reads the owner's current content."
+              hint={t("context.availableResourceHint")}
             />
           ))}
         </div>
       )}
       {partition.installed.length === 0 && partition.available.length === 0 && (
         <div className="px-1 py-1 text-[12px] text-fg-faint">
-          No resources declared.
-        </div>
+          {t("context.noResources")}</div>
       )}
       <p className="px-1 text-[11px] leading-4 text-fg-faint">
-        Opening a resource reads the owner's current content — it does not load
-        it into this turn's context.
-      </p>
+        {t("context.resourceReadHint")}</p>
     </section>
   );
 }
@@ -319,13 +314,13 @@ function RootRefs({
   segment: SegmentView;
   closed: boolean;
 }): ReactElement {
+  const { t } = useI18n();
   const inspectable = canInspect(segment) && !closed;
   const queryable = canQuery(segment);
   return (
     <section className="space-y-2">
       <h3 className="px-1 text-[11px] font-semibold tracking-wide text-fg-faint uppercase">
-        Entry points
-      </h3>
+        {t("context.entryPoints")}</h3>
       <div className="space-y-1.5">
         {segment.root_refs.map((ref) => (
           <RefRow
@@ -338,16 +333,15 @@ function RootRefs({
             }
             hint={
               inspectable
-                ? "Read the live disclosure of this ref."
-                : "This segment declares no inspect route."
+                ? t("context.readReference")
+                : t("context.noInspectRoute")
             }
           />
         ))}
       </div>
       {segment.shape === "map" && (
         <Button variant="outline" onClick={() => openHistoryBrowser(epoch)}>
-          Browse day history
-        </Button>
+          {t("context.browseDay")}</Button>
       )}
     </section>
   );
@@ -373,13 +367,13 @@ function SegmentDetails({ segment }: { segment: SegmentView }): ReactElement {
           ],
           [
             "root refs",
-            segment.root_refs.length > 0 ? segment.root_refs.join(", ") : "none",
+            segment.root_refs.length > 0 ? segment.root_refs.join(", ") : t("common.none"),
           ],
           [
             "protected refs",
             segment.protected_refs.length > 0
               ? segment.protected_refs.join(", ")
-              : "none",
+              : t("common.none"),
           ],
         ]}
       />
@@ -389,12 +383,13 @@ function SegmentDetails({ segment }: { segment: SegmentView }): ReactElement {
 
 /** Working-slot segments ref out to their owner page (F5/F6 deepen these). */
 function WorkingJump({ segment }: { segment: SegmentView }): ReactElement | null {
+  const { t } = useI18n();
   if (segment.slot !== "working") return null;
   const target: { tab: AppTab; label: string } | null =
     segment.owner === "workspace"
-      ? { tab: "workspace", label: "Open the Workspace page" }
+      ? { tab: "workspace", label: t("context.openWorkspace") }
       : segment.owner === "jobs" || segment.owner === "subagent"
-        ? { tab: "runtime", label: "Open Runtime observation" }
+        ? { tab: "runtime", label: t("context.openRuntime") }
         : null;
   if (target === null) return null;
   return (

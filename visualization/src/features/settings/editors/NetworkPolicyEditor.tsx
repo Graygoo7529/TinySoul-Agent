@@ -1,3 +1,4 @@
+import { useI18n } from "../../../i18n";
 import type { JsonValue } from "../../../api/v2/types";
 import { SectionCard } from "../../../components/ui/Card";
 import { isPlainRecord } from "../draft/model";
@@ -14,24 +15,25 @@ export function NetworkPolicyEditor({
   root?: boolean;
   onChange: (value: Record<string, JsonValue>) => void;
 }) {
+  const { t } = useI18n();
   const policy = isPlainRecord(value) ? value : {};
   const mode = typeof policy.mode === "string" ? policy.mode : "inherit";
   return (
     <div className="w-full space-y-2 text-xs">
-      <select aria-label="代理模式" className={selectClass} value={mode} disabled={disabled}
+      <select aria-label={t("settings.proxyMode")} className={selectClass} value={mode} disabled={disabled}
         onChange={(event) => onChange({ mode: event.target.value })}>
-        <option value="inherit">{root ? "继承环境代理" : "继承上级"}</option>
-        <option value="direct">{root ? "关闭代理" : "直接连接"}</option>
-        <option value="override">{root ? "开启并指定代理" : "使用覆盖配置"}</option>
+        <option value="inherit">{root ? t("settings.inheritEnvironment") : t("settings.inheritParent")}</option>
+        <option value="direct">{root ? t("settings.disableProxy") : t("settings.directConnection")}</option>
+        <option value="override">{root ? t("settings.enableProxy") : t("settings.overrideProxy")}</option>
       </select>
-      {mode === "inherit" && <p className="text-fg-muted">继承：{parentLabel}</p>}
-      {mode === "direct" && <p className="text-fg-muted">不使用代理；子进程清除继承的代理变量。</p>}
+      {mode === "inherit" && <p className="text-fg-muted">{t("settings.inheritedProxy")}{parentLabel}</p>}
+      {mode === "direct" && <p className="text-fg-muted">{t("settings.noProxyHint")}</p>}
       {mode === "override" && <>
-        <p className="text-fg-muted">完整覆盖上级设置。未填写的协议直接连接。</p>
+        <p className="text-fg-muted">{t("settings.replaceProxyHint")}</p>
         {([
-          ["http_proxy", "HTTP 代理", "http://127.0.0.1:7897"],
-          ["https_proxy", "HTTPS 代理", "http://127.0.0.1:7897"],
-          ["no_proxy", "不使用代理的地址", "localhost,127.0.0.1,::1"],
+          ["http_proxy", t("settings.httpProxy"), "http://127.0.0.1:7897"],
+          ["https_proxy", t("settings.httpsProxy"), "http://127.0.0.1:7897"],
+          ["no_proxy", t("settings.proxyBypass"), "localhost,127.0.0.1,::1"],
         ] as const).map(([key, label, placeholder]) => (
           <label key={key} className="block space-y-1 text-fg-muted">
             <span>{label}</span>
@@ -40,22 +42,23 @@ export function NetworkPolicyEditor({
               onCommit={(next) => onChange({ ...policy, [key]: next.trim() })} />
           </label>
         ))}
-        <p className="text-fg-faint">绕过地址以逗号分隔；未配置时绕过本机地址，清空已配置值表示不绕过。</p>
+        <p className="text-fg-faint">{t("settings.bypassHint")}</p>
       </>}
     </div>
   );
 }
 
 /** Bind an atomic policy to the existing saved-configuration draft lifecycle. */
-export function NetworkPolicyField({ path, title = "网络配置", parentLabel = "系统网络默认配置", root = false }: {
+export function NetworkPolicyField({ path, title, parentLabel, root = false }: {
   path: string; title?: string; parentLabel?: string; root?: boolean;
 }) {
+  const { t } = useI18n();
   const api = useDraftField(path);
   return (
-    <SectionCard title={title}>
-      <FieldRow path={path} api={api} titleOverride="代理设置">
+    <SectionCard title={title ?? t("settings.networkSettings")}>
+      <FieldRow path={path} api={api} titleOverride={t("settings.proxySettings")}>
         <NetworkPolicyEditor value={api.value} disabled={api.readOnly !== null} root={root}
-          parentLabel={parentLabel} onChange={api.set} />
+          parentLabel={parentLabel ?? t("settings.rootNetwork")} onChange={api.set} />
       </FieldRow>
     </SectionCard>
   );

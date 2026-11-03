@@ -1,3 +1,4 @@
+import type { UiText } from "../i18n/core";
 /**
  * Connection state for the Endpoint v2 link (plan §4/P00).
  *
@@ -43,7 +44,7 @@ export type EventsPhase =
 export interface ConnectionState {
   phase: ConnectionPhase;
   /** Human-readable reason for phase="error". */
-  error: string | null;
+  error: UiText | null;
   /** Handshake facts; null until the first successful handshake. */
   info: ConnectionInfo | null;
   /** Owner clients bound to the current connection; replaced per epoch. */
@@ -70,7 +71,7 @@ export interface ConnectionState {
   restartPending: boolean;
 
   beginConnect: () => number;
-  failConnect: (epoch: number, error: string) => void;
+  failConnect: (epoch: number, error: UiText) => void;
   completeConnect: (
     epoch: number,
     value: {

@@ -1,3 +1,4 @@
+import { message } from "../../i18n/core";
 /**
  * Turn-scoped, bounded observation projection. Owner snapshots remain the
  * source of formal state; activities describe reasoning and committed work.
@@ -56,7 +57,7 @@ export class ActivityBuffer {
       if (running.length === 1) {
         headline.label = running[0].actionId;
         headline.domain = actionTarget(asObject(running[0].params)) ?? running[0].domain;
-      } else if (running.length > 1) headline.label = `Executing ${running.length} actions…`;
+      } else if (running.length > 1) headline.label = message("chat.executingCount", { count: running.length });
     }
     const reasoning = trail.flatMap((step) => step.content.type === "thinking" && step.content.source === "reasoning" ? [step.content.text] : []);
     return {
@@ -71,7 +72,7 @@ export class ActivityBuffer {
   private deriveHeadline(): PhaseHeadline {
     const event = [...this.events].reverse().find((entry) => entry.name === "loop.phase.started" || entry.name === "loop.phase.completed");
     const phase = event ? phaseOf(event) : null;
-    if (!event || !phase) return { phase: null, label: "Preparing context" };
+    if (!event || !phase) return { phase: null, label: message("chat.preparingContext") };
     const completed = event.name === "loop.phase.completed";
     const start = completed ? [...this.events].reverse().find((entry) => entry.name === "loop.phase.started" && phaseOf(entry) === phase && scopeValue(entry, "cycle") === scopeValue(event, "cycle")) : event;
     return { phase, label: completed ? PHASE_META[phase].title : PHASE_META[phase].running,
@@ -137,8 +138,8 @@ export class ActivityBuffer {
           const result = asObject(value);
           if (result?.status !== "failed") continue;
           const id = asString(result.call_id) ?? "";
-          add({ type: "control_failure", operation: controls.get(key(id)) ?? asString(result.tool_name) ?? "Context control",
-            feedback: asString(result.feedback) ?? "The change was not applied." }, `-${id}`);
+          add({ type: "control_failure", operation: controls.get(key(id)) ?? asString(result.tool_name) ?? message("chat.contextControl"),
+            feedback: asString(result.feedback) ?? message("chat.controlNotApplied") }, `-${id}`);
         }
       }
       if (event.name === "context.control.applied") {

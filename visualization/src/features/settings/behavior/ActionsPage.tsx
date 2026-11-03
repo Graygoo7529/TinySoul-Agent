@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../../i18n";
+import { t, useI18n, LocalizedText } from "../../../i18n";
 import { SettingsDisclosure } from "../SettingsDisclosure";
 /**
  * Actions & Model Uses settings page (config-coverage §3.2): the real Action
@@ -50,13 +50,14 @@ import {
 } from "./actionsView";
 import { useActionsView } from "./useActionsView";
 
-const SCENARIOS: SelectOption[] = [
+function scenarios(): SelectOption[] { return [
   { value: "user", label: t("settings.userTurns") },
   { value: "home_reflection", label: t("settings.homeReflection") },
   { value: "memory_reflection", label: t("settings.memoryReflection") },
-];
+]; }
 
 export function ActionsPage() {
+  const { t } = useI18n();
   const [scenario, setScenario] = useState<ConfigScenario>("user");
   const [query, setQuery] = useState("");
   const { view, loading, error } = useActionsView(scenario);
@@ -109,7 +110,7 @@ export function ActionsPage() {
   if (error !== null) {
     return (
       <div className="flex h-full items-center justify-center p-6">
-        <EmptyState title="The action catalog could not be loaded" description={error} />
+        <EmptyState title={t("settings.catalogUnavailable")} description={<LocalizedText value={error} />} />
       </div>
     );
   }
@@ -134,13 +135,13 @@ export function ActionsPage() {
       listHeader={
         <div className="space-y-2 border-b border-line px-3 py-2">
           <SelectInput
-            ariaLabel="Scenario"
+            ariaLabel={t("settings.scenario")}
             value={scenario}
-            options={SCENARIOS}
+            options={scenarios()}
             onChange={(value) => setScenario(value as ConfigScenario)}
           />
           <input
-            aria-label="Search actions"
+            aria-label={t("settings.searchActions")}
             className={inputClass}
             placeholder={t("settings.filterByNameOrDescription")}
             value={query}
@@ -175,12 +176,13 @@ function ActionDetail({
 }: {
   action: ActionEntryView;
 }) {
+  const { t } = useI18n();
   return (
     <div>
       <div className="space-y-2 border-b border-line px-5 py-3">
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={action.available && action.selection.enabled ? "green" : "gray"}>
-            {!action.available ? "不可用" : action.selection.enabled ? "可选用" : "不参与模型选择"}
+            {!action.available ? t("settings.unavailable") : action.selection.enabled ? t("settings.actionSelectable") : t("settings.actionHidden")}
           </Badge>
           {!action.available && action.unavailableReason && <span className="text-[12px] text-warning">{unavailableReasonText(action.unavailableReason)}</span>}
         </div>
@@ -199,23 +201,24 @@ function BehaviorSection({
 }: {
   action: ActionEntryView;
 }) {
+  const { t } = useI18n();
   const visibility = action.visibility;
   const scenarioOverrides = Object.entries(visibility.scenarios);
   return (
-    <SettingsDisclosure title="执行策略与来源" className="m-3">
+    <SettingsDisclosure title={t("settings.executionPolicy")} className="m-3">
       <FieldRow
         title={t("settings.availability")}
         description={t("settings.codeGrantsExecutorSupportAndAvailabilityInTheSelected")}
       >
         <span className="flex flex-wrap items-center gap-1.5">
           <Badge tone={action.granted ? "green" : "gray"}>
-            {action.granted ? "granted" : "not granted"}
+            {action.granted ? t("settings.granted") : t("settings.notGranted")}
           </Badge>
           <Badge tone={action.supported ? "green" : "gray"}>
-            {action.supported ? "supported" : "executor unavailable"}
+            {action.supported ? t("settings.supported") : t("settings.executorUnavailable")}
           </Badge>
           <Badge tone={action.available ? "green" : "yellow"}>
-            {action.available ? "available" : "unavailable"}
+            {action.available ? t("settings.available") : t("settings.unavailable")}
           </Badge>
           {!action.available && action.unavailableReason !== null && (
             <span className="text-[11px] text-fg-faint">
@@ -230,10 +233,10 @@ function BehaviorSection({
       >
         <span className="flex items-center gap-1.5 text-[12px] text-fg">
           <Badge tone={action.selection.enabled ? "green" : "gray"}>
-            {action.selection.enabled ? "selectable" : "not selectable"}
+            {action.selection.enabled ? t("settings.selectable") : t("settings.notSelectable")}
           </Badge>
           <span className="font-mono text-[11px] text-fg-faint">
-            source: {action.selection.source}
+            {t("settings.sourceLabel")}{action.selection.source}
           </span>
         </span>
       </FieldRow>
@@ -242,15 +245,15 @@ function BehaviorSection({
         description={t("settings.declaredDefaultAndPerScenarioOverridesFromTheCatalog")}
       >
         <span className="font-mono text-[11px] text-fg-muted">
-          default:{" "}
+          {t("settings.defaultLabel")}{" "}
           {visibility.default === null
-            ? "inherit (visible)"
+            ? t("settings.inheritVisible")
             : visibility.default
-              ? "visible"
-              : "hidden"}
+              ? t("settings.visible")
+              : t("settings.hidden")}
           {scenarioOverrides.length > 0 &&
             ` · ${scenarioOverrides
-              .map(([name, enabled]) => `${name}: ${enabled ? "visible" : "hidden"}`)
+              .map(([name, enabled]) => `${name}: ${enabled ? t("settings.visible") : t("settings.hidden")}`)
               .join(", ")}`}
         </span>
       </FieldRow>
@@ -260,8 +263,8 @@ function BehaviorSection({
       >
         <span className="font-mono text-[11px] text-fg-muted">
           {action.runtime.timeoutSeconds !== null
-            ? `${action.runtime.timeoutSeconds}s (from ${action.runtime.timeoutSource})`
-            : "none"}
+            ? t("settings.timeoutSource", { seconds: action.runtime.timeoutSeconds, source: action.runtime.timeoutSource })
+            : t("common.none")}
         </span>
       </FieldRow>
       <FieldRow title={t("settings.parallelPolicy")}>
@@ -271,7 +274,7 @@ function BehaviorSection({
       </FieldRow>
       <FieldRow title={t("settings.hooks")}>
         <span className="font-mono text-[11px] break-all text-fg-muted">
-          normalize: {action.runtime.hooks.normalize.join(", ") || "—"} · execute:{" "}
+          {t("settings.normalizeLabel")}{action.runtime.hooks.normalize.join(", ") || "—"} {t("settings.executeLabel")}{" "}
           {action.runtime.hooks.execute.join(", ") || "—"}
         </span>
       </FieldRow>
@@ -304,8 +307,9 @@ function BehaviorSection({
 // ---------------------------------------------------------------------------
 
 function ModelUsesSection({ action }: { action: ActionEntryView }) {
+  const { t } = useI18n();
   if (action.modelUses.length === 0) return <p className="border-b border-line px-5 py-3 text-[12px] text-fg-muted">{t("settings.thisActionRunsDeterministicallyNoModelIsInvolved")}</p>;
-  return <FieldSection title={t("settings.modelUses")} description="各用途的模型绑定由所有执行情景共享。">
+  return <FieldSection title={t("settings.modelUses")} description={t("settings.sharedModelBindings")}>
     {action.modelUses.map((modelUse) => <ModelUseEditor key={modelUse.consumer} modelUse={modelUse} />)}
   </FieldSection>;
 }
@@ -321,6 +325,7 @@ function bindingLabel(
 }
 
 function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
+  const { t } = useI18n();
   const state = useConfigDraftStore();
   const entry = bindingEntry(state, modelUse.consumer);
   const writeSource = bindingsWriteSource();
@@ -384,17 +389,17 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
         </span>
         <Badge tone="gray">{modelUse.operation}</Badge>
         {entry !== null && entry.status === "modified" && (
-          <Badge tone="accent">已修改</Badge>
+          <Badge tone="accent">{t("common.modified")}</Badge>
         )}
         {entry !== null && entry.status === "new" && (
-          <Badge tone="accent">草稿新增</Badge>
+          <Badge tone="accent">{t("settings.draftCreated")}</Badge>
         )}
         {entry === null && modelUse.binding === null && (
-          <Badge tone="yellow">未绑定</Badge>
+          <Badge tone="yellow">{t("settings.unbound")}</Badge>
         )}
         {entry !== null && entry.status !== "saved" && (
           <IconButton
-            label="Withdraw this binding change"
+            label={t("settings.withdrawBinding")}
             onClick={() => withdrawBinding(modelUse.consumer)}
           >
             <RotateCcw size={12} />
@@ -403,9 +408,9 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
       </div>
 
       <div className="mt-2 grid gap-2 md:grid-cols-[minmax(180px,220px)_minmax(0,1fr)] md:items-center">
-        <span className="text-[11px] text-fg-muted">实现</span>
+        <span className="text-[11px] text-fg-muted">{t("settings.implementation")}</span>
         <SelectInput
-          ariaLabel={`${modelUse.consumer} implementation`}
+          ariaLabel={t("settings.consumerImplementation", { consumer: modelUse.consumer })}
           value={implementation}
           disabled={readOnly}
           options={modelUse.implementations.map((item) => ({
@@ -453,7 +458,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
         {implementation === "llm_task" &&
           optionRules.max_output_tokens !== undefined && (
             <OptionalNumberRow
-              label="Max output tokens"
+              label={t("settings.maxOutputTokens")}
               description={t("settings.unsetInheritsTheTaskChainSOwnLimit")}
               value={maxOutputTokens}
               min={optionRules.max_output_tokens.minimum ?? 1}
@@ -468,7 +473,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
             <>
               <span className="text-[11px] text-fg-muted">{t("settings.relevanceThreshold")}</span>
               <NumberInput
-                ariaLabel={`${modelUse.consumer} relevance threshold`}
+                ariaLabel={t("settings.consumerRelevance", { consumer: modelUse.consumer })}
                 value={relevanceThreshold}
                 integer
                 min={optionRules.relevance_threshold.minimum ?? 0}
@@ -486,7 +491,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
         )}
       {runningDiffers && modelUse.binding !== null && (
         <div className="mt-2 text-[10.5px] text-fg-faint">
-          running:{" "}
+          {t("settings.runningValue")}{" "}
           {bindingLabel(
             modelUse.binding.implementation,
             modelUse.binding.taskProfile,
@@ -512,6 +517,7 @@ function LlmTaskTarget({
   disabled: boolean;
   onCommit: (next: string) => void;
 }) {
+  const { t } = useI18n();
   const state = useConfigDraftStore();
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
   const chains = projectCollection(state, "llm.tasks");
@@ -519,10 +525,10 @@ function LlmTaskTarget({
   const known = current !== "" && chains.some((chain) => chain.id === current);
   return (
     <>
-      <span className="text-[11px] text-fg-muted">任务链</span>
+      <span className="text-[11px] text-fg-muted">{t("settings.taskChains")}</span>
       <span className="flex items-center gap-1.5">
         <SelectInput
-          ariaLabel={`${consumer} task chain`}
+          ariaLabel={t("settings.consumerTaskChain", { consumer })}
           value={current}
           disabled={disabled || chains.length === 0}
           options={[
@@ -531,11 +537,11 @@ function LlmTaskTarget({
               : []),
             ...chains.map((chain) => ({
               value: chain.id,
-              label: chain.isNew ? `${chain.id} (new in draft)` : chain.id,
+              label: chain.isNew ? t("settings.newDraftId", { id: chain.id }) : chain.id,
             })),
           ]}
           emptyLabel={
-            chains.length === 0 ? "Create a task chain first" : "Select…"
+            chains.length === 0 ? t("settings.createChainFirst") : t("settings.selectPlaceholder")
           }
           onChange={(next) => {
             if (next !== "") onCommit(next);
@@ -547,7 +553,7 @@ function LlmTaskTarget({
             variant="ghost"
             onClick={() => navigateTo("llm-tasks", `llm.tasks.${current}`)}
           >
-            Open <ArrowRight size={11} />
+            {t("common.open")}<ArrowRight size={11} />
           </Button>
         )}
       </span>
@@ -567,6 +573,7 @@ function StructuredDecisionTarget({
   disabled: boolean;
   onCommit: (next: string) => void;
 }) {
+  const { t } = useI18n();
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
   const usesValue = useConfigDraftStore((s) => {
     const draft = Object.values(s.drafts).find(
@@ -586,10 +593,10 @@ function StructuredDecisionTarget({
   const known = current !== "" && uses.some((use) => use.id === current);
   return (
     <>
-      <span className="text-[11px] text-fg-muted">逻辑用途</span>
+      <span className="text-[11px] text-fg-muted">{t("settings.uses")}</span>
       <span className="flex items-center gap-1.5">
         <SelectInput
-          ariaLabel={`${consumer} decision model use`}
+          ariaLabel={t("settings.consumerDecisionUse", { consumer })}
           value={current}
           disabled={disabled || uses.length === 0}
           options={[
@@ -602,7 +609,7 @@ function StructuredDecisionTarget({
             })),
           ]}
           emptyLabel={
-            uses.length === 0 ? "Create a decision model use first" : "Select…"
+            uses.length === 0 ? t("settings.createDecisionUseFirst") : t("settings.selectPlaceholder")
           }
           onChange={(next) => {
             if (next !== "") onCommit(next);
@@ -621,6 +628,7 @@ function StructuredDecisionTarget({
 
 /** Read-only target of an embedding_similarity binding: the owner's shared use. */
 function EmbeddingSimilarityTarget({ owner }: { owner: string | null }) {
+  const { t } = useI18n();
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
   const path = owner !== null ? embeddingOwnerUsePath(owner) : null;
   const useValue = useConfigDraftStore((s) => {
@@ -633,22 +641,22 @@ function EmbeddingSimilarityTarget({ owner }: { owner: string | null }) {
   const current = typeof useValue === "string" && useValue !== "" ? useValue : null;
   return (
     <>
-      <span className="text-[11px] text-fg-muted">Embedding 用途</span>
+      <span className="text-[11px] text-fg-muted">{t("settings.embeddingUses")}</span>
       <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-fg-muted">
         {owner === null ? (
-          <span>未声明 owner。</span>
+          <span>{t("settings.noOwner")}</span>
         ) : (
           <>
             <span className="font-mono">{path}</span>
             <Badge tone={current !== null ? "green" : "yellow"}>
-              {current ?? "not set"}
+              {current ?? t("common.unset")}
             </Badge>
             <Button
               size="xs"
               variant="ghost"
               onClick={() => navigateTo(page, path ?? undefined)}
             >
-              Edit on the {owner} page <ArrowRight size={11} />
+              {t("settings.editOn")}{owner} {t("settings.pageUnit")}<ArrowRight size={11} />
             </Button>
           </>
         )}
@@ -673,6 +681,7 @@ function OptionalNumberRow({
   disabled: boolean;
   onCommit: (next: number | null) => void;
 }) {
+  const { t } = useI18n();
   const [text, setText] = useState(value === null ? "" : String(value));
   const [invalid, setInvalid] = useState(false);
   useEffect(() => {
@@ -703,7 +712,7 @@ function OptionalNumberRow({
         <input
           aria-label={label}
           inputMode="numeric"
-          placeholder="unset"
+          placeholder={t("common.unset")}
           className={`${inputClass} font-mono ${invalid ? "border-danger" : ""}`}
           value={text}
           disabled={disabled}
@@ -750,13 +759,13 @@ function RetrievalSection({ action }: { action: ActionEntryView }) {
     >
       <div className="space-y-1.5 px-5 py-3 text-[11px] text-fg-muted">
         <div>
-          sources: {retrieval.sources.join(", ") || "—"} · operations:{" "}
-          {retrieval.operations.join(", ") || "—"} · channels:{" "}
+          {t("settings.sourcesLabel")}{retrieval.sources.join(", ") || "—"} {t("settings.operationsLabel")}{" "}
+          {retrieval.operations.join(", ") || "—"} {t("settings.channelsLabel")}{" "}
           {retrieval.queryChannels.join(", ") || "—"}
         </div>
         <div className="font-mono text-[10.5px] text-fg-faint">
-          max steps {retrieval.maxSteps} · snapshot {retrieval.snapshotMaxChars}{" "}
-          chars · page {retrieval.page.maxItems} items / {retrieval.page.maxChars}{" "}
+          {t("settings.maxSteps")}{retrieval.maxSteps} {t("settings.snapshotLabel")}{retrieval.snapshotMaxChars}{" "}
+          {t("settings.pageBudget")}{retrieval.page.maxItems} {t("settings.pageItems")}{retrieval.page.maxChars}{" "}
           {t("home.chars")}</div>
       </div>
     </FieldSection>
@@ -768,12 +777,13 @@ function RetrievalSection({ action }: { action: ActionEntryView }) {
 // ---------------------------------------------------------------------------
 
 function ProtocolSection({ action }: { action: ActionEntryView }) {
+  const { t } = useI18n();
   const semantic = action.semantic;
   return (
-    <SettingsDisclosure title="协议详情" className="m-3">
+    <SettingsDisclosure title={t("settings.protocolDetails")} className="m-3">
       <div className="space-y-3 px-5 py-3">
         <div>
-          <div className="text-[11px] font-medium text-fg">工具说明</div>
+          <div className="text-[11px] font-medium text-fg">{t("settings.toolDescription")}</div>
           <p className="mt-1 text-[11.5px] leading-5 whitespace-pre-wrap text-fg-muted">
             {action.tool.description}
           </p>
@@ -783,7 +793,7 @@ function ProtocolSection({ action }: { action: ActionEntryView }) {
         <SemanticList title={t("settings.effects")} items={semantic.effects} />
         <SemanticList title={t("settings.examples")} items={semantic.examples} />
         <div>
-          <div className="text-[11px] font-medium text-fg">参数结构</div>
+          <div className="text-[11px] font-medium text-fg">{t("settings.parameterSchema")}</div>
           <pre className="mt-1 max-h-64 overflow-auto rounded-md bg-bg-sunken p-2.5 font-mono text-[10.5px] leading-4 text-fg-muted">
             {JSON.stringify(action.tool.schema, null, 2)}
           </pre>

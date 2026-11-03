@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, message, tStatus } from "../../i18n";
 import { findRequestIdForTurn } from "../../store/turnStore";
 /**
  * Whole-Turn process view (plan §9): Turn → Cycle → Phase → Action, with the
@@ -90,12 +90,12 @@ export function ProcessPanel({
       const bundle = buildTraceExport(turnId, day, window);
       const result = await saveTraceExport(bundle);
       if (result.status === "saved") {
-        useAppStore.getState().pushToast("success", `Trace exported to ${result.path}.`);
+        useAppStore.getState().pushToast("success", message("trace.exportSaved", { path: result.path }));
       } else if (result.status === "downloaded") {
-        useAppStore.getState().pushToast("success", `Trace export downloaded as ${result.filename}.`);
+        useAppStore.getState().pushToast("success", message("trace.exportDownloaded", { name: result.filename }));
       }
     } catch (error) {
-      useAppStore.getState().pushToast("error", `Trace export failed: ${errorMessage(error)}`);
+      useAppStore.getState().pushToast("error", message("trace.exportFailed", { detail: errorMessage(error) }));
     } finally {
       setExporting(false);
     }
@@ -113,12 +113,12 @@ export function ProcessPanel({
     <div className="space-y-3">
       {window.truncated && <TruncationNotice />}
       <div className="flex items-center gap-2 text-[11px] text-fg-faint">
-        <span>{snapshot?.state ?? "Captured trace"}{activeTurnId === turnId && <span className="ml-2 animate-pulse-dot text-accent">live</span>}</span>
+        <span>{snapshot?.state ?? t("trace.capturedTrace")}{activeTurnId === turnId && <span className="ml-2 animate-pulse-dot text-accent">{t("common.live")}</span>}</span>
         <div className="ml-auto flex items-center gap-2">
           <Tabs
             items={[
-              { value: "overview", label: "概览" },
-              { value: "process", label: "过程" },
+              { value: "overview", label: t("trace.overviewTab") },
+              { value: "process", label: t("trace.processTab") },
             ]}
             value={tab}
             onChange={setTab}
@@ -128,12 +128,12 @@ export function ProcessPanel({
             disabled={exporting}
             onClick={() => void exportTrace()}
           >
-            <Download size={12} /> {exporting ? "Exporting…" : "Export trace…"}
+            <Download size={12} /> {exporting ? t("trace.exporting") : t("trace.exportTrace")}
           </button>
         </div>
       </div>
       {empty ? (
-        <MissingRecord what={`Process records of turn ${turnId}`} />
+        <MissingRecord what={t("trace.processRecordsOf", { id: turnId })} />
       ) : tab === "overview" ? (
         <>
           <OverviewCard process={process} />
@@ -153,7 +153,7 @@ export function ProcessPanel({
           {(snapshot?.jobs.length ?? 0) > 0 && <Collapsible title={t("runtime.jobs")} defaultOpen>
             {snapshot?.jobs.map((job) => <button key={job.job_id} className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[12px] hover:bg-hover"
               onClick={() => makeTraceNavigation(epoch, turnId, day).openJob(job.job_id)}>
-              <span className="flex-1 truncate">{job.summary || job.kind}</span><Badge>{job.state}</Badge>
+              <span className="flex-1 truncate">{job.summary || job.kind}</span><Badge>{tStatus(job.state)}</Badge>
             </button>)}
           </Collapsible>}
         </>
@@ -168,13 +168,13 @@ export function ProcessPanel({
  * adapter here so historical trace reads keep the familiar thinking/action
  * language without inventing a second event interpretation.
  */
-const ACTIVITY_FILTER_LABELS: Record<ActivityFilter, string> = {
-  All: "全部",
-  Thinking: "思考",
-  Actions: "动作",
-  Context: "语境",
-  Errors: "错误",
-};
+function activityFilterLabels(): Record<ActivityFilter, string> { return {
+  All: t("trace.all"),
+  Thinking: t("trace.thinking"),
+  Actions: t("trace.actions"),
+  Context: t("trace.context"),
+  Errors: t("trace.errors"),
+}; }
 
 export function ActivityTimeline({
   events,
@@ -200,8 +200,8 @@ export function ActivityTimeline({
   const groups = activityGroups(activity.trail, filter);
   return (
     <SectionCard
-      title="活动"
-      description="与过程记录共用同一事件流"
+      title={t("trace.activity")}
+      description={t("trace.activityStreamHint")}
       actions={
         <span className="flex items-center gap-2 text-[10px] text-fg-faint">
           <span>{activity.trail.length} {t("trace.steps")}</span>
@@ -210,14 +210,14 @@ export function ActivityTimeline({
             onClick={() => setFull(!full)}
             className="text-fg-faint transition-colors hover:text-fg-muted"
           >
-            {full ? "收起" : `展开全部`}
+            {full ? t("chat.collapse") : t("trace.expandAll")}
           </button>
         </span>
       }
     >
-      <div className="mb-2 flex flex-wrap gap-1" aria-label="活动筛选">
+      <div className="mb-2 flex flex-wrap gap-1" aria-label={t("trace.filterActivity")}>
         {ACTIVITY_FILTERS.map((value) => <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}
-          className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${filter === value ? "border-accent/40 bg-accent-soft text-accent" : "border-line text-fg-muted hover:bg-hover"}`}>{ACTIVITY_FILTER_LABELS[value]}</button>)}
+          className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${filter === value ? "border-accent/40 bg-accent-soft text-accent" : "border-line text-fg-muted hover:bg-hover"}`}>{activityFilterLabels()[value]}</button>)}
       </div>
       <div className={full ? "rounded-lg" : "max-h-80 overflow-y-auto rounded-lg"}>
         {groups.map((group) => {
@@ -245,7 +245,7 @@ export function ActivityTimeline({
                     aligns with steps' own expand chevrons. */}
                 <div className="flex min-w-0 flex-1 items-start gap-1">
                   <div className="min-w-0 flex-1"><ActivityStepComponent item={item} rail /></div>
-                  {glimpse?.callId && <button title="Open action" aria-label={`Open ${glimpse.actionId}`} className="mt-[3px] shrink-0 rounded p-0.5 text-fg-faint hover:bg-hover hover:text-accent"
+                  {glimpse?.callId && <button title={t("trace.openAction", { id: glimpse.actionId })} aria-label={t("trace.openAction", { id: glimpse.actionId })} className="mt-[3px] shrink-0 rounded p-0.5 text-fg-faint hover:bg-hover hover:text-accent"
                     onClick={() => pushActionDetail(epoch, turnId, day, { callId: glimpse.callId ?? null, action: glimpse.actionId, ordinal: 0 })}><ChevronRight size={12} /></button>}
                 </div>
                 <time className="shrink-0 pt-0.5 font-mono text-[10px] text-fg-faint" title={`+${offsetSeconds.toFixed(1)}s`}>{new Date(item.timestamp).toLocaleTimeString([], { hour12: false })}</time>
@@ -253,7 +253,7 @@ export function ActivityTimeline({
             })}
           </div>;
         })}
-        {groups.length === 0 && <div className="px-2 py-3 text-[12px] text-fg-faint">No matching activity.</div>}
+        {groups.length === 0 && <div className="px-2 py-3 text-[12px] text-fg-faint">{t("trace.noMatchingActivity")}</div>}
       </div>
     </SectionCard>
   );
@@ -325,7 +325,7 @@ function OverviewCard({ process }: { process: TurnProcess }): ReactElement {
   return (
     <SectionCard title={t("trace.overview")}>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {[["循环", cyclesCount], ["模型调用", llmTasksCount], ["动作", actionsCount], ["检索", searchesCount]].map(([label, value]) => (
+        {[[t("trace.cycles"), cyclesCount], [t("trace.modelCalls"), llmTasksCount], [t("trace.actions"), actionsCount], [t("trace.searches"), searchesCount]].map(([label, value]) => (
           <div key={label} className="rounded-lg bg-bg-sunken px-3 py-2">
             <div className="text-[10px] font-medium tracking-wide text-fg-faint uppercase">{label}</div>
             <div className="mt-0.5 font-mono text-[13px] font-medium tabular-nums">{value}</div>
@@ -336,7 +336,7 @@ function OverviewCard({ process }: { process: TurnProcess }): ReactElement {
         <div className="mt-2.5 flex flex-wrap items-center gap-x-3.5 gap-y-1 border-t border-line/60 pt-2 text-[11px] text-fg-muted">
           {elapsed !== null && (
             <span>
-              <span className="text-fg-faint">总耗时 </span>
+              <span className="text-fg-faint">{t("trace.totalDuration")}</span>
               <span className="font-mono font-medium text-fg">
                 {formatDuration(elapsed.from, elapsed.to)}
               </span>
@@ -344,7 +344,7 @@ function OverviewCard({ process }: { process: TurnProcess }): ReactElement {
           )}
           {elapsed !== null && cyclesCount > 0 && (
             <span>
-              <span className="text-fg-faint">平均每 Cycle </span>
+              <span className="text-fg-faint">{t("trace.averageCycle")}</span>
               <span className="font-mono font-medium text-fg">
                 {formatDuration(0, (elapsed.to - elapsed.from) / cyclesCount)}
               </span>
@@ -354,18 +354,17 @@ function OverviewCard({ process }: { process: TurnProcess }): ReactElement {
             <span title={t("trace.usageRetainedModelResponsesUnavailableResponsesExcluded")}>
               <span className="text-fg-faint">tokens </span>
               <span className="font-mono font-medium text-fg">{formatTokens(tokensTotal)}</span>
-              <span className="text-fg-faint">（{tokenTasks.length} 次调用）</span>
+              <span className="text-fg-faint">{t("trace.callCount", { count: tokenTasks.length })}</span>
             </span>
           )}
           {failures > 0 && (
             <button
               type="button"
               onClick={scrollToFailure}
-              title="滚动到第一个失败的 phase"
+              title={t("trace.firstFailure")}
               className="font-medium text-danger hover:underline"
             >
-              ● {failures} 个失败
-            </button>
+              ● {failures} {t("trace.failuresUnit")}</button>
           )}
         </div>
       )}
@@ -428,8 +427,7 @@ function ProcessTree({
                     ))}
                     {phase.actions.length === 0 && phase.llmTasks.length === 0 && (
                       <div className="px-1.5 text-[12px] text-fg-faint">
-                        No retained records in this phase.
-                      </div>
+                        {t("trace.noPhaseRecords")}</div>
                     )}
                   </div>
                 </PhaseCard>
@@ -442,8 +440,7 @@ function ProcessTree({
       {process.unscopedActions.length > 0 && (
         <div className="space-y-0.5">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Actions without a cycle scope
-          </div>
+            {t("trace.unscopedActions")}</div>
           {process.unscopedActions.map((trace, index) => (
             <ActionRow
               key={index}
@@ -459,8 +456,7 @@ function ProcessTree({
       {process.searches.length > 0 && (
         <div className="space-y-0.5">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Searches
-          </div>
+            {t("trace.searches")}</div>
           {process.searches.map((search) => (
             <button
               key={search.searchId}
@@ -479,7 +475,7 @@ function ProcessTree({
               </span>
               <span className="text-fg-faint">
                 {search.steps.length} {t("trace.steps")}{search.invocations.length > 0
-                  ? ` · ${search.invocations.length} model invocations`
+                  ? t("trace.invocationCount", { count: search.invocations.length })
                   : ""}
               </span>
             </button>
@@ -490,8 +486,7 @@ function ProcessTree({
       {orphanTasks.length > 0 && (
         <div className="space-y-0.5">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Other model tasks
-          </div>
+            {t("trace.otherTasks")}</div>
           {orphanTasks.map((task) => (
             <button
               key={task.taskId}
@@ -510,7 +505,7 @@ function ProcessTree({
               </span>
               {task.status !== null && (
                 <Badge tone={task.status === "failed" ? "red" : "green"}>
-                  {task.status}
+                  {tStatus(task.status)}
                 </Badge>
               )}
             </button>
@@ -601,6 +596,7 @@ function PhaseDot({
   name: string;
   phase: PhaseProcess | undefined;
 }): ReactElement {
+  const { t } = useI18n();
   const status = phase?.status ?? "absent";
   const cls =
     status === "completed"
@@ -612,7 +608,7 @@ function PhaseDot({
           : "bg-line-strong/60";
   return (
     <span
-      title={`${name} · ${phaseHint(name)}${phase === undefined ? "（未运行）" : ""}`}
+      title={`${name} · ${phaseHint(name)}${phase === undefined ? t("trace.notRunSuffix") : ""}`}
       className={`block h-2 w-[2px] rotate-[24deg] rounded-full ${cls}`}
     />
   );
@@ -629,7 +625,7 @@ function PhaseDot({
     {running && <Loader2 size={11} className="animate-spin-slow text-accent" />}
     {starts.length > 0 && (running || ends.length > 0) && <span className="font-mono" title={t("trace.observedPhasesElapsedTime")}>
       {formatDuration(Math.min(...starts), running ? Date.now() / 1000 : Math.max(...ends))}</span>}
-    {actions > 0 && <span>{actions} {actions === 1 ? "action" : "actions"}</span>}
+    {actions > 0 && <span>{actions} {actions === 1 ? t("history.action") : t("chat.actionCountUnit")}</span>}
   </span>;
 }
 
@@ -655,8 +651,8 @@ function PhaseCard({ phase, onOpenTask, onOpenAction, children }: {
     phase.phase === "phase2"
       ? phase.llmTasks.flatMap((task) => task.actionCalls)
       : [];
-  const headline = domains.length > 0 ? `已选择 ${domains.length} 个域`
-    : phase.actions.length > 0 ? `${phase.actions.length} 个动作`
+  const headline = domains.length > 0 ? t("trace.selectedDomainCount", { count: domains.length })
+    : phase.actions.length > 0 ? t("trace.actionCount", { count: phase.actions.length })
     : phaseShort(phase.phase);
   return (
     <div className={`overflow-hidden rounded-lg border ${running ? "border-accent/40" : "border-line"}`}>
@@ -673,8 +669,7 @@ function PhaseCard({ phase, onOpenTask, onOpenAction, children }: {
         {lastTask && <button type="button" title={t("trace.viewLlmMessageStack")}
           onClick={() => onOpenTask(lastTask)}
           className="inline-flex h-5.5 shrink-0 items-center gap-1 rounded-full border border-accent/30 bg-accent-soft px-2 text-[10px] font-medium text-accent transition-colors hover:bg-accent hover:text-white">
-          <Brain size={10} /> context
-        </button>}
+          <Brain size={10} /> {t("trace.context")}</button>}
         <span title={phaseHint(phase.phase)} className="shrink-0 font-mono text-[10px] text-fg-faint/70">{phase.phase}</span>
       </div>
       {/* The intent line and the action summary badges stay visible in both
@@ -687,17 +682,17 @@ function PhaseCard({ phase, onOpenTask, onOpenAction, children }: {
       </div>}
       {open && <div className="space-y-3 border-t border-line bg-bg-elev px-3 py-3">
         {reasoning && <div className="rounded-r-lg border-l-2 border-accent/40 bg-bg-sunken/60 px-3 py-2">
-          <div className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold tracking-wide text-accent uppercase"><Brain size={10} /> Reasoning</div>
+          <div className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold tracking-wide text-accent uppercase"><Brain size={10} /> {t("trace.reasoning")}</div>
           <div className={reasoningFull ? undefined : "line-clamp-3"}>
             <Markdown className="md-calm text-[12px] text-fg-muted">{reasoning}</Markdown>
           </div>
           <button type="button" onClick={() => setReasoningFull(!reasoningFull)}
             className="mt-0.5 text-[10.5px] text-fg-faint transition-colors hover:text-fg-muted">
-            {reasoningFull ? "收起" : "展开全文"}
+            {reasoningFull ? t("chat.collapse") : t("trace.expandText")}
           </button>
         </div>}
         {controls.length > 0 && <div className="space-y-1">
-          <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">控制请求</div>
+          <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">{t("trace.controlRequests")}</div>
           {controls.map((call, index) => <div key={index} className="space-y-1 py-1 text-[12px]">
             <span className="font-mono text-accent">{call.name}</span>
             {Object.entries(call.arguments).map(([key, value]) => <div key={key} className="break-words text-fg-muted">
@@ -707,7 +702,7 @@ function PhaseCard({ phase, onOpenTask, onOpenAction, children }: {
         </div>}
         {plannedActions.length > 0 && (
           <div className="space-y-1">
-            <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">动作规划</div>
+            <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">{t("trace.actionPlanning")}</div>
             {(() => {
               const ordinals = new Map<string, number>();
               return plannedActions.map((call, index) => {
@@ -785,6 +780,7 @@ function ActionRow({
   day: string | null;
   trace: ActionTrace;
 }): ReactElement {
+  const { t } = useI18n();
   const action = trace.call?.action ?? trace.result?.action ?? "action";
   const status = actionTraceStatus(trace);
   const domain = action.split(".")[0] ?? "";
@@ -845,10 +841,10 @@ function ActionRow({
         )}
         <span className="ml-auto flex shrink-0 items-center gap-2.5 font-mono text-[10.5px] text-fg-faint">
           {trace.llmTaskIds.length > 0 && (
-            <span title="模型调用">{trace.llmTaskIds.length} 次模型</span>
+            <span title={t("trace.modelCall")}>{t("trace.modelCallCount", { count: trace.llmTaskIds.length })}</span>
           )}
           {trace.searchIds.length > 0 && (
-            <span title="检索">{trace.searchIds.length} 次检索</span>
+            <span title={t("trace.search")}>{trace.searchIds.length} {t("trace.searchesUnit")}</span>
           )}
           {duration !== null && <span>{formatDuration(0, duration)}</span>}
         </span>

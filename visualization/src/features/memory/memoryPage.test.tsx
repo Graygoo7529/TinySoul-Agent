@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -204,7 +205,7 @@ describe("MemoryPage active memory", () => {
     expect(queryOf(reads[0], "day")).toBeNull();
 
     // Binding an archive day re-reads with the day parameter.
-    const selector = container.querySelector('select[aria-label="记忆日期"]') as HTMLSelectElement;
+    const selector = container.querySelector(`select[aria-label="${t("memory.memoryDay")}"]`) as HTMLSelectElement;
     const setter = Object.getOwnPropertyDescriptor(
       window.HTMLSelectElement.prototype,
       "value",
@@ -229,13 +230,13 @@ describe("MemoryPage active memory", () => {
     );
     await renderPage();
     // The active day reads fine but is empty — a fact, not a failure.
-    expect(container.textContent).toContain("还没有记录内容");
+    expect(container.textContent).toContain(t("memory.nothingRecordedYet"));
 
     await act(async () => {
       useMemoryPage.getState().setActiveDay(ARCHIVE);
     });
     await flush();
-    expect(container.textContent).toContain("这一天没有归档记忆");
+    expect(container.textContent).toContain(t("memory.archivedMemoryDay"));
   });
 });
 
@@ -257,24 +258,24 @@ describe("MemoryPage knowledge catalog", () => {
     );
     await renderPage();
     await act(async () => {
-      buttonByText("知识库").click();
+      buttonByText(t("memory.persistent")).click();
     });
     expect(container.textContent).toContain("project");
     expect(container.textContent).toContain("tinysoul");
-    expect(container.textContent).toContain("实体");
-    expect(container.textContent).toContain("概念");
+    expect(container.textContent).toContain(t("memory.scopeEntity"));
+    expect(container.textContent).toContain(t("memory.scopeConcept"));
     expect(container.querySelector("svg.lucide-user")).not.toBeNull();
     expect(container.querySelector("svg.lucide-lightbulb")).not.toBeNull();
     expect(endpoint.calls("/v2/memory/catalog")).toHaveLength(1);
 
     await act(async () => {
-      buttonByText("实体").click();
+      buttonByText(t("memory.scopeEntity")).click();
     });
     let reads = endpoint.calls("/v2/memory/catalog");
     expect(reads).toHaveLength(2);
     expect(queryOf(reads[1], "kind")).toBe("entity");
 
-    const filter = container.querySelector('input[aria-label="筛选知识"]') as HTMLInputElement;
+    const filter = container.querySelector(`input[aria-label="${t("memory.filterKnowledge2")}"]`) as HTMLInputElement;
     const setter = Object.getOwnPropertyDescriptor(
       window.HTMLInputElement.prototype,
       "value",
@@ -303,7 +304,7 @@ describe("MemoryPage knowledge catalog", () => {
     );
     await renderPage();
     await act(async () => {
-      buttonByText("知识库").click();
+      buttonByText(t("memory.persistent")).click();
     });
     await act(async () => {
       buttonByText("tinysoul").click();
@@ -311,7 +312,7 @@ describe("MemoryPage knowledge catalog", () => {
     await flush();
     const title = container.querySelector('div[title="memory:concept/tinysoul"]');
     expect(title?.textContent).toBe("上下文容量治理");
-    expect(title?.parentElement?.textContent).toContain("概念");
+    expect(title?.parentElement?.textContent).toContain(t("memory.scopeConcept"));
     expect(title?.parentElement?.querySelector("svg.lucide-lightbulb")).not.toBeNull();
     expect(title?.parentElement?.querySelector("span.rounded.border")?.textContent).toBe("memory:concept/tinysoul");
   });
@@ -330,16 +331,16 @@ describe("MemoryPage knowledge catalog", () => {
     }));
     await renderPage();
     await act(async () => {
-      buttonByText("知识库").click();
+      buttonByText(t("memory.persistent")).click();
     });
     const row = (ref: string) => container.querySelector(`button[title="${ref}"]`);
     expect(row("memory:entity/project")?.textContent).not.toContain("active");
     expect(row("memory:entity/old-project")?.textContent).toContain("已合并");
-    expect(row("memory:entity/old-project")?.textContent).toContain("重定向");
+    expect(row("memory:entity/old-project")?.textContent).toContain(t("memory.redirect"));
     expect(row("memory:entity/old-project")?.textContent).not.toContain("merged");
     expect(row("memory:entity/old-project")?.textContent).not.toContain("redirect");
     expect(row("memory:concept/old-context")?.textContent).toContain("已被取代");
-    expect(row("memory:note/old-note")?.textContent).toContain("已撤回");
+    expect(row("memory:note/old-note")?.textContent).toContain(t("history.retracted"));
     expect(row("memory:fact/legacy")?.textContent).toContain("legacy");
   });
 
@@ -365,11 +366,11 @@ describe("MemoryPage knowledge catalog", () => {
     );
     await renderPage();
     await act(async () => {
-      buttonByText("知识库").click();
+      buttonByText(t("memory.persistent")).click();
     });
-    expect(container.textContent).toContain("还没有持久知识");
-    buttonByText("Start a conversation");
-    buttonByText("整理 Memory");
+    expect(container.textContent).toContain(t("memory.persistentKnowledgeYet"));
+    buttonByText(t("memory.startConversation"));
+    buttonByText(t("memory.organize"));
   });
 });
 
@@ -401,20 +402,20 @@ describe("MemoryPage documents", () => {
     // The original document stays on screen; the redirect is an entry, not
     // a silent swap.
     expect(container.textContent).toContain("已合并");
-    expect(container.textContent).toContain("This document redirects to");
+    expect(container.textContent).toContain(t("memory.redirectPrefix"));
     expect(container.textContent).toContain("memory:entity/project");
     expect(container.textContent).toContain("Document body.");
     let reads = endpoint.calls("/v2/memory/document");
     expect(reads).toHaveLength(1);
 
     await act(async () => {
-      buttonByText("Open target").click();
+      buttonByText(t("memory.openTarget")).click();
     });
     reads = endpoint.calls("/v2/memory/document");
     expect(reads).toHaveLength(2);
     expect(queryOf(reads[1], "ref")).toBe("memory:entity/project");
     expect(useMemoryPage.getState().ref).toBe("memory:entity/project");
-    expect(container.textContent).not.toContain("This document redirects to");
+    expect(container.textContent).not.toContain(t("memory.redirectPrefix"));
   });
 
   it("distinguishes a missing document from an empty one", async () => {
@@ -441,13 +442,13 @@ describe("MemoryPage documents", () => {
     useMemoryPage.setState({ section: "persistent", ref: "memory:entity/gone" });
     await renderPage();
     await flush();
-    expect(container.textContent).toContain("文档不存在");
+    expect(container.textContent).toContain(t("memory.documentMissing"));
 
     await act(async () => {
       (container.querySelector('button[title="memory:entity/empty"]') as HTMLButtonElement).click();
     });
-    expect(container.textContent).toContain("文档内容为空");
-    expect(container.textContent).not.toContain("文档不存在");
+    expect(container.textContent).toContain(t("home.documentEmpty"));
+    expect(container.textContent).not.toContain(t("memory.documentMissing"));
   });
 
   it("lists direct refs and runs backlinks only on an explicit request", async () => {
@@ -493,19 +494,19 @@ describe("MemoryPage documents", () => {
     await flush();
 
     await act(async () => {
-      (container.querySelector('button[aria-label="引用与反链"]') as HTMLButtonElement).click();
+      (container.querySelector(`button[aria-label="${t("home.referencesBacklinks")}"]`) as HTMLButtonElement).click();
     });
     await flush();
     // Direct refs are read with the document — no search call yet; the owner
     // title/clue stay the primary text with the full ref as the locator.
-    expect(container.textContent).toContain("引用了");
+    expect(container.textContent).toContain(t("resources.outgoing"));
     expect(container.textContent).toContain("Project");
     expect(container.textContent).toContain("Related project");
     expect(container.textContent).toContain("memory:entity/project");
     expect(endpoint.calls("/v2/memory/search", "POST")).toHaveLength(0);
 
     await act(async () => {
-      buttonByText("查找引用本文档的文档").click();
+      buttonByText(t("resources.findBacklinks")).click();
     });
     const searches = endpoint.calls("/v2/memory/search", "POST");
     expect(searches).toHaveLength(1);
@@ -555,14 +556,14 @@ describe("MemoryPage documents", () => {
     await renderPage();
     await flush();
     await act(async () => {
-      (container.querySelector('button[aria-label="引用与反链"]') as HTMLButtonElement).click();
+      (container.querySelector(`button[aria-label="${t("home.referencesBacklinks")}"]`) as HTMLButtonElement).click();
     });
     await flush();
     expect(endpoint.calls("/v2/memory/search", "POST")).toHaveLength(0);
 
     // Switching to the graph is the explicit ask: backlinks fire once.
     await act(async () => {
-      buttonByText("图谱").click();
+      buttonByText(t("resources.graph")).click();
     });
     await flush();
     expect(endpoint.calls("/v2/memory/search", "POST")).toHaveLength(1);
@@ -572,10 +573,10 @@ describe("MemoryPage documents", () => {
 
     // Toggling back and forth reuses the loaded results.
     await act(async () => {
-      buttonByText("列表").click();
+      buttonByText(t("resources.list")).click();
     });
     await act(async () => {
-      buttonByText("图谱").click();
+      buttonByText(t("resources.graph")).click();
     });
     await flush();
     expect(endpoint.calls("/v2/memory/search", "POST")).toHaveLength(1);
@@ -620,23 +621,23 @@ describe("MemoryPage documents", () => {
     );
     await renderPage();
     await act(async () => {
-      buttonByText("检索知识").click();
+      buttonByText(t("memory.search")).click();
     });
     await flush();
-    const input = container.querySelector('input[aria-label="检索内容"]') as HTMLInputElement;
+    const input = container.querySelector(`input[aria-label="${t("home.searchContent")}"]`) as HTMLInputElement;
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
     await act(async () => {
       setter?.call(input, "Context");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    const submit = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.trim() === "搜索")!;
+    const submit = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.trim() === t("resources.search"))!;
     await act(async () => {
       submit.click();
     });
     await flush();
     expect(container.textContent).toContain("Context owner 负责回收");
     expect(container.textContent).toContain("memory:fact/context-owner");
-    expect(container.textContent).toContain("事实");
+    expect(container.textContent).toContain(t("memory.scopeFact"));
     expect(container.querySelector("svg.lucide-pin")).not.toBeNull();
   });
 });
@@ -671,7 +672,7 @@ describe("MemoryPage organize", () => {
     );
     await renderPage();
     await act(async () => {
-      buttonByText("整理 Memory").click();
+      buttonByText(t("memory.organize")).click();
     });
     await flush();
 
@@ -682,7 +683,7 @@ describe("MemoryPage organize", () => {
     expect(checked).not.toBeNull();
     const chosenLabel = checked!.closest("label");
     expect(chosenLabel?.textContent).toContain("2026-09-27");
-    expect(chosenLabel?.textContent).toContain("尚无日记");
+    expect(chosenLabel?.textContent).toContain(t("resources.noDaily"));
 
     await act(async () => {
       buttonByText("开始 Memory 整理").click();
@@ -691,7 +692,7 @@ describe("MemoryPage organize", () => {
     expect(posts).toHaveLength(1);
     expect(bodyJson(posts[0])).toMatchObject({ kind: "memory", target_day: "2026-09-27" });
     expect(useAppStore.getState().activeTab).toBe("chat");
-    expect(container.querySelector('textarea[aria-label="整理说明"]')).toBeNull();
+    expect(container.querySelector(`textarea[aria-label="${t("resources.instructionInput")}"]`)).toBeNull();
   });
 
   it("pages further back through next_before instead of trusting the first page", async () => {
@@ -710,7 +711,7 @@ describe("MemoryPage organize", () => {
     );
     await renderPage();
     await act(async () => {
-      buttonByText("整理 Memory").click();
+      buttonByText(t("memory.organize")).click();
     });
     await flush();
     expect(container.textContent).toContain("2026-09-28");

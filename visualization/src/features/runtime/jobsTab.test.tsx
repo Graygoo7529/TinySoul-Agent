@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -158,11 +159,11 @@ describe("JobsTab", () => {
     await act(async () => jobRow().click());
     await wait();
 
-    await act(async () => buttonByText("Stop job").click());
+    await act(async () => buttonByText(t("runtime.stopJob")).click());
     await wait();
 
     expect(endpoint.calls(`/v2/requests/${TURN}/jobs/${JOB}/stop`, "POST")).toHaveLength(1);
-    expect(container.textContent).toContain("stopped");
+    expect(container.textContent).toContain(t("protocol.runtime.stopped"));
     // Terminal + drained ⇒ exhausted: the output polling stops.
     await wait();
     const settled = outputCalls;
@@ -190,15 +191,15 @@ describe("JobsTab", () => {
     await wait();
     await act(async () => jobRow().click());
     await wait();
-    expect(container.textContent).toContain("Stop job");
+    expect(container.textContent).toContain(t("runtime.stopJob"));
 
     reclaimed = true;
     await wait(60);
 
-    expect(container.textContent).toContain("jobs were reclaimed");
-    expect(container.textContent).toContain("Turn process");
+    expect(container.textContent).toContain(t("runtime.finishedJobs"));
+    expect(container.textContent).toContain(t("runtime.turnProcess"));
     // The frozen view keeps the last read but offers no job actions.
-    expect(container.textContent).not.toContain("Stop job");
+    expect(container.textContent).not.toContain(t("runtime.stopJob"));
     const readsBefore = endpoint.calls(`/v2/requests/${TURN}/jobs/${JOB}`).length;
     await wait(60);
     expect(endpoint.calls(`/v2/requests/${TURN}/jobs/${JOB}`).length).toBe(readsBefore);

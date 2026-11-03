@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -72,8 +73,8 @@ describe("MemoryGraph", () => {
     expect(container.textContent).toContain("graygoo");
     expect(container.textContent).toContain("TinySoul");
     expect(container.textContent).toContain("2026-10-09");
-    expect(container.textContent).toContain("被引用 ↓");
-    expect(container.textContent).toContain("引用了 →");
+    expect(container.textContent).toContain(t("resources.incomingArrow"));
+    expect(container.textContent).toContain(t("resources.outgoingArrow"));
     // Two real edges: one in, one out.
     expect(container.querySelectorAll("path[marker-end]")).toHaveLength(2);
   });
@@ -130,7 +131,7 @@ describe("MemoryGraph", () => {
   it("says there are no reference edges instead of drawing an empty graph", () => {
     renderGraph({ backlinksState: "ready" });
     expect(container.querySelector('svg[role="img"]')).toBeNull();
-    expect(container.textContent).toContain("这篇文档还没有引用边。");
+    expect(container.textContent).toContain(t("resources.noEdges"));
   });
 
   it("reports the left-column state honestly", () => {

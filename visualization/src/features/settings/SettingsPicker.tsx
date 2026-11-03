@@ -1,3 +1,4 @@
+import { useI18n } from "../../i18n";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, Menu, X } from "lucide-react";
 
@@ -8,6 +9,7 @@ export function SettingsPicker({ kind, label, children }: {
   label: ReactNode;
   children: (close: () => void) => ReactNode;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -38,16 +40,16 @@ export function SettingsPicker({ kind, label, children }: {
   }, [open]);
   return <div className="settings-picker" data-kind={kind} data-open={open}>
     <button ref={trigger} type="button" className="settings-picker-trigger focus-ring" aria-expanded={open} aria-haspopup="dialog"
-      aria-label={kind === "pages" ? "设置页面" : undefined} title={kind === "pages" ? "设置页面" : undefined}
+      aria-label={kind === "pages" ? t("settings.nav.label") : undefined} title={kind === "pages" ? t("settings.nav.label") : undefined}
       onClick={() => setOpen(true)}>
       {kind === "pages" ? <Menu size={18} /> : <><span className="min-w-0 flex-1 truncate text-left">{label}</span><ChevronDown size={14} /></>}
     </button>
-    {open && <button type="button" tabIndex={-1} aria-label="关闭选择面板" className="settings-picker-backdrop" onClick={close} />}
+    {open && <button type="button" tabIndex={-1} aria-label={t("settings.closePicker")} className="settings-picker-backdrop" onClick={close} />}
     <div ref={panel} className="settings-picker-panel" role={open ? "dialog" : undefined} aria-modal={open || undefined}
-      aria-label={kind === "pages" ? "设置页面" : "选择配置对象"}>
+      aria-label={kind === "pages" ? t("settings.nav.label") : t("settings.selectObject")}>
       <div className="settings-picker-heading">
         <span className="min-w-0 flex-1 truncate">{label}</span>
-        <button type="button" onClick={close} aria-label="关闭" className="focus-ring rounded-md p-1.5 hover:bg-hover"><X size={16} /></button>
+        <button type="button" onClick={close} aria-label={t("settings.overview.close")} className="focus-ring rounded-md p-1.5 hover:bg-hover"><X size={16} /></button>
       </div>
       {children(close)}
     </div>

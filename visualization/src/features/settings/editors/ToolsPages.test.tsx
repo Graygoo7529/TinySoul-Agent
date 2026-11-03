@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../../i18n";
 /**
  * Tools & Connections page tests: execution scalar editing, and the MCP
  * collection editor's atomic semantics (whole-object set, dotted tool keys,
@@ -307,7 +308,7 @@ describe("McpPage collection editor", () => {
     await selectServer("local");
     // Open the per-tool overrides collapsible.
     const collapsible = [...container.querySelectorAll("button")].find(
-      (item) => item.textContent?.includes("Per-tool overrides"),
+      (item) => item.textContent?.includes(t("settings.toolOverrides")),
     );
     await act(async () => {
       collapsible!.click();
@@ -344,13 +345,13 @@ describe("McpPage collection editor", () => {
   it("creating an entry writes the template to create_source; deleting a draft-only entry withdraws it", async () => {
     await renderPage(<McpPage />);
     const input = container.querySelector(
-      "input[placeholder='new id']",
+      `input[placeholder="${t("settings.newIdPlaceholder")}"]`,
     ) as HTMLInputElement;
     await act(async () => {
       setInputValue(input, "remote");
     });
     const create = [...container.querySelectorAll("button")].find(
-      (item) => item.textContent?.includes("创建"),
+      (item) => item.textContent?.includes(t("settings.create")),
     );
     await act(async () => {
       create!.click();
@@ -368,7 +369,7 @@ describe("McpPage collection editor", () => {
 
     // The new entry is selected; deleting it withdraws the draft (no delete op).
     const withdraw = [...container.querySelectorAll("button")].find(
-      (item) => item.textContent?.includes("Withdraw"),
+      (item) => item.textContent?.includes(t("settings.withdraw")),
     );
     expect(withdraw).toBeDefined();
     await act(async () => {
@@ -384,7 +385,7 @@ describe("McpPage collection editor", () => {
     await renderPage(<McpPage />);
     await selectServer("local");
     const remove = [...container.querySelectorAll("button")].find(
-      (item) => item.textContent?.includes("Delete"),
+      (item) => item.textContent?.includes(t("settings.delete")),
     );
     await act(async () => {
       remove!.click();
@@ -414,13 +415,13 @@ describe("AcpPage", () => {
     expect(container.textContent).toContain("尚未连接后端");
 
     const input = container.querySelector(
-      "input[placeholder='new id']",
+      `input[placeholder="${t("settings.newIdPlaceholder")}"]`,
     ) as HTMLInputElement;
     await act(async () => {
       setInputValue(input, "worker");
     });
     const create = [...container.querySelectorAll("button")].find((item) =>
-      item.textContent?.includes("创建"),
+      item.textContent?.includes(t("settings.create")),
     );
     await act(async () => {
       create!.click();
@@ -446,7 +447,7 @@ describe("AcpPage", () => {
 
     // Editing a field merges into the same whole-object draft.
     const description = [...container.querySelectorAll("input")].find(
-      (item) => item.placeholder === "What this subagent is for",
+      (item) => item.placeholder === t("settings.agentPurpose"),
     );
     expect(description).toBeDefined();
     await act(async () => {

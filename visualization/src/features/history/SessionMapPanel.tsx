@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, type MessageId } from "../../i18n";
 /**
  * The Session map of one day (plan §7, API-08 `/v2/session/map` + inspect).
  *
@@ -59,12 +59,12 @@ const ROLE_ORDER: Record<SectionRole, number> = {
   generic: 4,
 };
 
-const EMPTY_LINE: Record<SectionRole, string> = {
-  topics: "No topics yet — ask TinySoul in a conversation to organize this day.",
-  unclassified: "Every committed conversation is covered by a topic.",
-  history: "No committed conversations.",
-  annotations: "No interpretations yet.",
-  generic: "Nothing recorded here.",
+const EMPTY_LINE: Record<SectionRole, MessageId> = {
+  topics: "history.noTopicsHint",
+  unclassified: "history.allTurnsCovered",
+  history: "history.noCommittedConversations",
+  annotations: "history.noInterpretations",
+  generic: "history.nothingRecorded",
 };
 
 export function SessionMapPanel({ epoch, day }: { epoch: number; day: string }) {
@@ -106,7 +106,7 @@ export function SessionMapPanel({ epoch, day }: { epoch: number; day: string }) 
         <input
           value={queryDraft}
           onChange={(event) => setQueryDraft(event.target.value)}
-          placeholder="Locate in this day…"
+          placeholder={t("history.locateDay")}
           className="h-8 min-w-0 flex-1 rounded-lg border border-line bg-bg-elev px-3 text-[13px] outline-none focus-ring focus:border-accent"
         />
         <button
@@ -121,12 +121,11 @@ export function SessionMapPanel({ epoch, day }: { epoch: number; day: string }) 
       {seq.loading ? (
         <div className="flex items-center gap-2 px-1 py-3 text-[12px] text-fg-faint">
           <Loader2 size={13} className="animate-spin-slow" />
-          Loading the session map…
-        </div>
+          {t("history.loadingMap")}</div>
       ) : historyEmpty === true ? (
         <EmptyState
           icon={<MessageSquareText size={26} />}
-          title={`No completed conversations on ${day}`}
+          title={t("history.noCompletedOn", { day })}
           description={t("history.onceTurnFinishesFactsCommittedHereAgent")}
         />
       ) : (
@@ -218,6 +217,7 @@ function SectionList({
   role: SectionRole;
   onEmptiness?: (empty: boolean) => void;
 }) {
+  const { t } = useI18n();
   const seq = usePagedSequence<JsonValue, DisclosurePage>(
     (token, signal) =>
       historyClients(epoch).session.inspect(
@@ -255,7 +255,7 @@ function SectionList({
           onOpenTurn={openTurn}
         />
       ))}
-      <SequenceStatus seq={seq} empty={<SectionEmpty text={EMPTY_LINE[role]} />} />
+      <SequenceStatus seq={seq} empty={<SectionEmpty text={t(EMPTY_LINE[role])} />} />
     </div>
   );
 }

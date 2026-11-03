@@ -1,3 +1,5 @@
+import type { MessageId } from "../../../i18n/core";
+import { t } from "../../../i18n";
 /**
  * `action.retrieval` map atom editing (config-coverage §3.3): the whole map is
  * one atomic draft value keyed by the dotted search Action id (`home.search`,
@@ -40,8 +42,8 @@ export const RETRIEVAL_DEFAULTS = {
 
 export interface SearchCapabilityInfo {
   actionId: string;
-  title: string;
-  description: string;
+  titleId: MessageId;
+  descriptionId: MessageId;
   /** Code-owned source ceiling (SearchCapability.sources). */
   sources: string[];
   /** Code-owned operation ceiling (SearchCapability.operations). */
@@ -63,8 +65,8 @@ const MODEL_OPERATIONS = ["select", "rerank"];
 export const SEARCH_CAPABILITIES: SearchCapabilityInfo[] = [
   {
     actionId: "home.search",
-    title: "Home search",
-    description: "Semantic map, skill and Home resource retrieval.",
+    titleId: "settings.searchOwner.home",
+    descriptionId: "settings.searchOwner.homeHint",
     sources: [...SEARCH_SOURCES],
     operations: [...SEARCH_OPERATIONS],
     contexts: CONTEXTS,
@@ -73,8 +75,8 @@ export const SEARCH_CAPABILITIES: SearchCapabilityInfo[] = [
   },
   {
     actionId: "memory.search",
-    title: "Memory search",
-    description: "Daily/entity/concept/fact/note retrieval with document queries.",
+    titleId: "settings.searchOwner.memory",
+    descriptionId: "settings.searchOwner.memoryHint",
     sources: [...SEARCH_SOURCES],
     operations: [...SEARCH_OPERATIONS],
     contexts: CONTEXTS,
@@ -83,8 +85,8 @@ export const SEARCH_CAPABILITIES: SearchCapabilityInfo[] = [
   },
   {
     actionId: "workspace.search",
-    title: "Workspace search",
-    description: "Daily workspace file retrieval with lexical syntax.",
+    titleId: "settings.searchOwner.workspace",
+    descriptionId: "settings.searchOwner.workspaceHint",
     sources: [...SEARCH_SOURCES],
     operations: [...SEARCH_OPERATIONS],
     contexts: CONTEXTS,
@@ -93,8 +95,8 @@ export const SEARCH_CAPABILITIES: SearchCapabilityInfo[] = [
   },
   {
     actionId: "core.context.search",
-    title: "Context search",
-    description: "Trace and Session retrieval inside the active day.",
+    titleId: "settings.searchOwner.context",
+    descriptionId: "settings.searchOwner.contextHint",
     sources: [...SEARCH_SOURCES],
     operations: [...SEARCH_OPERATIONS],
     contexts: CONTEXTS,
@@ -103,9 +105,8 @@ export const SEARCH_CAPABILITIES: SearchCapabilityInfo[] = [
   },
   {
     actionId: "expand.search",
-    title: "MCP tool search",
-    description:
-      "External tool directory retrieval; runs without a Context snapshot, so operations cannot read the current Context.",
+    titleId: "settings.searchOwner.mcp",
+    descriptionId: "settings.searchOwner.mcpHint",
     sources: SEARCH_SOURCES.filter((source) => source !== "backlinks"),
     operations: [...SEARCH_OPERATIONS],
     contexts: ["none"],
@@ -304,30 +305,30 @@ export function policyIssues(
 ): string[] {
   const issues: string[] = [];
   if (draft.sources.length === 0) {
-    issues.push("At least one source is required.");
+    issues.push(t("settings.validation.sourceRequired"));
   }
   const unknownSources = draft.sources.filter(
     (source) => !capability.sources.includes(source),
   );
   if (unknownSources.length > 0) {
-    issues.push(`Sources not supported here: ${unknownSources.join(", ")}.`);
+    issues.push(t("settings.validation.unsupportedSources", { values: unknownSources.join(", ") }));
   }
   const unknownOperations = draft.operations.filter(
     (operation) => !capability.operations.includes(operation),
   );
   if (unknownOperations.length > 0) {
-    issues.push(`Operations not supported here: ${unknownOperations.join(", ")}.`);
+    issues.push(t("settings.validation.unsupportedOperations", { values: unknownOperations.join(", ") }));
   }
   if (draft.queryChannels.length === 0) {
-    issues.push("At least one query channel is required.");
+    issues.push(t("settings.validation.channelRequired"));
   }
   if (draft.queryChannels.includes("embedding") && !capability.embeddingChannel) {
     issues.push(
-      "The embedding channel needs an owner embedding use, which only Home and Memory declare.",
+      t("settings.validation.embeddingOwner"),
     );
   }
   if (draft.maxSteps < 1 || draft.maxSteps > 32) {
-    issues.push("Max steps must be between 1 and 32.");
+    issues.push(t("settings.validation.stepRange"));
   }
   for (const operation of draft.operations) {
     const step = draft.steps[operation];
@@ -336,14 +337,14 @@ export function policyIssues(
       (context) => !capability.contexts.includes(context),
     );
     if (unknownContexts.length > 0) {
-      issues.push(`${operation}: context not available here: ${unknownContexts.join(", ")}.`);
+      issues.push(t("settings.validation.unsupportedContexts", { operation, values: unknownContexts.join(", ") }));
     }
     if (
       similarityOperations.includes(operation) &&
       step.allowedContext.includes("current")
     ) {
       issues.push(
-        `${operation}: bound to embedding similarity, which cannot read the current Context.`,
+        t("settings.validation.embeddingContext", { operation }),
       );
     }
   }

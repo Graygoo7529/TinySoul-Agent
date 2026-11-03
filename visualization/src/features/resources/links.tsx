@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, message, LocalizedText, type UiText } from "../../i18n";
 /**
  * Markdown link and image renderers (plan §21.2).
  *
@@ -238,7 +238,7 @@ type ImageResolution =
   | { kind: "external"; url: string }
   | { kind: "workspace"; ref: string; day: string | null }
   | { kind: "reference"; reference: string }
-  | { kind: "invalid"; reason: string };
+  | { kind: "invalid"; reason: UiText };
 
 /** Decide how an image source can be read, resolving via API-18 if needed. */
 async function resolveImageSource(
@@ -259,12 +259,12 @@ async function resolveImageSource(
     if (!origin.ref) {
       return {
         kind: "invalid",
-        reason: "A relative image needs the resource it was read from.",
+        reason: message("resources.relativeImageOrigin"),
       };
     }
     const clients = useConnectionStore.getState().clients;
     if (clients === null) {
-      return { kind: "invalid", reason: "Not connected to a backend." };
+      return { kind: "invalid", reason: message("resources.notConnected") };
     }
     try {
       const resolved = await clients.resources.resolve({
@@ -292,21 +292,22 @@ async function resolveImageSource(
       };
     }
   }
-  return { kind: "invalid", reason: "This image reference is not readable." };
+  return { kind: "invalid", reason: message("resources.imageUnreadable") };
 }
 
 /** The `img` renderer: media by capability, never a guessed URL. */
 export function MarkdownImage({ src, alt }: ImgProps) {
+  const { t } = useI18n();
   const origin = useMarkdownOrigin();
   const epoch = useConnectionStore((s) => s.epoch);
   const [resolution, setResolution] = useState<ImageResolution | null>(null);
-  const [failed, setFailed] = useState<string | null>(null);
+  const [failed, setFailed] = useState<UiText | null>(null);
 
   useEffect(() => {
     setResolution(null);
     setFailed(null);
     if (src === undefined || src === "") {
-      setFailed("The image reference is empty.");
+      setFailed(message("resources.imageReferenceEmpty"));
       return;
     }
     let cancelled = false;
@@ -326,8 +327,7 @@ export function MarkdownImage({ src, alt }: ImgProps) {
     return (
       <span className="my-2 inline-flex items-center gap-2 rounded-lg border border-line bg-bg-elev px-3 py-2 text-[12px] text-fg-faint">
         <Loader2 size={13} className="animate-spin-slow" />
-        Loading image…
-      </span>
+        {t("resources.loadingImage")}</span>
     );
   }
   switch (resolution.kind) {
@@ -337,7 +337,7 @@ export function MarkdownImage({ src, alt }: ImgProps) {
         <img
           src={resolution.url}
           alt={alt ?? ""}
-          onError={() => setFailed("The image could not be loaded.")}
+          onError={() => setFailed(message("resources.imageLoadFailed"))}
         />
       );
     case "workspace":
@@ -361,6 +361,7 @@ function WorkspaceImage({
   day: string | null;
   alt?: string;
 }) {
+  const { t } = useI18n();
   const blob = useWorkspaceBlobUrl(resourceRef, day);
   if (blob.error !== null) {
     return <ImageHint alt={alt} detail={blob.error} reference={resourceRef} />;
@@ -369,8 +370,7 @@ function WorkspaceImage({
     return (
       <span className="my-2 inline-flex items-center gap-2 rounded-lg border border-line bg-bg-elev px-3 py-2 text-[12px] text-fg-faint">
         <Loader2 size={13} className="animate-spin-slow" />
-        Loading image…
-      </span>
+        {t("resources.loadingImage")}</span>
     );
   }
   return <img src={blob.url} alt={alt ?? ""} />;
@@ -391,15 +391,16 @@ function ReferenceImageHint({
   alt?: string;
   origin: ResourceOrigin;
 }) {
+  const { t } = useI18n();
   return (
     <span className="my-2 flex items-center gap-2 rounded-lg border border-line bg-bg-elev px-3 py-2 text-[12px] text-fg-muted">
       <ImageOff size={13} className="shrink-0 text-fg-faint" />
       <span className="min-w-0 flex-1 truncate" title={reference}>
         {alt || reference}
       </span>
-      <span className="shrink-0 text-fg-faint">not embeddable</span>
+      <span className="shrink-0 text-fg-faint">{t("resources.notEmbeddable")}</span>
       <IconButton
-        label="Open resource"
+        label={t("resources.open")}
         className="h-6 w-6"
         onClick={() => void openReference(epoch, reference, origin)}
       >
@@ -417,7 +418,7 @@ function ImageHint({
   reference,
 }: {
   alt?: string;
-  detail: string;
+  detail: UiText;
   reference?: string;
 }) {
   return (
@@ -426,12 +427,13 @@ function ImageHint({
       <span className="min-w-0 flex-1 truncate" title={reference ?? alt}>
         {alt || reference || "Image"}
       </span>
-      <span className="shrink-0">{detail}</span>
+      <span className="shrink-0"><LocalizedText value={detail} /></span>
     </span>
   );
 }
 
 function CopyMini({ reference }: { reference: string }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -440,7 +442,7 @@ function CopyMini({ reference }: { reference: string }) {
   }, [copied]);
   return (
     <IconButton
-      label={copied ? "Copied" : "Copy reference"}
+        label={copied ? t("resources.referenceCopied") : t("resources.copyReference")}
       className="h-6 w-6"
       onClick={() => {
         copyReference(reference);

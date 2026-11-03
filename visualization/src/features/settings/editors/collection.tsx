@@ -72,8 +72,8 @@ export function CollectionObjectEditor({
     return (
       <SettingsPageBody>
         <EmptyState
-          title="集合未声明"
-          description="The running backend's catalog does not declare this collection; the page cannot edit it."
+          title={t("settings.collectionUndeclared")}
+          description={t("settings.collectionUndeclaredHint")}
         />
       </SettingsPageBody>
     );
@@ -87,7 +87,7 @@ export function CollectionObjectEditor({
         description={collection.description}
       >
         <div className="settings-collection-layout">
-          <SettingsPicker kind="objects" label={selected ?? "选择条目"}>{(close) => <CollectionList
+          <SettingsPicker kind="objects" label={selected ?? t("settings.selectEntry")}>{(close) => <CollectionList
             collection={collection}
             selected={selected}
             onSelect={(id) => { setSelected(id); close(); }}
@@ -143,19 +143,21 @@ function CollectionList({
   selected: string | null;
   onSelect: (id: string | null) => void;
 }) {
+  const { t } = useI18n();
   const ids = useCollectionIds(collection.root);
   const [newId, setNewId] = useState("");
   const [query, setQuery] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [showError, setShowError] = useState(false);
+  const error = showError ? objectIdIssue(newId.trim()) ?? (ids.includes(newId.trim()) ? t("settings.idAlreadyExists") : null) : null;
   const setValue = useConfigDraftStore((s) => s.setValue);
 
   const create = () => {
     if (collection.createSource === null) return;
     const id = newId.trim();
     const issue = objectIdIssue(id);
-    if (issue !== null) return setError(issue);
-    if (ids.includes(id)) return setError("This id already exists.");
-    setError(null);
+    if (issue !== null) return setShowError(true);
+    if (ids.includes(id)) return setShowError(true);
+    setShowError(false);
     setValue(collection.createSource, `${collection.root}.${id}`, {
       ...collection.createTemplate,
     });
@@ -165,7 +167,7 @@ function CollectionList({
 
   return (
     <div className="flex min-h-0 flex-col gap-1 overflow-y-auto p-2">
-      <input aria-label="搜索配置对象" placeholder="搜索…" value={query} onChange={(event) => setQuery(event.target.value)}
+      <input aria-label={t("settings.searchObjects")} placeholder={t("settings.searchPlaceholder")} value={query} onChange={(event) => setQuery(event.target.value)}
         className="mb-1 h-8 w-full rounded-md border border-line bg-bg px-2 text-[12px] outline-none focus:border-accent" />
       {ids.filter((id) => id.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())).map((id) => (
         <CollectionListRow
@@ -177,14 +179,14 @@ function CollectionList({
         />
       ))}
       {ids.length === 0 && (
-        <div className="py-2 text-[11px] text-fg-faint">暂无条目。</div>
+        <div className="py-2 text-[11px] text-fg-faint">{t("settings.noEntries")}</div>
       )}
       {collection.allowCreate && collection.createSource !== null && (
         <div className="mt-1 border-t border-line pt-2">
           <input
             type="text"
             className="h-7 w-full rounded-md border border-line bg-bg px-2 font-mono text-[11.5px] text-fg outline-none focus:border-accent"
-            placeholder="new id"
+            placeholder={t("settings.newIdPlaceholder")}
             value={newId}
             onChange={(event) => setNewId(event.target.value)}
             onKeyDown={(event) => {
@@ -223,6 +225,7 @@ function CollectionListRow({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const { t } = useI18n();
   const rootPath = `${collection.root}.${id}`;
   const draft = useConfigDraftStore((s) =>
     Object.values(s.drafts).find((entry) => isFieldDraft(entry) && entry.path === rootPath),
@@ -245,13 +248,13 @@ function CollectionListRow({
     >
       <span className="min-w-0 flex-1 truncate">{id}</span>
       {draft?.op.op === "delete" ? (
-        <Badge tone="red">删除</Badge>
+        <Badge tone="red">{t("settings.delete")}</Badge>
       ) : draft !== undefined ? (
-        <Badge tone="accent">草稿</Badge>
+        <Badge tone="accent">{t("settings.draftBadge")}</Badge>
       ) : enabled ? (
-        <Badge tone="green">on</Badge>
+        <Badge tone="green">{t("settings.enabledBadge")}</Badge>
       ) : (
-        <Badge tone="gray">关闭</Badge>
+        <Badge tone="gray">{t("settings.overview.close")}</Badge>
       )}
     </button>
   );
@@ -279,7 +282,7 @@ function useObjectContext(
   const sourceId = objectSourceFor(saved, rootPath, collection.createSource);
   const readOnly =
     sourceId === null
-      ? "No writable project source holds this object."
+      ? t("settings.objectNoWritableSource")
       : null;
 
   return {
@@ -321,6 +324,7 @@ function CollectionObjectDetail({
   renderFields: (ctx: ObjectEditContext) => ReactNode;
   onDeleted: () => void;
 }) {
+  const { t } = useI18n();
   const saved = useConfigDraftStore((s) => s.saved);
   const deleteRefs = useConfigDraftStore((s) => s.deleteRefs);
   const resetEntries = useConfigDraftStore((s) => s.resetEntries);
@@ -343,8 +347,8 @@ function CollectionObjectDetail({
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-2 border-b border-line pb-2">
         <span className="font-mono text-[13px] font-medium text-fg">{id}</span>
-        {ctx.dirty && !ctx.draftOnly && <Badge tone="accent">已修改</Badge>}
-        {ctx.draftOnly && <Badge tone="blue">新增</Badge>}
+        {ctx.dirty && !ctx.draftOnly && <Badge tone="accent">{t("common.modified")}</Badge>}
+        {ctx.draftOnly && <Badge tone="blue">{t("settings.newBadge")}</Badge>}
         {ctx.readOnly !== null && (
           <Badge tone="gray" title={ctx.readOnly}>{t("settings.readOnly")}</Badge>
         )}
@@ -355,11 +359,11 @@ function CollectionObjectDetail({
             onClick={remove}
             title={
               ctx.draftOnly
-                ? "Withdraw the new entry"
-                : "Delete this entry from the saved configuration"
+                ? t("settings.withdrawEntry")
+                : t("settings.deleteSavedEntry")
             }
           >
-            <Trash2 size={11} /> {ctx.draftOnly ? "Withdraw" : "Delete"}
+            <Trash2 size={11} /> {ctx.draftOnly ? t("settings.withdraw") : t("settings.delete")}
           </Button>
         </span>
       </div>
@@ -487,6 +491,7 @@ export function ObjStringList({
   onChange: (next: string[]) => void;
   disabled?: boolean;
 }) {
+  const { t } = useI18n();
   const [newItem, setNewItem] = useState("");
   return (
     <div className="flex flex-col gap-1">
@@ -504,7 +509,7 @@ export function ObjStringList({
             }}
           />
           <IconButton
-            label="Remove"
+            label={t("common.remove")}
             disabled={disabled}
             onClick={() => onChange(value.filter((_, i) => i !== index))}
           >
@@ -516,7 +521,7 @@ export function ObjStringList({
         <input
           type="text"
           className={`${objInputClass} flex-1 font-mono`}
-          placeholder="Add…"
+          placeholder={t("settings.addPlaceholder")}
           value={newItem}
           disabled={disabled}
           onChange={(event) => setNewItem(event.target.value)}
@@ -528,7 +533,7 @@ export function ObjStringList({
           }}
         />
         <IconButton
-          label="Add"
+          label={t("common.add")}
           disabled={disabled || newItem.trim() === ""}
           onClick={() => {
             onChange([...value, newItem.trim()]);

@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { useI18n } from "../../../i18n";
 import { NetworkPolicyEditor, NetworkPolicyField } from "./NetworkPolicyEditor";
 /**
  * MCP Servers settings (config-coverage §4.5): configured servers are
@@ -30,13 +30,14 @@ import {
 const ROOT = "capabilities.expand.servers";
 
 export function McpPage() {
+  const { t } = useI18n();
   return (
     <CollectionObjectEditor
       collectionId="capabilities.expand.servers"
       runtimeSummary={<McpRuntimeSummary />}
       renderFields={(ctx) => <McpServerFields ctx={ctx} />}
       limits={<>
-        <NetworkPolicyField path="capabilities.expand.network" title="默认代理" />
+        <NetworkPolicyField path="capabilities.expand.network" title={t("settings.defaultProxy")} />
         <FieldSection
           title={t("settings.sharedMcpLimits")}
           description={t("settings.directoryAndCallBoundsSharedByAllServers")}
@@ -65,6 +66,7 @@ export function McpPage() {
 }
 
 function McpServerFields({ ctx }: { ctx: ObjectEditContext }) {
+  const { t } = useI18n();
   const disabled = ctx.readOnly !== null;
   const at = (name: string) => `${ROOT}.${ctx.id}.${name}`;
   const text = (name: string): string =>
@@ -88,8 +90,8 @@ function McpServerFields({ ctx }: { ctx: ObjectEditContext }) {
 
   return (
     <>
-      <ObjRow path={at("network")} label="代理设置">
-        <NetworkPolicyEditor value={ctx.object.network} parentLabel="模块默认代理" disabled={disabled} onChange={(network) => ctx.update({ network })} />
+      <ObjRow path={at("network")} label={t("settings.proxySettings")}>
+        <NetworkPolicyEditor value={ctx.object.network} parentLabel={t("settings.moduleProxy")} disabled={disabled} onChange={(network) => ctx.update({ network })} />
       </ObjRow>
       <ObjRow path={at("enabled")}>
         <ObjBoolean
@@ -102,7 +104,7 @@ function McpServerFields({ ctx }: { ctx: ObjectEditContext }) {
         <ObjText
           value={text("description")}
           disabled={disabled}
-          placeholder="What this server provides"
+          placeholder={t("settings.serverPurpose")}
           onChange={(next) => ctx.update({ description: next })}
         />
       </ObjRow>
@@ -115,7 +117,7 @@ function McpServerFields({ ctx }: { ctx: ObjectEditContext }) {
             ctx.update({ transport: event.target.value })
           }
         >
-          <option value="stdio">本地 stdio</option>
+          <option value="stdio">{t("settings.localStdio")}</option>
           <option value="streamable_http">Streamable HTTP</option>
         </select>
       </ObjRow>
@@ -126,7 +128,7 @@ function McpServerFields({ ctx }: { ctx: ObjectEditContext }) {
               value={text("command")}
               mono
               disabled={disabled}
-              placeholder="e.g. npx"
+              placeholder={t("settings.executableExample")}
               onChange={(next) => ctx.update({ command: next })}
             />
           </ObjRow>
@@ -142,7 +144,7 @@ function McpServerFields({ ctx }: { ctx: ObjectEditContext }) {
               value={text("cwd")}
               mono
               disabled={disabled}
-              placeholder="Working directory (optional)"
+              placeholder={t("settings.workingDirectory")}
               onChange={(next) => ctx.update({ cwd: next })}
             />
           </ObjRow>
@@ -209,7 +211,7 @@ function McpServerFields({ ctx }: { ctx: ObjectEditContext }) {
         <Collapsible
           title={
             <span className="text-fg-muted">
-              Per-tool overrides ({Object.keys(map("tools")).length})
+              {t("settings.toolOverrides")}{Object.keys(map("tools")).length})
             </span>
           }
           tone="sunken"
@@ -230,6 +232,7 @@ function McpServerFields({ ctx }: { ctx: ObjectEditContext }) {
 
 /** Read-only runtime directory summary; configuration edits never connect. */
 function McpRuntimeSummary() {
+  const { t } = useI18n();
   const clients = useConnectionStore((s) => s.clients);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const [page, setPage] = useState<McpServersPage | null>(null);
@@ -245,7 +248,7 @@ function McpRuntimeSummary() {
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Unavailable");
+          setError(cause instanceof Error ? cause.message : t("settings.actionUnavailable"));
         }
       });
     return () => {
@@ -256,7 +259,7 @@ function McpRuntimeSummary() {
   return (
     <SectionCard
       title={t("settings.runtimeDirectory")}
-      description="Live connection facts of the running generation. Applying configuration does not connect servers by itself; refresh happens on activation or from Runtime Observation."
+      description={t("settings.serverConnectionsHint")}
       actions={
         <button
           type="button"
@@ -285,18 +288,18 @@ function McpRuntimeSummary() {
             >
               <span className="font-mono text-fg">{item.server_id}</span>
               {!item.enabled ? (
-                <Badge tone="gray">禁用</Badge>
+                <Badge tone="gray">{t("settings.disabled")}</Badge>
               ) : item.connected ? (
-                <Badge tone="green">已连接</Badge>
+                <Badge tone="green">{t("connection.connected")}</Badge>
               ) : (
-                <Badge tone="yellow">未连接</Badge>
+                <Badge tone="yellow">{t("connection.notConnected")}</Badge>
               )}
               {item.discovered && (
                 <Badge tone={item.stale ? "yellow" : "blue"}>
-                  {item.tool_count} tools{item.stale ? " (stale)" : ""}
+                  {item.tool_count} tools{item.stale ? t("settings.staleSuffix") : ""}
                 </Badge>
               )}
-              {item.error !== null && <Badge tone="red">错误</Badge>}
+              {item.error !== null && <Badge tone="red">{t("common.error")}</Badge>}
             </span>
           ))}
         </div>

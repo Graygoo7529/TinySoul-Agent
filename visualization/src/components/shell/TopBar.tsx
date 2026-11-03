@@ -26,14 +26,14 @@ export function TopBar() {
   const [organizing, setOrganizing] = useState(false);
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-bg-elev px-4">
+    <header className="flex h-12 shrink-0 items-center gap-1 border-b border-line bg-bg-elev px-2 sm:gap-2 sm:px-4">
       <div className="min-w-0 flex-1">
-        <div className="text-sm font-semibold">TinySoul</div>
+        <div className="truncate text-sm font-semibold">TinySoul</div>
       </div>
       {connected && status?.turn_active && (
-        <Badge tone="accent">
+        <span className="hidden sm:inline-flex"><Badge tone="accent">
           <span className="animate-pulse-dot">●</span> {t("shell.turnActive")}
-        </Badge>
+        </Badge></span>
       )}
       {connected && (
         <span className="hidden max-w-[220px] truncate font-mono text-[11px] text-fg-faint lg:inline">
@@ -118,9 +118,9 @@ function ReconnectIndicator() {
           : t("connection.connecting")
         : t("connection.disconnected");
   return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] text-fg-faint">
+    <span title={label} aria-label={label} className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[11px] text-fg-faint">
       <RefreshCw size={12} className="animate-spin-slow" />
-      {label}
+      <span className="hidden sm:inline">{label}</span>
     </span>
   );
 }

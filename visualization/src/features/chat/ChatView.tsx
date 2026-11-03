@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, LocalizedText, message } from "../../i18n";
 /**
  * The v2 chat view (plan §5.1/§7).
  *
@@ -93,6 +93,7 @@ function ConversationTurn({ epoch, turnId, viewKey, echo, preview, day, activeDa
   current: boolean; latest: boolean; history: boolean; loading: boolean; unavailable: boolean; status: string | null; result: TurnResult | null;
   snapshot: TurnSnapshot | null;
 }) {
+  const { t } = useI18n();
   const enabled = !history && current && latest && snapshot?.turn_id != null;
   const presentation = useTurnPresentation(turnId, snapshot, items, enabled);
   const working = useActivityDetails(turnId, enabled && snapshot?.state !== "finished", enabled);
@@ -113,8 +114,8 @@ function ConversationTurn({ epoch, turnId, viewKey, echo, preview, day, activeDa
   const activity = !history && latest ? detail?.presentation.activity : null;
   const hasAgentContent = (inputText !== undefined && activity != null) || hasControls || items.some((item) => item.role !== "user.input") || result !== null;
   return <section data-turn-root={viewKey} data-turn-id={turnId} className="space-y-4 animate-fade-in">
-    {unavailable && <div className="text-[12px] text-warning">This conversation is currently unavailable.</div>}
-    {loading && inputText === undefined && !hasAgentContent && <div className="text-[12px] text-fg-faint">Loading the conversation…</div>}
+    {unavailable && <div className="text-[12px] text-warning">{t("chat.unavailable")}</div>}
+    {loading && inputText === undefined && !hasAgentContent && <div className="text-[12px] text-fg-faint">{t("chat.loading")}</div>}
     {inputText !== undefined && <UserBubble text={inputText + (!initial && !echo && preview?.truncated ? "…" : "")} failed={!initial && echo?.state === "failed"}
       pending={!initial && echo && echo.state !== "failed" ? echo.state : undefined}
       delivery={!initial && echo?.state === "failed" ? <EchoDelivery echo={echo} /> : undefined} />}
@@ -143,6 +144,7 @@ function CurrentTurnControls() {
 
 // One persistent scroll container for the active day and explicit history reads.
 function ConversationView() {
+  const { t } = useI18n();
   const epoch = useConnectionStore((s) => s.epoch);
   const items = useTurnStore((s) => s.items);
   const loading = useTurnStore((s) => s.loading);
@@ -215,14 +217,14 @@ function ConversationView() {
         <div ref={contentRef} className="mx-auto max-w-3xl space-y-8 px-4 py-6">
           {!historyView && chronologicalTurns.length > 0 && <div className="flex items-center text-[11px] text-fg-faint">
             <span className="flex-1">{activeDay}</span>
-            <Button size="xs" variant="ghost" onClick={() => openHistoryBrowser(epoch)}><History size={12} /> Earlier days</Button>
+            <Button size="xs" variant="ghost" onClick={() => openHistoryBrowser(epoch)}><History size={12} /> {t("chat.earlierDays")}</Button>
           </div>}
           {latestId === null && (
             <EmptyState
               icon={sessionLoading ? <Loader2 size={26} className="animate-spin-slow" /> : <MessageSquareText size={28} />}
-              title={sessionLoading ? "正在加载今天的会话…" : "开始会话"}
-              description={sessionLoading ? undefined : "在下方发送消息。打开轮次的「详情」可查看其活动与模型调用。"}
-              action={<Button variant="outline" size="sm" onClick={() => openHistoryBrowser(epoch)}><History size={13} /> Browse earlier days</Button>}
+              title={sessionLoading ? t("chat.loadingToday") : t("chat.startConversation")}
+              description={sessionLoading ? undefined : t("chat.startHint")}
+              action={<Button variant="outline" size="sm" onClick={() => openHistoryBrowser(epoch)}><History size={13} /> {t("chat.browseEarlier")}</Button>}
             />
           )}
           <ChatFollowContext.Provider value={scroll.holdFollow}>
@@ -253,8 +255,8 @@ function ConversationView() {
         >
           <ArrowDown size={12} />
           {pendingQuestion !== null
-            ? "问题等待你的回复"
-            : "新内容"}
+            ? t("chat.questionPending")
+            : t("chat.newContent")}
         </button>
       )}
     </div>
@@ -282,10 +284,8 @@ function HistoryBanner() {
     <div className="flex items-center gap-2 border-b border-line bg-bg-elev px-4 py-1.5 text-[12px] text-fg-muted">
       <History size={12} className="shrink-0 text-fg-faint" />
       <span className="min-w-0 flex-1">
-        Read-only history{day ? ` · ${day}` : ""}
-        {archived ? " · archived day — current resources may differ" : ""} —
-        replies and edits are disabled.
-      </span>
+        {t("chat.readOnlyHistory")}{day ? ` · ${day}` : ""}
+        {archived ? t("chat.archiveHint") : ""} {t("chat.historyHint")}</span>
       {day !== null && (
         <Button
           variant="ghost"
@@ -305,12 +305,13 @@ function HistoryBanner() {
           {t("trace.process")}
         </Button>
       )}
-      <BackToToday label={liveElsewhere ? "回到进行中的轮次" : undefined} />
+      <BackToToday label={liveElsewhere ? t("chat.returnRunning") : undefined} />
     </div>
   );
 }
 
 function BackToToday({ label }: { label?: string }) {
+  const { t } = useI18n();
   const epoch = useConnectionStore((s) => s.epoch);
   return (
     <Button
@@ -323,7 +324,7 @@ function BackToToday({ label }: { label?: string }) {
         void syncFromStatus(epoch);
       }}
     >
-      {label ?? "回到今天"}
+      {label ?? t("chat.returnToday")}
     </Button>
   );
 }
@@ -338,9 +339,7 @@ function TakeoverNotice() {
     <div className="flex items-center gap-2 border-b border-warning/30 bg-warning-soft px-4 py-1.5 text-[12px] text-warning">
       <AlertTriangle size={12} className="shrink-0" />
       <span className="min-w-0 flex-1">
-        The committed history for this turn is not available yet; the live
-        record stays on screen.
-      </span>
+        {t("chat.historyPending")}</span>
       <Button variant="ghost" size="xs" onClick={() => retryTakeover(epoch)}>
         <RotateCw size={11} />
         {t("common.retry")}</Button>
@@ -349,6 +348,7 @@ function TakeoverNotice() {
 }
 
 function ReadErrorNotice() {
+  const { t } = useI18n();
   const readError = useTurnStore((s) => s.readError);
   const runtimeError = useTurnStore((s) => s.runtimeReadError);
   if (readError === null && runtimeError === null) return null;
@@ -356,7 +356,7 @@ function ReadErrorNotice() {
     <div className="flex items-center gap-2 border-b border-danger/30 bg-danger-soft px-4 py-1.5 text-[12px] text-danger">
       <AlertTriangle size={12} className="shrink-0" />
       <span className="min-w-0 flex-1">
-        The last refresh failed ({readError ?? runtimeError}); the previous content stays on screen.
+        {t("chat.refreshFailed", { detail: readError ?? runtimeError ?? "" })}
       </span>
     </div>
   );
@@ -372,6 +372,7 @@ function ReadErrorNotice() {
 
 /** Accepted into the turn inbox, not yet installed into the Context. */
 function PendingRow({ item }: { item: PendingItem }) {
+  const { t } = useI18n();
   const payloadText =
     typeof item.payload.text === "string" ? item.payload.text : null;
   return (
@@ -382,8 +383,7 @@ function PendingRow({ item }: { item: PendingItem }) {
         </div>
         <div className="mt-0.5 flex items-center justify-end gap-1 text-[10px] text-fg-faint">
           <Inbox size={10} />
-          Accepted · waiting to be processed
-        </div>
+          {t("chat.acceptedPending")}</div>
       </div>
     </div>
   );
@@ -403,7 +403,7 @@ function EchoDelivery({ echo }: { echo: OutgoingEcho }) {
         <div className="mt-0.5 flex items-center justify-end gap-2 text-[10px] text-fg-faint">
           {failed ? (
             <>
-              <span className="text-danger">{echo.error ?? "send failed"}</span>
+              <span className="text-danger"><LocalizedText value={echo.error ?? message("chat.sendFailed")} /></span>
               {echo.turnClosed && (
                 <button
                   className="font-medium text-accent hover:underline"
@@ -424,19 +424,16 @@ function EchoDelivery({ echo }: { echo: OutgoingEcho }) {
                 onClick={() => dismissEcho(echo.echoId)}
               >
                 <X size={10} />
-                Dismiss
-              </button>
+                {t("chat.dismiss")}</button>
             </>
           ) : echo.state === "sending" ? (
             <span className="inline-flex items-center gap-1">
               <Loader2 size={10} className="animate-spin-slow" />
-              Sending…
-            </span>
+              {t("chat.sending")}</span>
           ) : (
             <span className="inline-flex items-center gap-1">
               <Check size={10} />
-              Accepted · waiting to appear
-            </span>
+              {t("chat.acceptedDisplay")}</span>
           )}
         </div>
   );

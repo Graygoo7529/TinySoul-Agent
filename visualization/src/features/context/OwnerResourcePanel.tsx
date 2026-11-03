@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, tStatus } from "../../i18n";
 import { directReferences, isReferenceItem } from "../resources/ChunkedMarkdown";
 /**
  * Owner-side reading of a Home/Memory resource opened from the Context
@@ -131,7 +131,7 @@ export function OwnerResourcePanel({
       return (
         <EmptyState
           title={t("context.referenceNeedsOriginalBinding")}
-          description={`「${reference}」是动态引用，其原始日期/轮次绑定已不可用。不会用当前所有者内容替代它。`}
+          description={t("context.bindingUnavailable", { ref: reference })}
         />
       );
     case "unsupported":
@@ -220,15 +220,15 @@ function OwnerContentReader({
     <div className="space-y-3">
       <div className="rounded-lg border border-line bg-bg-sunken px-3 py-2 text-[12px] text-fg-muted">
         {target.owner === "home"
-          ? `The owner's current content (${target.view} view) — not the snapshot installed in this turn.`
-          : "The owner's current content — not the snapshot installed in this turn."}
+          ? t("context.ownerCurrentView", { view: target.view })
+          : t("context.ownerCurrent")}
       </div>
 
       {memoryMeta !== null && (
         <div className="flex items-center gap-1.5 px-1">
           <Badge tone="pink">{memoryMeta.kind}</Badge>
           <Badge tone={memoryMeta.status === "active" ? "green" : "yellow"}>
-            {memoryMeta.status}
+            {tStatus(memoryMeta.status)}
           </Badge>
         </div>
       )}
@@ -262,8 +262,7 @@ function OwnerContentReader({
       {directRefs.length > 0 && (
         <section className="space-y-1.5">
           <h3 className="px-1 text-[11px] font-semibold tracking-wide text-fg-faint uppercase">
-            Referenced from here
-          </h3>
+            {t("context.referencedFrom")}</h3>
           {directRefs.map(({ref, title, clue}) => (
             <RefRow
               key={ref}

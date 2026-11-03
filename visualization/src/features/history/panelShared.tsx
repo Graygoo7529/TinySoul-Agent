@@ -123,7 +123,7 @@ export function HintRow({
           >
             {child.title}
           </span>
-          {retracted && <Badge tone="yellow">retracted</Badge>}
+          {retracted && <Badge tone="yellow">{t("history.retracted")}</Badge>}
           <ChevronRight size={13} className="shrink-0 text-fg-faint" />
         </span>
         {clue.text !== "" && (

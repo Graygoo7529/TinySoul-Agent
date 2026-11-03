@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -98,21 +99,21 @@ describe("DayListPanel", () => {
 
     expect(container.textContent).toContain("2026-09-29");
     expect(container.textContent).toContain("2026-09-28");
-    expect(container.textContent).toContain("active");
+    expect(container.textContent).toContain(t("common.active"));
     const first = endpoint.calls("/v2/days");
     expect(first).toHaveLength(1);
     expect(queryOf(first[0], "limit")).toBe("30");
     expect(queryOf(first[0], "before")).toBeNull();
 
     await act(async () => {
-      buttonByText("显示更多").click();
+      buttonByText(t("common.showMore")).click();
     });
     expect(container.textContent).toContain("2026-09-27");
     const all = endpoint.calls("/v2/days");
     expect(all).toHaveLength(2);
     expect(queryOf(all[1], "before")).toBe("2026-09-28");
     // The exhausted sequence offers no further page.
-    expect(container.textContent).not.toContain("显示更多");
+    expect(container.textContent).not.toContain(t("common.showMore"));
   });
 
   it("shows the distinct empty state when no day is recorded", async () => {
@@ -120,7 +121,7 @@ describe("DayListPanel", () => {
       jsonResponse({ items: [], next_before: null }),
     );
     await renderAndSettle(<DayListPanel epoch={epoch} />);
-    expect(container.textContent).toContain("还没有已记录的日期");
+    expect(container.textContent).toContain(t("history.recordedDaysYet"));
   });
 
   it("pushes the day's turns; the map action opens the day's Session map", async () => {
@@ -140,7 +141,7 @@ describe("DayListPanel", () => {
     await act(async () => {
       (
         container.querySelector(
-          'button[aria-label="当日的会话图"]',
+          `button[aria-label="${t("history.sessionMapDay")}"]`,
         ) as HTMLButtonElement
       ).click();
     });
@@ -172,10 +173,10 @@ describe("DayTurnsPanel", () => {
       <DayTurnsPanel epoch={epoch} day={dayEntry("2026-09-28")} />,
     );
 
-    expect(container.textContent).toContain("Archived · read-only");
-    expect(container.textContent).toContain("Completed");
+    expect(container.textContent).toContain(t("workspace.archivedReadOnly"));
+    expect(container.textContent).toContain(t("trace.completed"));
     expect(container.textContent).toContain("Summarize the release plan");
-    expect(container.textContent).toContain("answered");
+    expect(container.textContent).toContain(t("protocol.runtime.answered"));
     const list = endpoint.calls("/v2/session/turns");
     expect(list).toHaveLength(1);
     expect(queryOf(list[0], "day")).toBe("2026-09-28");
@@ -215,12 +216,12 @@ describe("DayTurnsPanel", () => {
       <DayTurnsPanel epoch={epoch} day={dayEntry("2026-09-29", true)} />,
     );
 
-    expect(container.textContent).toContain("This day");
-    expect(container.textContent).toContain("In progress");
+    expect(container.textContent).toContain(t("history.thisDay"));
+    expect(container.textContent).toContain(t("chat.inProgress"));
     expect(container.textContent).toContain("live-1");
-    expect(container.textContent).toContain("Queued");
+    expect(container.textContent).toContain(t("common.queued"));
     expect(container.textContent).toContain("queued-1");
-    expect(container.textContent).toContain("Completed");
+    expect(container.textContent).toContain(t("trace.completed"));
     expect(container.textContent).toContain("Summarize the release plan");
   });
 
@@ -249,7 +250,7 @@ describe("DayTurnsPanel", () => {
     );
 
     await act(async () => {
-      buttonByText("Return to the running conversation").click();
+      buttonByText(t("history.returnLive")).click();
     });
     expect(useInspectorStore.getState().entries).toHaveLength(0);
     const turn = useTurnStore.getState();
@@ -265,9 +266,9 @@ describe("DayTurnsPanel", () => {
     await renderAndSettle(
       <DayTurnsPanel epoch={epoch} day={dayEntry("2026-09-29", true)} />,
     );
-    expect(container.textContent).toContain("No conversations on 2026-09-29 yet");
+    expect(container.textContent).toContain(t("history.noConversationsOn", { day: "2026-09-29" }));
     expect(container.textContent).toContain(
-      "Finished turns appear here once they are committed.",
+      t("history.finishedTurnsHint"),
     );
 
     endpoint.get("/v2/session/turns", () =>
@@ -278,9 +279,11 @@ describe("DayTurnsPanel", () => {
         <DayTurnsPanel epoch={epoch} day={dayEntry("2026-09-27")} />,
       );
     });
-    expect(container.textContent).toContain("No conversations on 2026-09-27 yet");
     expect(container.textContent).toContain(
-      "This archived day has no committed conversations.",
+      t("history.noConversationsOn", { day: "2026-09-27" }),
+    );
+    expect(container.textContent).toContain(
+      t("history.archiveNoTurns"),
     );
   });
 });

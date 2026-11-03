@@ -1,3 +1,4 @@
+import { message } from "../../i18n/core";
 /**
  * Async settings flows (implementation plan §15): initial/refresh loads, the
  * batch apply and the saved-candidate reload. Controllers are module-level
@@ -92,7 +93,7 @@ export async function applyDrafts(clients: V2Clients): Promise<void> {
     useConfigDraftStore.getState().failApply({
       kind: "uncertain",
       message:
-        "The apply result was ambiguous. The draft is kept; refresh and check the saved/active status before trying again.",
+        message("settings.applyUncertain"),
     });
     return;
   }
@@ -101,7 +102,7 @@ export async function applyDrafts(clients: V2Clients): Promise<void> {
     .getState()
     .pushToast(
       "success",
-      `Configuration applied${result.generation_id ? ` — generation ${result.generation_id}` : ""}.`,
+      message("settings.applied"),
     );
 }
 
@@ -121,12 +122,12 @@ export async function reloadSaved(clients: V2Clients): Promise<void> {
     useConfigDraftStore.getState().failApply({
       kind: "uncertain",
       message:
-        "The reload result was ambiguous. Refresh and check the saved/active status before trying again.",
+        message("settings.applyUncertain"),
     });
     return;
   }
   await finishActivation(clients, [], result.cleanup_diagnostics ?? null);
-  useAppStore.getState().pushToast("success", "Saved configuration activated.");
+  useAppStore.getState().pushToast("success", message("settings.savedActivated"));
 }
 
 /**
@@ -182,7 +183,7 @@ export function classifyApplyError(error: unknown): ApplyFailure {
   return {
     kind: "uncertain",
     message:
-      "The request result is unknown (network or client failure). The draft is kept; refresh and compare saved/active before re-applying.",
+      message("settings.applyUncertain"),
   };
 }
 

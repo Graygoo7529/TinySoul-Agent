@@ -52,13 +52,11 @@ export function BlobView({
           </div>
         </div>
         <dl className="space-y-1.5 text-[12px]">
-          <MetadataRow label="Media type" value={record.media_type} />
-          <MetadataRow label="Size" value={formatSize(record.size)} />
+          <MetadataRow label={t("workspace.mediaType")} value={record.media_type} />
+          <MetadataRow label={t("workspace.size")} value={formatSize(record.size)} />
         </dl>
         <div className="text-[11px] leading-4 text-fg-faint">
-          This file type is not embedded in the page. Download it to open with
-          a local application.
-        </div>
+          {t("workspace.downloadHint")}</div>
         <Button
           variant="outline"
           size="sm"
@@ -88,7 +86,7 @@ function ImageBlob({
       <div className="flex h-full items-center justify-center p-6">
         <div className="flex max-w-md items-center gap-2 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-[12px] text-warning">
           <AlertTriangle size={13} className="shrink-0" />
-          The image could not be read: {blob.error}
+          {t("workspace.imageFailed")}{blob.error}
         </div>
       </div>
     );
@@ -119,7 +117,7 @@ function ImageBlob({
         <img
           src={blob.url}
           alt={record.relative_path}
-          title="点击放大查看"
+          title={t("workspace.zoomImage")}
           onClick={() => setViewerOpen(true)}
           className="max-h-full max-w-full cursor-zoom-in object-contain hover:outline-2 hover:outline-accent/60 hover:outline-solid hover:outline-offset-2"
         />
@@ -207,7 +205,7 @@ export function ImageLightbox({
     <div
       className="animate-fade-in fixed inset-0 z-(--z-drawer) flex flex-col bg-scrim/70 backdrop-blur-[2px]"
       role="dialog"
-      aria-label={`查看图片 ${name}`}
+      aria-label={t("workspace.viewImage", { name })}
     >
       <div className="flex items-center gap-2 border-b border-line/60 px-4 py-2 text-[11px] text-white/60">
         <span className="truncate text-[12.5px] font-medium text-white/90" title={name}>
@@ -218,13 +216,13 @@ export function ImageLightbox({
         <span className="w-11 shrink-0 text-center font-mono text-[10px] tabular-nums">
           {Math.round(view.zoom * 100)}%
         </span>
-        <IconButton label="复位到 100%" className="h-7 w-7 text-white/70 hover:bg-white/10 hover:text-white" onClick={reset}>
+        <IconButton label={t("workspace.resetZoom")} className="h-7 w-7 text-white/70 hover:bg-white/10 hover:text-white" onClick={reset}>
           <RotateCcw size={13} />
         </IconButton>
         <IconButton label={t("settings.download")} className="h-7 w-7 text-white/70 hover:bg-white/10 hover:text-white" onClick={onDownload}>
           <Download size={13} />
         </IconButton>
-        <IconButton label="关闭" className="h-7 w-7 text-white/70 hover:bg-white/10 hover:text-white" onClick={onClose}>
+        <IconButton label={t("common.close")} className="h-7 w-7 text-white/70 hover:bg-white/10 hover:text-white" onClick={onClose}>
           <X size={14} />
         </IconButton>
       </div>
@@ -282,10 +280,10 @@ export function ImageLightbox({
       </div>
 
       <div className="flex items-center justify-center gap-4 border-t border-line/60 py-1.5 text-[10px] text-white/45">
-        <span>滚轮缩放</span>
-        <span>拖拽平移</span>
-        <span>双击复位</span>
-        <span>Esc 关闭</span>
+        <span>{t("workspace.scrollZoom")}</span>
+        <span>{t("workspace.dragPan")}</span>
+        <span>{t("workspace.doubleClickReset")}</span>
+        <span>{t("workspace.escapeClose")}</span>
       </div>
     </div>
   );

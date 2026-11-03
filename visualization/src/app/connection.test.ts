@@ -157,7 +157,7 @@ describe("handshake", () => {
     expect(ok).toBe(false);
     const connection = useConnectionStore.getState();
     expect(connection.phase).toBe("error");
-    expect(connection.error).toContain("protocol v2");
+    expect(connection.error).toMatchObject({ id: "connection.protocolMismatch" });
     expect(MockEventsSocket.instances).toHaveLength(0);
   });
 
@@ -173,7 +173,7 @@ describe("handshake", () => {
     expect(ok).toBe(false);
     const connection = useConnectionStore.getState();
     expect(connection.phase).toBe("error");
-    expect(connection.error).toContain("Cannot reach the endpoint");
+    expect(connection.error).toMatchObject({ id: "connection.unreachableDetail" });
     expect(MockEventsSocket.instances).toHaveLength(0);
   });
 

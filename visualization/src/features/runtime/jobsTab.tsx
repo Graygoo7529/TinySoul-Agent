@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, message, tStatus } from "../../i18n";
 import { requestIdForTurn } from "../../store/turnStore";
 /**
  * Jobs tab (plan §14 Jobs, API-14).
@@ -136,8 +136,7 @@ export function JobsTab({
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 text-[12px] text-fg-faint">
-        Jobs of turn
-        <span className="font-medium text-fg-muted" title={bound.turnId}>
+        {t("runtime.jobsOf")}<span className="font-medium text-fg-muted" title={bound.turnId}>
           {shortTurnId(bound.turnId)}
         </span>
         <CopyButton text={() => bound.turnId ?? ""} label={t("runtime.copyTurnId")} />
@@ -149,11 +148,10 @@ export function JobsTab({
         <ReadError message={listError} />
       )}
       {jobs === null && !reclaimed ? (
-        <LoadingRow text="Reading the job list…" />
+        <LoadingRow text={t("runtime.readJobs")} />
       ) : jobs !== null && jobs.length === 0 && !reclaimed ? (
         <div className="rounded-lg border border-line bg-bg-elev px-4 py-3 text-[12px] text-fg-faint">
-          No background jobs in this turn yet.
-        </div>
+          {t("runtime.noJobs")}</div>
       ) : (
         jobs !== null && (
           <div className="space-y-1.5">
@@ -196,6 +194,7 @@ function JobRow({
   inert: boolean;
   onSelect: () => void;
 }): ReactElement {
+  const { t } = useI18n();
   return (
     <button
       type="button"
@@ -206,15 +205,15 @@ function JobRow({
           : "border-line bg-bg-elev hover:border-line-strong hover:bg-hover"
       }`}
     >
-      <Badge tone={JOB_STATE_TONES[job.state] ?? "gray"}>{job.state}</Badge>
+      <Badge tone={JOB_STATE_TONES[job.state] ?? "gray"}>{tStatus(job.state)}</Badge>
       <span className="shrink-0 text-[12px] text-fg-faint">{job.kind}</span>
       <span className="min-w-0 flex-1 truncate text-[13px]">
         {job.summary !== "" ? job.summary : job.job_id}
       </span>
       {job.pending_inputs.length > 0 && (
-        <Badge tone="yellow">pending request</Badge>
+        <Badge tone="yellow">{t("runtime.pendingRequest")}</Badge>
       )}
-      {!inert && <span className="sr-only">select</span>}
+      {!inert && <span className="sr-only">{t("runtime.select")}</span>}
     </button>
   );
 }
@@ -229,19 +228,17 @@ function ReclaimedNotice({
   turnId: string;
   day: string | null;
 }): ReactElement {
+  const { t } = useI18n();
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-bg-sunken px-3 py-2 text-[12px] text-fg-muted">
       <span className="min-w-0 flex-1">
-        This turn has finished — its jobs were reclaimed. The last read stays
-        below, frozen; artifacts remain available through their links.
-      </span>
+        {t("runtime.finishedJobs")}</span>
       <Button
         variant="outline"
         size="xs"
         onClick={() => openTurnProcess(epoch, turnId, day)}
       >
-        Turn process
-      </Button>
+        {t("runtime.turnProcess")}</Button>
     </div>
   );
 }
@@ -261,6 +258,7 @@ function JobDetailView({
   reclaimed: boolean;
   outputIntervalMs: number;
 }): ReactElement {
+  const { t } = useI18n();
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [readError, setReadError] = useState<string | null>(null);
   const [output, setOutput] = useState<JobOutputState>({
@@ -304,7 +302,7 @@ function JobDetailView({
         // reader.poll stores its own bounded error before rethrowing; the
         // detail read has no fallback — either way one row reports it.
         if (!stopped) {
-          setReadError(reader.snapshot.error ?? "the job read failed");
+          setReadError(reader.snapshot.error ?? t("runtime.jobReadFailed"));
         }
       }
     };
@@ -324,7 +322,7 @@ function JobDetailView({
     } catch (error) {
       useAppStore
         .getState()
-        .pushToast("error", `Failed to stop the job: ${errorMessage(error)}`);
+        .pushToast("error", message("runtime.jobStopFailed", { detail: errorMessage(error) }));
     } finally {
       setStopping(false);
     }
@@ -336,13 +334,13 @@ function JobDetailView({
       <div className="flex flex-wrap items-center gap-2">
         {detail !== null && (
           <Badge tone={JOB_STATE_TONES[detail.state] ?? "gray"}>
-            {detail.state}
+            {tStatus(detail.state)}
           </Badge>
         )}
         <span className="text-[12px] text-fg-faint" title={jobId}>
           {shortId(jobId)}
         </span>
-        <CopyButton text={() => jobId} label="Copy job id" />
+        <CopyButton text={() => jobId} label={t("runtime.copyJob")} />
         <span className="flex-1" />
         {!reclaimed && detail !== null && !terminal && (
           <Button
@@ -352,12 +350,11 @@ function JobDetailView({
             onClick={() => void stopJob()}
           >
             <CircleStop size={12} />
-            Stop job
-          </Button>
+            {t("runtime.stopJob")}</Button>
         )}
       </div>
       {detail === null && readError === null && (
-        <LoadingRow text="Reading the job…" />
+        <LoadingRow text={t("runtime.readJob")} />
       )}
       {readError !== null && (
         <ReadError message={readError} onRetry={() => setNonce((n) => n + 1)} />
@@ -398,9 +395,7 @@ function JobDetailBody({
       {detail.pending_inputs.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-warning">
           <span className="min-w-0 flex-1">
-            The agent has a pending request for this job — answer it in the
-            conversation.
-          </span>
+            {t("runtime.answerInChat")}</span>
           <Button
             variant="outline"
             size="xs"
@@ -411,7 +406,7 @@ function JobDetailBody({
       )}
       {detail.result_refs.length > 0 && (
         <div className="space-y-1">
-          <div className="text-fg-faint">Artifacts</div>
+          <div className="text-fg-faint">{t("runtime.artifacts")}</div>
           {detail.result_refs.map((link) => (
             <button
               key={link}
@@ -457,14 +452,14 @@ function JobOutputView({
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-[12px] text-fg-faint">
         {t("runtime.output")}{output.reading && (
-          <span className="text-fg-faint">(reading…)</span>
+          <span className="text-fg-faint">{t("runtime.reading")}</span>
         )}
       </div>
       {channels.length === 0 && !output.reading && (
         <div className="text-[12px] text-fg-faint">
           {output.exhausted
-            ? "This job produced no captured output."
-            : "No output captured yet."}
+            ? t("runtime.jobNoOutput")
+            : t("runtime.jobNoOutputYet")}
         </div>
       )}
       {channels.map(([channel, text]) => (
@@ -479,16 +474,12 @@ function JobOutputView({
       ))}
       {output.truncated && !output.stalled && (
         <div className="text-[11px] text-fg-faint">
-          Bounded read — more output is available and reading continues; this
-          never means output was lost.
-        </div>
+          {t("runtime.moreOutput")}</div>
       )}
       {output.stalled && (
         <div className="space-y-1.5 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-[12px] text-warning">
           <p>
-            The bounded read reached its limit — the remaining output is
-            available through the job's actual artifacts:
-          </p>
+            {t("runtime.outputLimit")}</p>
           <LocatorLinks
             epoch={epoch}
             turnId={turnId}

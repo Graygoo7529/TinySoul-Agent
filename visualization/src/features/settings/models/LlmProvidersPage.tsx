@@ -1,4 +1,4 @@
-import { t, translatedField as matchField } from "../../../i18n";
+import { t, useI18n, translatedField as matchField } from "../../../i18n";
 import { NetworkPolicyEditor } from "../editors/NetworkPolicyEditor";
 /**
  * LLM Providers settings page (plan §16.1): the provider collection with the
@@ -55,6 +55,7 @@ import {
 const ROOT = "llm.providers";
 
 export function LlmProvidersPage() {
+  const { t } = useI18n();
   const state = useConfigDraftStore();
   const objects = useMemo(
     () => projectCollection(state, ROOT),
@@ -110,7 +111,7 @@ export function LlmProvidersPage() {
         title={t("settings.providers")}
         description={
           collection?.description ??
-          "API endpoints that chat models call through adapters."
+          t("settings.providersDescription")
         }
         items={objects.map((item) => ({
           id: item.id,
@@ -127,18 +128,18 @@ export function LlmProvidersPage() {
         addDisabled={!createSourceAvailable}
         addTitle={
           createSourceAvailable
-            ? "New provider"
-            : "The providers include file is missing or read-only"
+            ? t("settings.newProvider")
+            : t("settings.providersReadOnly")
         }
         headerBadges={
           current !== null && (
             <>
-              {current.isNew && <Badge tone="accent">草稿新增</Badge>}
-              {!current.isNew && current.dirty && <Badge tone="accent">已修改</Badge>}
+              {current.isNew && <Badge tone="accent">{t("settings.draftCreated")}</Badge>}
+              {!current.isNew && current.dirty && <Badge tone="accent">{t("common.modified")}</Badge>}
               {current.value.enabled === true ? (
-                <Badge tone="blue">启用</Badge>
+                <Badge tone="blue">{t("settings.enabled")}</Badge>
               ) : (
-                <Badge tone="gray">禁用</Badge>
+                <Badge tone="gray">{t("settings.disabled")}</Badge>
               )}
             </>
           )
@@ -174,7 +175,7 @@ export function LlmProvidersPage() {
 
       <CreateObjectModal
         validateId={llmObjectIdError}
-        title="New provider"
+        title={t("settings.newProvider")}
         idTitle={t("settings.providerId")}
         idDescription="Stable identifier referenced by model provider chains; dots, outer whitespace and numeric-only ids are not allowed."
         existing={objects.map((item) => item.id)}
@@ -201,7 +202,7 @@ export function LlmProvidersPage() {
       />
       <CreateObjectModal
         validateId={llmObjectIdError}
-        title={`Duplicate provider ${duplicateFrom?.id ?? ""}`}
+        title={t("settings.duplicateProviderName", { id: duplicateFrom?.id ?? "" })}
         idTitle="New provider ID"
         idDescription="The copy starts disabled; adjust its endpoint and credentials before enabling."
         existing={objects.map((item) => item.id)}
@@ -217,7 +218,7 @@ export function LlmProvidersPage() {
         }}
       />
       <DeleteObjectModal
-        title="Delete provider"
+        title={t("settings.deleteProvider")}
         objectId={deleting?.id ?? ""}
         references={deleting !== null ? providerReferences(models, deleting.id) : []}
         open={deleting !== null}
@@ -241,13 +242,13 @@ function providerSummary(
     ? Object.keys(object.value.endpoints)
     : [];
   const parts: string[] = [];
-  parts.push(object.value.enabled === true ? "enabled" : "disabled");
+  parts.push(object.value.enabled === true ? t("runtime.enabled") : t("settings.disabled"));
   if (modes.length > 0) parts.push(modes.join(", "));
   if (credential !== undefined && credential.credentialState !== "unknown") {
     parts.push(
       credential.credentialState === "configured"
-        ? "credential configured"
-        : "credential missing",
+        ? t("settings.credentialConfigured")
+        : t("settings.credentialMissing"),
     );
   }
   return parts.join(" · ");
@@ -275,6 +276,7 @@ function ProviderEditor({
     apiKeyEnvs: string[];
   } | null;
 }) {
+  const { t } = useI18n();
   const state = useConfigDraftStore();
   const catalog = state.catalog;
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
@@ -306,7 +308,7 @@ function ProviderEditor({
           dirty={field("enabled").dirty}
         >
           <Toggle
-            ariaLabel="Enabled"
+            ariaLabel={t("settings.enabled")}
             checked={enabled}
             disabled={field("enabled").lock !== null}
             onChange={(next) =>
@@ -327,8 +329,8 @@ function ProviderEditor({
         description={t("settings.requestBehaviorAndEndpointOfThisProvider")}
       >
         <FieldRow
-          title="API 入口"
-          description="每个 API 模式配置一个入口，共用提供方凭据。"
+          title={t("settings.apiEntrypoints")}
+          description={t("settings.apiEntrypointsHint")}
           dirty={field("endpoints").dirty}
         >
           <EndpointEditor
@@ -338,13 +340,13 @@ function ProviderEditor({
             onCommit={(value) => setObjectField(ROOT, object, "endpoints", value, createSource)}
           />
         </FieldRow>
-        <FieldRow title="代理设置" dirty={field("network").dirty}>
-          <NetworkPolicyEditor value={object.value.network} parentLabel="系统网络默认配置"
+        <FieldRow title={t("settings.proxySettings")} dirty={field("network").dirty}>
+          <NetworkPolicyEditor value={object.value.network} parentLabel={t("settings.systemNetwork")}
             disabled={field("network").lock !== null}
             onChange={(network) => setObjectField(ROOT, object, "network", network, createSource)} />
         </FieldRow>
-        <FieldRow title="缓存路由 key 请求头" description="将本次调用的缓存路由 key 写入指定请求头，例如 x-opencode-session。" dirty={field("cache_key_header").dirty}>
-          <TextInput ariaLabel="缓存路由 key 请求头" value={stringField(object.value, "cache_key_header")}
+        <FieldRow title={t("settings.cacheHeader")} description={t("settings.cacheHeaderHint")} dirty={field("cache_key_header").dirty}>
+          <TextInput ariaLabel={t("settings.cacheHeader")} value={stringField(object.value, "cache_key_header")}
             placeholder="x-opencode-session" disabled={field("cache_key_header").lock !== null}
             onCommit={(name) => name.trim()
               ? setObjectField(ROOT, object, "cache_key_header", name.trim(), createSource)
@@ -353,8 +355,8 @@ function ProviderEditor({
         {(["headers", "header_refs"] as const).map((key) => (
           <FieldRow
             key={key}
-            title={key === "headers" ? "共享附加请求头" : "共享请求头凭据引用"}
-            description={key === "headers" ? "普通请求头；认证密钥请使用环境变量引用。" : "请求头名称 → 环境变量名称。"}
+            title={key === "headers" ? t("settings.sharedHeaders") : t("settings.sharedHeaderRefs")}
+            description={key === "headers" ? t("settings.headerHint") : t("settings.headerRefHint")}
             dirty={field(key).dirty}
           >
             <JsonObjectInput
@@ -372,12 +374,12 @@ function ProviderEditor({
         description={t("settings.environmentVariableNamesCheckedForThisProviderSApi")}
       >
         <FieldRow
-          title={field("api_key_envs").meta?.title ?? "Credential names"}
+          title={field("api_key_envs").meta?.title ?? t("settings.credentialNames")}
           description={field("api_key_envs").meta?.description}
           dirty={field("api_key_envs").dirty}
         >
           <StringListEditor
-            ariaLabel="Credential name"
+            ariaLabel={t("settings.credentialName")}
             values={apiKeyEnvs}
             placeholder="PROVIDER_API_KEY"
             disabled={field("api_key_envs").lock !== null}
@@ -419,6 +421,7 @@ function EndpointEditor({
   disabled: boolean;
   onCommit: (value: Record<string, JsonValue>) => void;
 }) {
+  const { t } = useI18n();
   const update = (mode: string, patch: Record<string, JsonValue>) => {
     const current = isPlainRecord(value[mode]) ? value[mode] : {};
     onCommit({ ...value, [mode]: { ...current, ...patch } });
@@ -441,7 +444,7 @@ function EndpointEditor({
                   delete next[mode];
                   onCommit(next);
                 }}
-              >移除</Button>
+              >{t("common.remove")}</Button>
             </div>
             <TextInput
               ariaLabel={`${mode} Base URL`}
@@ -452,15 +455,15 @@ function EndpointEditor({
               onCommit={(base_url) => update(mode, { base_url })}
             />
             <details>
-              <summary className="cursor-pointer text-xs text-fg-muted">入口代理覆盖</summary>
-              <NetworkPolicyEditor value={endpoint.network} parentLabel="当前提供方代理" disabled={disabled}
+              <summary className="cursor-pointer text-xs text-fg-muted">{t("settings.entrypointProxy")}</summary>
+              <NetworkPolicyEditor value={endpoint.network} parentLabel={t("settings.providerProxy")} disabled={disabled}
                 onChange={(network) => update(mode, { network })} />
             </details>
             <details>
-              <summary className="cursor-pointer text-xs text-fg-muted">附加请求头</summary>
+              <summary className="cursor-pointer text-xs text-fg-muted">{t("settings.extraHeaders")}</summary>
               {(["headers", "header_refs"] as const).map((key) => (
                 <label key={key} className="mt-2 block text-xs text-fg-muted">
-                  {key === "headers" ? "普通请求头" : "请求头 → 环境变量引用"}
+                  {key === "headers" ? t("settings.regularHeaders") : t("settings.headerRefs")}
                   <JsonObjectInput
                     ariaLabel={`${mode} ${key}`}
                     value={isPlainRecord(endpoint[key]) ? endpoint[key] : {}}
@@ -471,8 +474,7 @@ function EndpointEditor({
               ))}
             </details>
             {mode === "google-generate-content" && <label className="block text-xs text-fg-muted">
-              API 版本（默认 v1beta；Base URL 使用服务根地址）
-              <TextInput ariaLabel="Google API version" value={stringField(endpoint, "api_version")}
+              {t("settings.apiVersionHint")}<TextInput ariaLabel={t("settings.googleApiVersion")} value={stringField(endpoint, "api_version")}
                 placeholder="v1beta" disabled={disabled} onCommit={(api_version) => {
                   const next = { ...endpoint };
                   if (api_version.trim()) next.api_version = api_version.trim();
@@ -484,7 +486,7 @@ function EndpointEditor({
         );
       })}
       <select
-        aria-label="Add API mode"
+        aria-label={t("settings.addApiMode")}
         value=""
         className={selectClass}
         disabled={disabled}
@@ -494,7 +496,7 @@ function EndpointEditor({
           }
         }}
       >
-        <option value="">添加 API 模式…</option>
+        <option value="">{t("settings.apiModePlaceholder")}</option>
         {modes.filter((mode) => !Object.prototype.hasOwnProperty.call(value, mode)).map((mode) => (
           <option key={mode} value={mode}>{mode}</option>
         ))}

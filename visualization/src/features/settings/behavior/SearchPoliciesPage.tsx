@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { useI18n, tStatus } from "../../../i18n";
 /**
  * Search Policies settings page (config-coverage §3.3): the `action.retrieval`
  * map, one entry per registered search Action. The five capabilities and the
@@ -39,6 +39,7 @@ import {
 } from "./retrievalModel";
 
 export function SearchPoliciesPage() {
+  const { t } = useI18n();
   const state = useConfigDraftStore();
   const [selected, setSelected] = useState<string | null>(
     SEARCH_CAPABILITIES[0]?.actionId ?? null,
@@ -66,7 +67,7 @@ export function SearchPoliciesPage() {
       description={t("settings.retrievalSourcesConstraintOperationsContextsAndBudgetsPerSearch")}
       items={SEARCH_CAPABILITIES.map((capability) => ({
         id: capability.actionId,
-        summary: capability.title,
+        summary: t(capability.titleId),
         dirty: policyDirty(state, capability.actionId),
       }))}
       selected={current?.actionId ?? null}
@@ -78,6 +79,7 @@ export function SearchPoliciesPage() {
 }
 
 function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
+  const { t } = useI18n();
   const state = useConfigDraftStore();
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
   const draft = policyDraftFor(state, capability.actionId);
@@ -132,11 +134,11 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
 
       <FieldSection
         title={t("settings.sourcesOperations")}
-        description={capability.description}
+        description={t(capability.descriptionId)}
         meta={
           dirty ? (
             <IconButton
-              label="Withdraw this policy change"
+              label={t("settings.withdrawPolicy")}
               onClick={() => withdrawPolicy(capability.actionId)}
             >
               <RotateCcw size={13} />
@@ -222,7 +224,7 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
                   title={`${operation} contexts`}
                   description={
                     similarity
-                      ? "Bound to embedding similarity — the current Context cannot be read."
+                      ? t("settings.embeddingContextLimit")
                       : undefined
                   }
                   dirty={dirty}
@@ -243,9 +245,9 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
                     }}
                   />
                 </FieldRow>
-                <FieldRow title={`${operation} input limit`} dirty={dirty}>
+                <FieldRow title={t("settings.operationInputLimit", { operation })} dirty={dirty}>
                   <NumberInput
-                    ariaLabel={`${operation} input max chars`}
+                    ariaLabel={t("settings.operationInputChars", { operation })}
                     value={step.inputMaxChars}
                     integer
                     min={1}
@@ -268,7 +270,7 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
       >
         <FieldRow title={t("settings.maxSteps")} dirty={dirty}>
           <NumberInput
-            ariaLabel="Max steps"
+            ariaLabel={t("settings.maxSteps")}
             value={draft.maxSteps}
             integer
             min={1}
@@ -280,7 +282,7 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
         </FieldRow>
         <FieldRow title={t("settings.snapshotBudget")} dirty={dirty}>
           <NumberInput
-            ariaLabel="Snapshot max chars"
+            ariaLabel={t("settings.snapshotChars")}
             value={draft.snapshotMaxChars}
             integer
             min={1}
@@ -291,7 +293,7 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
         </FieldRow>
         <FieldRow title={t("settings.pageSize")} dirty={dirty}>
           <NumberInput
-            ariaLabel="Page max items"
+            ariaLabel={t("settings.pageItems")}
             value={draft.pageMaxItems}
             integer
             min={1}
@@ -302,7 +304,7 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
         </FieldRow>
         <FieldRow title={t("settings.pageBudget")} dirty={dirty}>
           <NumberInput
-            ariaLabel="Page max chars"
+            ariaLabel={t("settings.pageChars")}
             value={draft.pageMaxChars}
             integer
             min={1}
@@ -328,11 +330,12 @@ function ModelOperationRow({
   enabled: boolean;
   onOpenActions: () => void;
 }) {
+  const { t } = useI18n();
   const state = useConfigDraftStore();
   const entry = bindingEntry(state, `${actionId}.${operation}`);
   const label =
     entry === null
-      ? "no binding"
+      ? t("settings.noBinding")
       : entry.implementation === "llm_task"
         ? `llm_task → ${entry.taskProfile ?? "?"}`
         : entry.implementation === "decision"
@@ -344,10 +347,10 @@ function ModelOperationRow({
       description={t("settings.theModelImplementationOfThisOperationEditedPerConsumer")}
     >
       <span className="flex items-center gap-1.5">
-        {!enabled && <Badge tone="gray">操作已禁用</Badge>}
+        {!enabled && <Badge tone="gray">{t("settings.operationDisabled")}</Badge>}
         <span className="font-mono text-[11px] text-fg-muted">{label}</span>
         {entry !== null && entry.status !== "saved" && (
-          <Badge tone="accent">{entry.status}</Badge>
+          <Badge tone="accent">{tStatus(entry.status)}</Badge>
         )}
         <Button size="xs" variant="ghost" onClick={onOpenActions}>{t("settings.editInActions")}<ArrowRight size={11} />
         </Button>

@@ -139,7 +139,7 @@ export function MemoryPage(): ReactElement {
         <span className="text-[11px] text-fg-faint">
           {section === "active"
             ? t("memory.activeHint")
-            : "整理后的持久知识"}
+            : t("memory.knowledgeHint")}
         </span>
         <div className="flex-1" />
         <Button
@@ -175,7 +175,7 @@ export function MemoryPage(): ReactElement {
               <EmptyState
                 icon={<Brain size={26} />}
                 title={t("memory.persistent")}
-                description="Persistent daily, entity, concept, fact and note documents. Pick one from the list, or search the knowledge base."
+                description={t("memory.libraryHint")}
               />
             </div>
           )}

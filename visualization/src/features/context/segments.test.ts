@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { describe, expect, it } from "vitest";
 
 import type { ContextOverview, SegmentView } from "../../api/v2/types";
@@ -31,9 +32,9 @@ describe("groupBySlot", () => {
       "working",
     ]);
     expect(groups.map((group) => group.label)).toEqual([
-      "Background",
-      "Trace",
-      "Working",
+      t("context.slot.background"),
+      t("context.slot.trace"),
+      t("context.slot.working"),
     ]);
     expect(groups[0]!.segments.map((entry) => entry.id)).toEqual([
       "identity",
@@ -105,36 +106,36 @@ describe("capabilities", () => {
 
 describe("usageLine", () => {
   it("reports characters, never tokens", () => {
-    expect(usageLine(segment("home"))).toBe("11,317 chars");
-    expect(usageLine(segment("identity"))).toBe("17 chars");
+    expect(usageLine(segment("home"))).toBe(t("context.characterUsage", { count: "11,317" }));
+    expect(usageLine(segment("identity"))).toBe(t("context.characterUsage", { count: "17" }));
   });
 
   it("adds image bytes when present", () => {
     expect(usageLine({ ...segment("identity"), image_bytes: 2048 })).toBe(
-      "17 chars · 2.0 KB of images",
+      `${t("context.characterUsage", { count: "17" })} · ${t("context.imageUsage", { size: "2.0 KB" })}`,
     );
   });
 });
 
 describe("segmentStatusLine", () => {
   it("summarizes heap segments by installed/available counts", () => {
-    expect(segmentStatusLine(segment("home"))).toBe("7 installed · 3 available");
+    expect(segmentStatusLine(segment("home"))).toBe(t("context.heapStatus", { installed: 7, available: 3 }));
   });
 
   it("summarizes stack/map segments by root refs", () => {
-    expect(segmentStatusLine(segment("trace"))).toBe("1 root ref");
-    expect(segmentStatusLine(segment("session"))).toBe("1 root ref");
+    expect(segmentStatusLine(segment("trace"))).toBe(t("context.rootRefs", { count: 1 }));
+    expect(segmentStatusLine(segment("session"))).toBe(t("context.rootRefs", { count: 1 }));
   });
 
   it("marks segments without content as empty", () => {
-    expect(segmentStatusLine(segment("journal"))).toBe("empty");
+    expect(segmentStatusLine(segment("journal"))).toBe(t("common.empty"));
     expect(segmentStatusLine(segment("inputs"))).toBeNull();
   });
 });
 
 describe("labels", () => {
   it("labels known slots and shapes, passing unknown values through", () => {
-    expect(slotLabel("background")).toBe("Background");
+    expect(slotLabel("background")).toBe(t("context.slot.background"));
     expect(slotLabel("elsewhere")).toBe("elsewhere");
     expect(shapeLabel("state")).toBe("State");
     expect(shapeLabel("heap")).toBe("Heap");

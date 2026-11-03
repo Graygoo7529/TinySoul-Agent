@@ -1,3 +1,4 @@
+import { message, type UiText } from "../../i18n/core";
 /**
  * Chat orchestration for the v2 conversation (plan §5.1/§7).
  *
@@ -68,7 +69,7 @@ function clientsFor(epoch: number): V2Clients | null {
   return connection.clients;
 }
 
-function toast(kind: "success" | "error" | "info", text: string): void {
+function toast(kind: "success" | "error" | "info", text: UiText): void {
   useAppStore.getState().pushToast(kind, text);
 }
 
@@ -504,7 +505,7 @@ export async function refreshSessionTurns(epoch: number): Promise<void> {
     );
   } catch (error) {
     if (clientsFor(epoch) === null || serial !== sessionReadSerial) return;
-    toast("error", `Failed to load conversation history: ${errorMessage(error)}`);
+    toast("error", message("chat.historyFailed", { detail: errorMessage(error) }));
   } finally {
     if (clientsFor(epoch) !== null && serial === sessionReadSerial) {
       useTurnStore.getState().setSessionTurnsLoading(false);
@@ -706,7 +707,6 @@ export async function replyToQuestion(
     const code = apiErrorCode(error);
     if (code === "turn.command_rejected" || code === "turn.not_found") {
       refreshCommandTarget(epoch, requestId);
-      throw new Error("此问题已不再等待回复。");
     }
     throw error;
   }
@@ -730,10 +730,10 @@ export async function grantBudget(
     const code = apiErrorCode(error);
     if (code === "turn.command_rejected" || code === "turn.not_found") {
       refreshCommandTarget(epoch, rootRequestId);
-      toast("info", "The budget request is no longer open");
+      toast("info", message("chat.budgetClosed"));
       return false;
     }
-    toast("error", `Failed to grant budget: ${errorMessage(error)}`);
+    toast("error", message("chat.budgetFailed", { detail: errorMessage(error) }));
     return false;
   }
 }
@@ -746,23 +746,22 @@ export async function cancelActiveTurn(epoch: number): Promise<void> {
   const intent = resolveComposerIntent(connection.status, turn.snapshot, connection.phase === "connected",
     turn.outgoing.find((echo) => echo.kind === "new-turn" && echo.state === "accepted")?.requestId ?? null);
   if (intent.kind !== "append") return;
-  await postCancelIntent(epoch, intent.requestId, "stop the turn");
+  await postCancelIntent(epoch, intent.requestId);
 }
 
 /** Runtime queue management targets a specific request, independent of Chat. */
 export async function cancelQueuedTurn(epoch: number, turnId: string): Promise<void> {
-  await postCancelIntent(epoch, turnId, "cancel the queued turn");
+  await postCancelIntent(epoch, turnId);
 }
 
 export async function cancelReflection(epoch: number, turnId: string): Promise<void> {
-  await postCancelIntent(epoch, turnId, "stop the reflection");
+  await postCancelIntent(epoch, turnId);
 }
 
 /** Shared cancel-intent POST; the receipt only confirms the intent. */
 async function postCancelIntent(
   epoch: number,
   requestId: string,
-  action: string,
 ): Promise<void> {
   const clients = clientsFor(epoch);
   if (clients === null) return;
@@ -776,7 +775,7 @@ async function postCancelIntent(
       refreshCommandTarget(epoch, requestId);
       return;
     }
-    toast("error", `Failed to ${action}: ${errorMessage(error)}`);
+    toast("error", message("chat.cancelFailed", { detail: errorMessage(error) }));
   }
 }
 
@@ -872,27 +871,27 @@ function failEcho(echoId: string, error: unknown): void {
   const kind = useTurnStore
     .getState()
     .outgoing.find((item) => item.echoId === echoId)?.kind;
-  let message: string;
+  let feedback: UiText;
   if (isCapacityRejection(error)) {
-    message =
+    feedback =
       code === "agent.queue_full"
-        ? "The request queue is full — the draft stays here; retry when the current work settles."
-        : "The turn inbox cannot accept more input right now — retry shortly.";
+        ? message("chat.queueFull")
+        : message("chat.inboxFull");
   } else if (code === "turn.command_rejected" || code === "turn.not_found") {
-    message =
+    feedback =
       kind === "append"
-        ? "This turn is closed and can no longer accept input."
-        : "The backend rejected the input; the turn state was refreshed.";
+        ? message("chat.turnClosed")
+        : message("chat.inputRejected");
   } else if (code === "agent.not_ready") {
-    message = "The backend rejected the input; the turn state was refreshed.";
+    feedback = message("chat.inputRejected");
   } else if (code === null) {
-    message = "The send result is unknown (network). Retry uses the same request identity.";
+    feedback = message("chat.sendUnknown");
   } else {
-    message = errorMessage(error);
+    feedback = errorMessage(error);
   }
   useTurnStore.getState().updateEcho(echoId, {
     state: "failed",
-    error: message,
+    error: feedback,
     turnClosed:
       kind === "append" &&
       (code === "turn.command_rejected" || code === "turn.not_found"),

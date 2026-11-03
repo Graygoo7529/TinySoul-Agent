@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -65,9 +66,9 @@ describe("AcpTab", () => {
     await renderTab();
     await flush();
 
-    expect(container.textContent).toContain("没有已配置的子代理目标");
+    expect(container.textContent).toContain(t("runtime.subagentTargetsConfigured"));
     expect(container.textContent).toContain("没有活动连接");
-    expect(container.textContent).toContain("never connects");
+    expect(container.textContent).toContain(t("runtime.connectionHint"));
     // One side-effect-free directory read; nothing else.
     expect(endpoint.calls("/v2/subagent")).toHaveLength(1);
     expect(endpoint.requests.filter((r) => r.method === "POST")).toHaveLength(0);
@@ -102,10 +103,10 @@ describe("AcpTab", () => {
     await renderTab();
     await flush();
 
-    expect(container.textContent).toContain("Configured targets");
+    expect(container.textContent).toContain(t("runtime.configuredTargets"));
     expect(container.textContent).toContain("Helper agent");
-    expect(container.textContent).toContain("ready");
-    expect(container.textContent).toContain("idle — reusable across turns");
+    expect(container.textContent).toContain(t("protocol.runtime.ready"));
+    expect(container.textContent).toContain(t("runtime.idleReusable"));
     expect(container.textContent).toContain("busy");
     // A busy connection points at its delegation job.
     expect(container.textContent).toContain("job_9".slice(0, 8));
@@ -124,7 +125,7 @@ describe("AcpTab", () => {
     await flush();
 
     const delegate = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Delegate in conversation"),
+      (button) => button.textContent?.includes(t("runtime.delegate")),
     );
     expect(delegate).toBeDefined();
     await act(async () => (delegate as HTMLButtonElement).click());

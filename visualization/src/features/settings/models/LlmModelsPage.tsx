@@ -82,6 +82,7 @@ import {
 const ROOT = "llm.models";
 
 export function LlmModelsPage() {
+  const { t } = useI18n();
   const state = useConfigDraftStore();
   const objects = useMemo(
     () => projectCollection(state, ROOT),
@@ -147,7 +148,7 @@ export function LlmModelsPage() {
         title={t("settings.models")}
         description={
           collection?.description ??
-          "Provider models with capabilities and request options."
+          t("settings.providerModelsWithCapabilitiesAndRequestOptions")
         }
         items={items}
         selected={selected}
@@ -158,16 +159,16 @@ export function LlmModelsPage() {
         addDisabled={!createSourceAvailable}
         addTitle={
           createSourceAvailable
-            ? "New model"
-            : "Model configuration is currently read-only"
+            ? t("settings.newModel")
+            : t("settings.modelsReadOnly")
         }
         renderList={(select) => <ModelSelectionList models={objects} value={selected} onSelect={select} />}
         headerBadges={
           current !== null && (
             <>
-              {current.isNew && <Badge tone="accent">草稿新增</Badge>}
-              {!current.isNew && current.dirty && <Badge tone="accent">已修改</Badge>}
-              {current.value.collapsed === true && <Badge tone="gray">已折叠</Badge>}
+              {current.isNew && <Badge tone="accent">{t("settings.draftCreated")}</Badge>}
+              {!current.isNew && current.dirty && <Badge tone="accent">{t("common.modified")}</Badge>}
+              {current.value.collapsed === true && <Badge tone="gray">{t("settings.collapsed")}</Badge>}
             </>
           )
         }
@@ -181,7 +182,7 @@ export function LlmModelsPage() {
                 title={
                   currentDeletable
                     ? t("settings.rename")
-                    : "This model cannot be renamed from its current source"
+                    : t("settings.modelRenameReadOnly")
                 }
                 onClick={() => setRenaming(current)}
               >
@@ -193,7 +194,7 @@ export function LlmModelsPage() {
                 title={
                   currentDeletable
                     ? t("settings.delete")
-                    : "This model cannot be deleted from its current source"
+                    : t("settings.modelDeleteReadOnly")
                 }
                 onClick={() => setDeleting(current)}
               >
@@ -326,19 +327,19 @@ function NewModelModal({
     matchingProviders.some((item) => item.id === providerId) && providerModel.trim() !== "" &&
     adapterChoices.some((choice) => choice.value === adapter);
   return (
-    <Modal title="New model" onClose={onClose}>
+    <Modal title={t("settings.newModel")} onClose={onClose}>
       <div className="space-y-3">
-        <TextInput ariaLabel="Model ID" value={id} onCommit={setId} placeholder="gpt-latest" mono />
+        <TextInput ariaLabel={t("settings.modelId")} value={id} onCommit={setId} placeholder="gpt-latest" mono />
         {idError !== null && <div className="text-[10px] text-danger">{idError}</div>}
-        <SelectInput ariaLabel="Family" value={family} options={[{ value: "", label: t("settings.chooseExistingFamily") }, ...families.map((item) => ({ value: item, label: item })), { value: "__new__", label: t("settings.newFamily") }]} onChange={(value) => { setFamily(value); setNewFamilyFile(""); }} />
-        {family === "__new__" && <TextInput ariaLabel="New family" value={newFamily} onCommit={setNewFamily} placeholder="Qwen" />}
-        {target.usesFileName && <TextInput ariaLabel="Family TOML file" value={newFamilyFile} onCommit={setNewFamilyFile} placeholder={familyFileName(chosenFamily) || "qwen"} mono />}
+        <SelectInput ariaLabel={t("settings.family")} value={family} options={[{ value: "", label: t("settings.chooseExistingFamily") }, ...families.map((item) => ({ value: item, label: item })), { value: "__new__", label: t("settings.newFamily") }]} onChange={(value) => { setFamily(value); setNewFamilyFile(""); }} />
+        {family === "__new__" && <TextInput ariaLabel={t("settings.newFamilyName")} value={newFamily} onCommit={setNewFamily} placeholder="Qwen" />}
+        {target.usesFileName && <TextInput ariaLabel={t("settings.familyFile")} value={newFamilyFile} onCommit={setNewFamilyFile} placeholder={familyFileName(chosenFamily) || "qwen"} mono />}
         {target.kind === "invalid" && <div className="text-[10px] text-danger">{target.message}</div>}
-        <SelectInput ariaLabel="Adapter" value={adapter} options={[{ value: "", label: t("settings.chooseAdapter") }, ...adapterChoices]} onChange={setAdapter} />
-        <SelectInput ariaLabel="Provider" value={providerId} options={[{ value: "", label: t("settings.chooseProvider") }, ...matchingProviders.map((item) => ({ value: item.id, label: item.id }))]} onChange={(value) => { setProviderId(value); setProviderModel(""); }} />
+        <SelectInput ariaLabel={t("settings.adapter")} value={adapter} options={[{ value: "", label: t("settings.chooseAdapter") }, ...adapterChoices]} onChange={setAdapter} />
+        <SelectInput ariaLabel={t("settings.provider")} value={providerId} options={[{ value: "", label: t("settings.chooseProvider") }, ...matchingProviders.map((item) => ({ value: item.id, label: item.id }))]} onChange={(value) => { setProviderId(value); setProviderModel(""); }} />
         {adapter !== "" && matchingProviders.length === 0 && <div className="text-[10px] text-fg-muted">{t("settings.addACompatibleProviderOnTheProvidersPage")}</div>}
-        <TextInput ariaLabel="Provider model" value={providerModel} onCommit={setProviderModel} placeholder="Remote model name" mono />
-        {target.kind === "ready" && <div className="text-[11px] text-fg-faint">配置文件：{target.sourceId.replace(/^project:/, "")}</div>}
+        <TextInput ariaLabel={t("settings.providerModel")} value={providerModel} onCommit={setProviderModel} placeholder={t("settings.remoteModelName")} mono />
+        {target.kind === "ready" && <div className="text-[11px] text-fg-faint">{t("settings.configFile")}{target.sourceId.replace(/^project:/, "")}</div>}
         <div className="flex justify-end gap-2 border-t border-line pt-3">
           <Button size="xs" variant="ghost" onClick={onClose}>{t("settings.cancel")}</Button>
           <Button size="xs" variant="primary" disabled={!valid} onClick={() => {
@@ -390,6 +391,7 @@ function ModelEditor({
   providers: ProjectedObject[];
   writeSource: string | null;
 }) {
+  const { t } = useI18n();
   const state = useConfigDraftStore();
   const catalog = state.catalog;
   const navigateTo = useSettingsUiStore((ui) => ui.navigateTo);
@@ -444,7 +446,7 @@ function ModelEditor({
         >
           <div className="flex items-center gap-1.5">
             <SelectInput
-              ariaLabel="Adapter"
+              ariaLabel={t("settings.adapter")}
               value={adapter}
               disabled={adapterLocked}
               options={adapterChoices}
@@ -455,17 +457,17 @@ function ModelEditor({
             )}
           </div>
         </FieldRow>
-        <FieldRow title="API 模式">
+        <FieldRow title={t("settings.apiMode")}>
           <span className="font-mono text-xs">{adapterRule(catalog, adapter)?.apiMode}</span>
-          {adapterRule(catalog, adapter)?.runtimeAvailable === false && <Badge tone="yellow">尚未接入调用</Badge>}
+          {adapterRule(catalog, adapter)?.runtimeAvailable === false && <Badge tone="yellow">{t("settings.notCallable")}</Badge>}
         </FieldRow>
         {optionsForAdapter(catalog, adapter, stringField(adapterOptions, "variant")).some((option) => option.id === "reasoning_effort") &&
-          <FieldRow title="思考强度" description="使用高级选项中的候选档位；留空使用远端默认值。" dirty={field("reasoning_effort").dirty}>
-            <SelectInput ariaLabel="Reasoning effort" value={stringField(object.value, "reasoning_effort")}
-              emptyLabel="远端默认" options={modelOptionChoices("reasoning_effort", adapterOptions, [], object.value.reasoning_effort).map((value) => ({value, label: value}))}
+          <FieldRow title={t("settings.reasoningEffort")} description={t("settings.reasoningEffortHint")} dirty={field("reasoning_effort").dirty}>
+            <SelectInput ariaLabel={t("settings.reasoningEffort")} value={stringField(object.value, "reasoning_effort")}
+              emptyLabel={t("settings.remoteDefault")} options={modelOptionChoices("reasoning_effort", adapterOptions, [], object.value.reasoning_effort).map((value) => ({value, label: value}))}
               onChange={(value) => commitAdapterOption(object, writeSource, "reasoning_effort", value || undefined)} />
             {typeof object.value.reasoning_effort === "string" && !modelOptionChoices("reasoning_effort", adapterOptions, [], object.value.reasoning_effort).includes(object.value.reasoning_effort) &&
-              <span className="text-xs text-danger">当前档位不在候选列表中，请重新选择或清空。</span>}
+              <span className="text-xs text-danger">{t("settings.reasoningEffortInvalid")}</span>}
           </FieldRow>}
       </FieldSection>
 
@@ -481,12 +483,12 @@ function ModelEditor({
         description={t("settings.whatTinysoulMayRelyOnWhenRoutingTasksTo")}
       >
         <FieldRow
-          title={field("context_window_tokens").meta?.title ?? "Context Window"}
+          title={field("context_window_tokens").meta?.title ?? t("settings.contextWindow")}
           description={field("context_window_tokens").meta?.description}
           dirty={field("context_window_tokens").dirty}
         >
           <NumberInput
-            ariaLabel="Context window tokens"
+            ariaLabel={t("settings.contextWindowTokens")}
             integer
             min={1}
             suffix="tokens"
@@ -516,7 +518,7 @@ function ModelEditor({
           dirty={field("capabilities").dirty}
         >
           <ChoiceToggles
-            options={MODEL_CAPABILITIES}
+            options={MODEL_CAPABILITIES.map(({ value, labelId }) => ({ value, label: t(labelId) }))}
             values={stringListField(object.value, "capabilities")}
             disabled={field("capabilities").lock !== null}
             onCommit={(values) =>
@@ -532,16 +534,16 @@ function ModelEditor({
         adapter={adapter}
         bindings={readBindings(object.value.providers)}
       />
-      <SettingsDisclosure title="列表显示" className="m-3" paths={[`${ROOT}.${object.id}.family`, `${ROOT}.${object.id}.collapsed`]}>
+      <SettingsDisclosure title={t("settings.listDisplay")} className="m-3" paths={[`${ROOT}.${object.id}.family`, `${ROOT}.${object.id}.collapsed`]}>
         <FieldRow
           title={field("family").meta?.title ?? "Family"}
           description={field("family").meta?.description}
           dirty={field("family").dirty}
         >
           <TextInput
-            ariaLabel="Family"
+            ariaLabel={t("settings.family")}
             value={stringField(object.value, "family")}
-            placeholder="Optional display group"
+            placeholder={t("settings.displayGroup")}
             disabled={field("family").lock !== null}
             onCommit={(value) =>
               setObjectField(ROOT, object, "family", value.trim(), writeSource)
@@ -554,7 +556,7 @@ function ModelEditor({
           dirty={field("collapsed").dirty}
         >
           <Toggle
-            ariaLabel="Collapsed"
+            ariaLabel={t("settings.collapsed")}
             checked={object.value.collapsed === true}
             disabled={field("collapsed").lock !== null}
             onChange={(next) =>
@@ -660,6 +662,7 @@ function ProviderChainSection({
   adapter: string;
   writeSource: string | null;
 }) {
+  const { t } = useI18n();
   const state = useConfigDraftStore();
   const meta = matchField(state.catalog, `${ROOT}.*.providers`);
   const lock = fieldLockReason(state, `${ROOT}.${object.id}.providers`);
@@ -682,7 +685,7 @@ function ProviderChainSection({
 
   return (
     <FieldSection
-      title={meta?.title ?? "Provider Chain"}
+      title={meta?.title ?? t("settings.providerChain")}
       description={t("settings.tryProvidersInOrderForThisModelASuccessful")}
       meta={<Badge>{rows.length}</Badge>}
     >
@@ -693,7 +696,7 @@ function ProviderChainSection({
             index={index}
             count={rows.length}
             disabled={lock !== null}
-            ariaLabel={`Chain position ${index + 1}`}
+            ariaLabel={t("settings.chainPosition", { index: index + 1 })}
             onMove={(target) => commit(moveItem(rows, index, target))}
             onDrop={(source) => commit(moveItem(rows, source, index))}
             onRemove={
@@ -709,7 +712,7 @@ function ProviderChainSection({
               options={[
                 ...(knownIds.has(row.provider)
                   ? []
-                  : [{ value: row.provider, label: `${row.provider} (missing)` }]),
+                  : [{ value: row.provider, label: t("settings.missingId", { id: row.provider }) }]),
                 ...available.map((provider) => ({
                   value: provider.id,
                   label: provider.id,
@@ -728,10 +731,10 @@ function ProviderChainSection({
               }
             />
             <TextInput
-              ariaLabel={`Provider model ${index + 1}`}
+              ariaLabel={t("settings.providerModelNumber", { index: index + 1 })}
               value={row.provider_model}
               mono
-              placeholder="provider-side model id"
+              placeholder={t("settings.remoteModelId")}
               disabled={lock !== null}
               onCommit={(value) => {
                 const trimmed = value.trim();
@@ -751,7 +754,7 @@ function ProviderChainSection({
         )}
         {available.length === 0 && (
           <div className="flex items-center gap-1.5 text-[11px] text-danger">
-            <AlertTriangle size={13} /> No provider declares the {adapter} adapter.
+            <AlertTriangle size={13} /> {t("settings.noProviderForAdapter", { adapter })}
           </div>
         )}
         <OrderableListFooter>
@@ -784,6 +787,7 @@ function AdapterOptionsSection({
   adapter: string;
   bindings: ProviderBinding[];
 }) {
+  const { t } = useI18n();
   const state = useConfigDraftStore();
   const clients = useConnectionStore((connection) => connection.clients);
   const [capabilityLoading, setCapabilityLoading] = useState(false);
@@ -832,13 +836,13 @@ function AdapterOptionsSection({
     >
       {rule === null ? (
         <div className="px-5 py-3 text-[11px] text-fg-faint">
-          No adapter rules declared for {adapter}.
+          {t("settings.noAdapterRules", { adapter })}
         </div>
       ) : (
         <>
           {rule.apiMode === "anthropic-messages" && bindings[capabilityBinding]?.provider && bindings[capabilityBinding]?.provider_model && (
             <div className="m-3 border-b border-border px-2 pb-3">
-              {bindings.length > 1 && <SelectInput ariaLabel="Capability binding" value={String(capabilityBinding)}
+              {bindings.length > 1 && <SelectInput ariaLabel={t("settings.capabilityBinding")} value={String(capabilityBinding)}
                 options={bindings.map((binding, index) => ({ value: String(index), label: `${binding.provider} / ${binding.provider_model}` }))}
                 disabled={capabilityLoading}
                 onChange={(value) => setCapabilityBinding(Number(value))} />}
@@ -851,10 +855,10 @@ function AdapterOptionsSection({
                 void clients.config.anthropicModelCapabilities(bindings[capabilityBinding]!.provider, bindings[capabilityBinding]!.provider_model)
                   .then(
                     (value) => { if (request === capabilityRequest.current) setCapabilitySuggestion(value); },
-                    () => { if (request === capabilityRequest.current) setCapabilityError("读取失败；请检查 provider、凭据及远端 Models API。"); },
+                    () => { if (request === capabilityRequest.current) setCapabilityError(t("settings.capabilityReadFailed")); },
                   )
                   .finally(() => { if (request === capabilityRequest.current) setCapabilityLoading(false); });
-              }}>读取 Anthropic 模型能力</Button>
+              }}>{t("settings.readAnthropicCapabilities")}</Button>
               {capabilityError && <p className="mt-2 text-xs text-danger">{capabilityError}</p>}
               {capabilitySuggestion !== null && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                 <span>{anthropicSuggestionLabel(capabilitySuggestion)}</span>
@@ -867,18 +871,18 @@ function AdapterOptionsSection({
                     }
                   }
                   commitAdapterOption(object, writeSource, "choices", choices);
-                }}>采纳候选建议</Button>
+                }}>{t("settings.adoptSuggestions")}</Button>
               </div>}
             </div>
           )}
           {rule.variants.length > 0 && (
             <FieldRow
-              title={optionMeta("variant")?.title ?? "Adapter Variant"}
+              title={optionMeta("variant")?.title ?? t("settings.adapterVariant")}
               description={optionMeta("variant")?.description}
               dirty={objectFieldDirty(ROOT, object.id, "adapter_options.variant")}
             >
               <SelectInput
-                ariaLabel="Adapter variant"
+                ariaLabel={t("settings.adapterVariant")}
                 value={variant}
                 options={rule.variants.map((item) => ({
                   value: item.id,
@@ -895,9 +899,9 @@ function AdapterOptionsSection({
             <AdapterOptionRow key={key} object={object} writeSource={writeSource} optionKey={key}
               rule={allowed.get(key) ?? null} meta={optionMeta(key)} unknown={!allowed.has(key)} />
           ))}
-          <SettingsDisclosure title="适配器扩展选项" className="m-3" paths={[`${ROOT}.${object.id}.adapter_options`]}>
+          <SettingsDisclosure title={t("settings.adapterOptions")} className="m-3" paths={[`${ROOT}.${object.id}.adapter_options`]}>
           {[...allowed.values()].filter((option) => option.fixed && adapterOptions[option.id] === undefined).map((option) => (
-            <FieldRow key={option.id} title={optionMeta(option.id)?.title ?? option.id} description="适配器固定行为">
+            <FieldRow key={option.id} title={optionMeta(option.id)?.title ?? option.id} description={t("settings.adapterFixed")}>
               <span className="text-xs">{String(option.default)}</span>
             </FieldRow>
           ))}
@@ -912,12 +916,12 @@ function AdapterOptionsSection({
               unknown={!allowed.has(key)}
             />
           ))}
-          <SettingsDisclosure title="模型可用候选" className="m-3" paths={[`${ROOT}.${object.id}.adapter_options.choices`]}>
+          <SettingsDisclosure title={t("settings.modelChoices")} className="m-3" paths={[`${ROOT}.${object.id}.adapter_options.choices`]}>
             {[...allowed.values()].filter((option) => !option.fixed && (option.valueKind === "enum" || option.id === "reasoning_effort")).map((option) => {
               const candidates = isPlainRecord(adapterOptions.choices) ? adapterOptions.choices : {};
               const values = candidates[option.id];
-              return <FieldRow key={option.id} title={option.id} description="逗号分隔；空数组表示不支持；清除声明后使用 API 或适配器的候选。" actions={
-                <IconButton label={`Clear choices.${option.id}`} onClick={() => {
+              return <FieldRow key={option.id} title={option.id} description={t("settings.modelChoicesHint")} actions={
+                <IconButton label={t("settings.clearChoice", { id: option.id })} onClick={() => {
                   const next = {...candidates}; delete next[option.id];
                   commitAdapterOption(object, writeSource, "choices", next);
                 }}><X size={13} /></IconButton>
@@ -927,16 +931,16 @@ function AdapterOptionsSection({
                   ...candidates, [option.id]: [...new Set(text.split(",").map((item) => item.trim()).filter(Boolean))],
                 })} /></FieldRow>;
             })}
-            <FieldRow title="条件候选规则" description="when 指定等值条件；choices 收窄条件成立时的可用候选。">
-              <JsonObjectInput ariaLabel="Choice rules" value={{rules: adapterOptions.choice_rules ?? []}}
+            <FieldRow title={t("settings.conditionalChoices")} description={t("settings.conditionalChoicesHint")}>
+              <JsonObjectInput ariaLabel={t("settings.choiceRules")} value={{rules: adapterOptions.choice_rules ?? []}}
                 onCommit={(value) => commitAdapterOption(object, writeSource, "choice_rules", value.rules ?? [])} />
             </FieldRow>
           </SettingsDisclosure>
           {addable.length > 0 && (
             <div className="flex items-center justify-between gap-2 px-5 py-2.5">
-              <span className="text-[11px] text-fg-faint">添加适配器选项</span>
+              <span className="text-[11px] text-fg-faint">{t("settings.addAdapterOption")}</span>
               <select
-                aria-label="Add adapter option"
+                aria-label={t("settings.addAdapterOption")}
                 value=""
                 onChange={(event) => {
                   const key = event.target.value;
@@ -975,11 +979,11 @@ function AdapterOptionsSection({
 function anthropicSuggestionLabel(value: ModelCapabilityLookup): string {
   const thinking = value.thinking !== null
     ? value.thinking.choices.join(", ")
-    : "未提供 thinking 能力";
+    : t("settings.noThinkingCapability");
   const effort = value.reasoning_effort !== null
     ? value.reasoning_effort.choices.join(", ")
-    : "未提供 effort 能力";
-  return `建议值：thinking ${thinking}；effort ${effort}`;
+    : t("settings.noEffortCapability");
+  return t("settings.suggestedCapabilities", { thinking, effort });
 }
 
 function commitAdapterOption(object: ProjectedObject, source: string | null, key: string, value: JsonValue | undefined) {
@@ -1020,6 +1024,7 @@ function AdapterOptionRow({
   meta: CatalogField | null;
   unknown: boolean;
 }) {
+  const { t } = useI18n();
   const adapterOptions = isPlainRecord(object.value.adapter_options)
     ? object.value.adapter_options
     : {};
@@ -1031,9 +1036,9 @@ function AdapterOptionRow({
       title={
         <span className="flex items-center gap-1.5">
           {meta?.title ?? optionKey}
-          {rule && <Badge tone="gray">{rule.source === "api-mode" ? "API" : rule.source === "variant" ? "变体" : "专属"}</Badge>}
+          {rule && <Badge tone="gray">{rule.source === "api-mode" ? "API" : rule.source === "variant" ? t("settings.variant") : t("settings.exclusive")}</Badge>}
           {unknown && (
-            <Badge tone="yellow" title="Not used by the current adapter/variant">{t("settings.unused")}</Badge>
+            <Badge tone="yellow" title={t("settings.optionUnused")}>{t("settings.unused")}</Badge>
           )}
         </span>
       }
@@ -1048,7 +1053,7 @@ function AdapterOptionRow({
         </IconButton>
       }
     >
-      {rule?.fixed ? <span className="text-xs">{String(rule.default)} · 适配器固定行为</span> : <AdapterOptionControl
+      {rule?.fixed ? <span className="text-xs">{String(rule.default)} {t("settings.fixedOptionHint")}</span> : <AdapterOptionControl
         optionKey={optionKey}
         minimum={rule?.minimum ?? undefined}
         value={value}
@@ -1173,6 +1178,7 @@ function RequestOverridesSection({
   object: ProjectedObject;
   writeSource: string | null;
 }) {
+  const { t } = useI18n();
   const state = useConfigDraftStore();
   const overrides = isPlainRecord(object.value.request_overrides)
     ? object.value.request_overrides
@@ -1187,7 +1193,7 @@ function RequestOverridesSection({
     { key: "max_output_tokens", integer: true, fallback: 32768 },
   ];
   return (
-    <SettingsDisclosure title="请求参数覆盖" className="m-3" paths={[`${ROOT}.${object.id}.request_overrides`]}>
+    <SettingsDisclosure title={t("settings.requestOverrides")} className="m-3" paths={[`${ROOT}.${object.id}.request_overrides`]}>
       {rows.map(({ key, integer, fallback }) => {
         const meta = matchField(state.catalog, `${ROOT}.*.request_overrides.${key}`);
         const set = Object.prototype.hasOwnProperty.call(overrides, key);
@@ -1255,38 +1261,35 @@ function AdapterChangeModal({
   onClose: () => void;
   onConfirm: (providerId: string, retainOptions: boolean) => void;
 }) {
+  const { t } = useI18n();
   const [providerId, setProviderId] = useState(change.providerId);
   const [retainOptions, setRetainOptions] = useState(true);
   const matching = providersForAdapter(useConfigDraftStore.getState().catalog, providers, change.adapter);
   return (
-    <Modal title="Change model adapter" onClose={onClose}>
+    <Modal title={t("settings.changeAdapter")} onClose={onClose}>
       <div className="space-y-4">
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 rounded-md border border-line bg-bg-sunken/40 px-3 py-3">
           <div>
-              <div className="text-[10px] text-fg-faint">当前值</div>
+              <div className="text-[10px] text-fg-faint">{t("settings.currentValue")}</div>
             <div className="mt-0.5 font-mono text-[12px] text-fg">
               {stringField(object.value, "adapter")}
             </div>
           </div>
           <ArrowRightLeft size={14} className="text-fg-faint" />
           <div>
-              <div className="text-[10px] text-fg-faint">目标值</div>
+              <div className="text-[10px] text-fg-faint">{t("settings.targetValue")}</div>
             <div className="mt-0.5 font-mono text-[12px] text-fg">{change.adapter}</div>
           </div>
         </div>
         <label className="flex items-center gap-2 text-[12px]">
           <input type="checkbox" checked={retainOptions} onChange={(event) => setRetainOptions(event.target.checked)} />
-          保留目标 adapter 支持的选项
-        </label>
+          {t("settings.keepSupportedOptions")}</label>
         <p className="text-[11px] leading-4 text-fg-muted">
-          不适用的配置将被清除；取消勾选则重置适配器选项、候选和思考强度。
-          extra_body、断点 TTL 覆盖等对象选项需要按目标 adapter 重新配置。
-          兼容的提供方绑定会保留；没有可保留的绑定时，使用下方选择的提供方。
-        </p>
+          {t("settings.changeAdapterHint")}</p>
         <label className="block">
           <span className="mb-1.5 block text-[11px] font-medium text-fg-muted">{t("settings.provider")}</span>
           <select
-            aria-label="Provider for target adapter"
+            aria-label={t("settings.targetProvider")}
             value={providerId}
             onChange={(event) => setProviderId(event.target.value)}
             className={selectClass}
@@ -1307,8 +1310,7 @@ function AdapterChangeModal({
             onClick={() => onConfirm(providerId, retainOptions)}
           >
             <ArrowRightLeft size={13} />
-            切换适配器
-          </Button>
+            {t("settings.switchAdapter")}</Button>
         </div>
       </div>
     </Modal>

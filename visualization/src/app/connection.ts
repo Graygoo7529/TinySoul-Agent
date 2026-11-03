@@ -1,3 +1,4 @@
+import { message, type UiText } from "../i18n/core";
 /**
  * Connection lifecycle for the Endpoint v2 link (plan §4/P00).
  *
@@ -71,7 +72,7 @@ let conversationTimer: ReturnType<typeof setTimeout> | null = null;
 let conversationTerminalSeen = false;
 let statusTimer: ReturnType<typeof setTimeout> | null = null;
 
-function toast(kind: "success" | "error" | "info", text: string): void {
+function toast(kind: "success" | "error" | "info", text: UiText): void {
   useAppStore.getState().pushToast(kind, text);
 }
 
@@ -116,7 +117,7 @@ export async function connect(
   if (address === null) {
     store.failConnect(
       epoch,
-      "The address must be IP:Port or an http(s) URL, e.g. 127.0.0.1:1430.",
+      message("connection.invalidAddress"),
     );
     return false;
   }
@@ -133,14 +134,14 @@ export async function connect(
   } catch (error) {
     useConnectionStore
       .getState()
-      .failConnect(epoch, `Cannot reach the endpoint: ${errorMessage(error)}`);
+      .failConnect(epoch, message("connection.unreachableDetail", { detail: errorMessage(error) }));
     return false;
   }
   const info = handshakeFromStatus(address, target.token, status);
   if (info === null) {
     useConnectionStore
       .getState()
-      .failConnect(epoch, "The endpoint does not speak protocol v2.");
+      .failConnect(epoch, message("connection.protocolMismatch"));
     return false;
   }
   if (!useConnectionStore.getState().completeConnect(epoch, { info, clients, status })) {
@@ -203,7 +204,7 @@ export async function restartBackend(): Promise<boolean> {
   try {
     await clients.health.restart();
   } catch (error) {
-    toast("error", `Restart failed: ${errorMessage(error)}`);
+    toast("error", message("connection.restartFailed", { detail: errorMessage(error) }));
     return false;
   } finally {
     useConnectionStore.getState().setRestartPending(false);
@@ -257,7 +258,7 @@ function handleStatusTransition(
     // Old generation handles are dead; conversation state starts clean.
     resetTurnController();
     presentationStore.getState().reset();
-    toast("info", "The backend restarted a new generation; the view was re-synchronized.");
+    toast("info", message("connection.generationChanged"));
   }
   const becameReady = previous !== null && !previous.ready && status.ready;
   const dayChanged =
@@ -280,7 +281,7 @@ async function reconnectFromTarget(): Promise<void> {
     .getState()
     .failConnect(
       useConnectionStore.getState().epoch,
-      "The backend instance changed; connect manually.",
+      message("connection.instanceChanged"),
     );
 }
 

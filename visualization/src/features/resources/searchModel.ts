@@ -1,3 +1,4 @@
+import { message, type UiText } from "../../i18n/core";
 /**
  * Pure request/highlight helpers of the shared page SearchPanel (plan §13).
  *
@@ -169,7 +170,7 @@ export function highlightSegments(
 
 export interface SearchErrorView {
   kind: "scope" | "expired" | "source" | "operation" | "invalid" | "generic";
-  message: string;
+  message: UiText;
 }
 
 export function describeSearchError(error: unknown): SearchErrorView {
@@ -183,17 +184,17 @@ export function describeSearchError(error: unknown): SearchErrorView {
     case "search.scope_required":
       return {
         kind: "scope",
-        message: "This query needs a narrower scope — pick a directory or add attribute conditions.",
+        message: message("resources.searchNarrowScope"),
       };
     case "search.view_expired":
       return {
         kind: "expired",
-        message: "The frozen result view expired on the backend. Run the search again.",
+        message: message("resources.searchExpired"),
       };
     case "search.source_unavailable":
-      return { kind: "source", message: "The search source is unavailable right now." };
+      return { kind: "source", message: message("resources.searchUnavailable") };
     case "search.operation_failed":
-      return { kind: "operation", message: `A search step failed: ${fallback}` };
+      return { kind: "operation", message: message("resources.searchStepFailed", { detail: fallback }) };
     case "search.invalid_request":
     case "request.invalid":
       return { kind: "invalid", message: fallback };

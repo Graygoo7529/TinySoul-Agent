@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { useI18n } from "../../../i18n";
 /**
  * Workspace settings (config-coverage §5.1): the daily workspace root and its
  * read/write/search/analysis bounds. pinned/tmp/important are resource tags;
@@ -9,6 +9,7 @@ import { Badge } from "../../../components/ui/Badge";
 import { FieldSection, SettingsPageBody } from "./controls";
 
 export function WorkspacePage() {
+  const { t } = useI18n();
   return (
     <SettingsPageBody>
       <FieldSection
@@ -31,8 +32,7 @@ export function WorkspacePage() {
       />
       <div className="-mt-2 rounded-lg border border-line bg-bg-elev px-3.5 py-2.5 text-[12px] leading-5 text-fg-muted">
         <Badge tone="gray">pinned</Badge> <Badge tone="gray">tmp</Badge>{" "}
-        <Badge tone="gray">important</Badge> 用于标记固定、临时和重要的 Workspace 资源。
-      </div>
+        <Badge tone="gray">important</Badge> {t("settings.workspaceTagsHint")}</div>
       <FieldSection
         title={t("settings.watchingSearch")}
         description={t("settings.externalChangeHintsAndLexicalSearchBoundsFormalWrites")}

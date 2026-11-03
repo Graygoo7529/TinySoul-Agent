@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, resolveText, effectiveLocale, type UiText } from "../../i18n";
 /**
  * One semantic activity step — shared renderer behind the live status stack
  * in the chat view and the activity timeline in the trace view.
@@ -50,6 +50,7 @@ export function ActivityStep({
   /** Drives the chevron direction for onToggleGlimpse rows. */
   glimpseExpanded?: boolean;
 }) {
+  const { t } = useI18n();
   const kind = item.content.type;
   const Icon = activityIcons[kind] ?? Circle;
   const color = activityColors[kind] ?? "text-fg-faint";
@@ -79,7 +80,7 @@ export function ActivityStep({
         <div className="min-w-0 flex-1">
           <button
             onClick={onToggleGlimpse}
-            title={glimpseExpanded ? "Hide the result detail" : "Show the result detail"}
+            title={glimpseExpanded ? t("chat.hideResult") : t("chat.showResult")}
             className="block w-full rounded-md text-left transition-colors hover:bg-hover"
           >
             {body}
@@ -117,9 +118,9 @@ function StepBody({ item }: { item: ActivityStepType }) {
     case "skill_mount":
       return <ResourceBody label={t("chat.taskGuidance")} refs={content.refs} />;
     case "background":
-      return <ResourceBody label={content.operation === "load" ? "Loaded" : "Evicted"} refs={content.refs} />;
+      return <ResourceBody label={content.operation === "load" ? t("chat.loaded") : t("chat.evicted")} refs={content.refs} />;
     case "control_failure":
-      return <div className="text-[12px] text-warning"><span className="font-mono">{content.operation}</span>: {content.feedback}</div>;
+      return <div className="text-[12px] text-warning"><span className="font-mono">{resolveText(content.operation, effectiveLocale())}</span>: {resolveText(content.feedback, effectiveLocale())}</div>;
     case "action_plan":
       return <ActionPlanBody actionId={content.glimpse.actionId} domain={content.glimpse.domain}
         target={actionTarget(asObject(content.glimpse.params))} params={asObject(content.glimpse.params)} />;
@@ -181,9 +182,10 @@ function ActivityText({ text, prefix, textClassName = "text-fg-muted" }: {
 }
 
 function DomainSelectBody({ domains, state }: { domains: string[]; state: "requested" | "accepted" | "rejected" }) {
+  const { t } = useI18n();
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <span className="text-[12px] text-fg-muted">{state === "accepted" ? "Selected domains" : state === "requested" ? "Proposed domains" : "Domains not selected"}</span>
+      <span className="text-[12px] text-fg-muted">{state === "accepted" ? t("chat.selectedDomains") : state === "requested" ? t("chat.proposedDomains") : t("chat.domainsNotSelected")}</span>
       <span className="inline-flex shrink-0 items-center gap-1">
         {domains.map((d) => (
           <DomainChip key={d} domain={d} />
@@ -215,10 +217,10 @@ function ActionPlanBody({ actionId, domain, target, params }: { actionId: string
 
 function actionPlanDetail(actionId: string, params: Record<string, unknown> | null): string | null {
   if (!params) return null;
-  if (actionId === "workspace.edit" && Array.isArray(params.edits)) return `${params.edits.length} edits`;
-  if (actionId === "memory.memorize" && Array.isArray(params.operations)) return `${params.operations.length} operations`;
-  if (actionId.endsWith(".search") && typeof params.limit === "number") return `up to ${params.limit}`;
-  if (typeof params.page_size === "number") return `page size ${params.page_size}`;
+  if (actionId === "workspace.edit" && Array.isArray(params.edits)) return t("chat.editCount", { count: params.edits.length });
+  if (actionId === "memory.memorize" && Array.isArray(params.operations)) return t("chat.operationCount", { count: params.operations.length });
+  if (actionId.endsWith(".search") && typeof params.limit === "number") return t("chat.limitCount", { count: params.limit });
+  if (typeof params.page_size === "number") return t("chat.pageSize", { count: params.page_size });
   return null;
 }
 
@@ -229,7 +231,7 @@ function ActionResultBody({
 }: {
   actionId: string;
   status?: string;
-  preview?: string;
+  preview?: UiText;
 }) {
   const failed = status === "failure" || status === "timeout" || status === "cancelled";
   const shortName = actionId.includes(".") ? actionId.split(".").slice(1).join(".") : actionId;
@@ -260,9 +262,9 @@ function ActionResultBody({
       />
       <span
         className={`truncate text-[12px] ${failed ? "text-danger" : "text-fg-muted"}`}
-        title={preview}
+        title={preview === undefined ? undefined : resolveText(preview, effectiveLocale())}
       >
-        {preview ?? shortName}
+        {preview === undefined ? shortName : resolveText(preview, effectiveLocale())}
       </span>
       {preview && <span className="shrink-0 font-mono text-[11px] text-fg-faint">{shortName}</span>}
     </div>
@@ -270,23 +272,26 @@ function ActionResultBody({
 }
 
 function ProviderRetryBody({ provider, attempt }: { provider: string; attempt: number }) {
+  const { t } = useI18n();
   return (
     <div className="flex min-w-0 items-baseline gap-2">
-      <span className="truncate text-[12px] text-warning">Retry #{attempt}</span>
+      <span className="truncate text-[12px] text-warning">{t("chat.retry")}{attempt}</span>
       <span className="truncate font-mono text-[11px] text-fg-faint">{provider}</span>
     </div>
   );
 }
 
 function MilestoneBody({ text, removed }: { text: string; removed: boolean }) {
+  const { t } = useI18n();
   return <ActivityText text={text} textClassName="text-fg" prefix={
-    <span className="shrink-0 text-[11px] font-semibold text-fg-muted">{removed ? "Removed milestone" : "Milestone"}</span>
+    <span className="shrink-0 text-[11px] font-semibold text-fg-muted">{removed ? t("chat.removedMilestone") : t("chat.milestone")}</span>
   } />;
 }
 
 function TodoBody({ text, status }: { text: string; status: Extract<ActivityStepType["content"], { type: "todo" }>["status"] }) {
-  const label = { pending: "Set todo", in_progress: "Update todo", done: "Completed todo", cancelled: "Cancelled todo", removed: "Removed todo" }[status];
-  const state = { pending: "Pending", in_progress: "In progress", done: "Done", cancelled: "Cancelled", removed: "Removed" }[status];
+  const { t } = useI18n();
+  const label = { pending: t("chat.todoSet"), in_progress: t("chat.todoUpdated"), done: t("chat.todoCompleted"), cancelled: t("chat.todoCancelled"), removed: t("chat.todoRemoved") }[status];
+  const state = { pending: t("chat.pending"), in_progress: t("chat.todoProgress"), done: t("chat.done"), cancelled: t("chat.cancelled"), removed: t("chat.removed") }[status];
   return <ActivityText text={text}
     textClassName={status === "done" || status === "cancelled" ? "line-through text-fg-faint" : "text-fg-muted"}
     prefix={

@@ -1,3 +1,4 @@
+import type { UiText } from "../i18n/core";
 /**
  * Conversation state for the v2 chat page (plan §3.5, §5.1, §7).
  *
@@ -44,7 +45,7 @@ export interface OutgoingEcho {
   text: string;
   state: EchoState;
   /** Short failure feedback for state="failed". */
-  error: string | null;
+  error: UiText | null;
   /**
    * state="failed" and the append target is a closed turn
    * (turn.command_rejected / turn.not_found): the card offers the explicit

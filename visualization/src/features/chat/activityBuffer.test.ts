@@ -117,10 +117,10 @@ describe("ActivityBuffer v2 event projection", () => {
 
   it("uses phase boundaries for the headline and freezes completed timing without empty activity", () => {
     const buffer = new ActivityBuffer("turn-1");
-    expect(buffer.toPresentation("2026-10-03").headline).toEqual({ phase: null, label: "Preparing context" });
+    expect(buffer.toPresentation("2026-10-03").headline).toEqual({ phase: null, label: message("chat.preparingContext") });
     const start = event("loop.phase.started", { phase: "phase1" }, 1);
     buffer.addEvent(start);
-    expect(buffer.toPresentation("2026-10-03").headline.label).toContain("Maintaining context");
+    expect(buffer.toPresentation("2026-10-03").headline.label).toEqual(message("chat.phase.contextRunning"));
     buffer.addEvent(event("loop.phase.completed", { phase: "phase1" }, 2));
     const presentation = buffer.toPresentation("2026-10-03");
     expect(presentation.headline.finishedAt).toBe((start.created_at + 1) * 1000);
@@ -187,3 +187,4 @@ describe("ActivityBuffer v2 event projection", () => {
     expect(groups.map((group) => group.cycleId)).toEqual(["cycle2", "cycle1"]);
   });
 });
+import { message } from "../../i18n/core";

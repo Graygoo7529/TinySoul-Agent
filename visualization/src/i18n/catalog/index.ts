@@ -1,6 +1,6 @@
-import type { CatalogCollection, CatalogDocumentField, CatalogField, CatalogFieldGroup, CatalogSurface, SettingsCatalog } from "../../features/settings/draft/catalog";
+import type { CatalogCollection, CatalogDocumentField, CatalogField, SettingsCatalog } from "../../features/settings/draft/catalog";
 import { matchField } from "../../features/settings/draft/catalog";
-import { collectionText, documentText, fieldGroupText, fieldText, surfaceText } from "./zh-CN";
+import { collectionText, documentText, fieldText } from "./zh-CN";
 import { effectiveLocale } from "../locale";
 import type { Locale } from "../types";
 
@@ -48,16 +48,6 @@ export function localizeDocument(field: CatalogDocumentField, locale: Locale = e
   const identity = `${field.documentSet}:${field.documentKind}:${field.path}`;
   const text = locale === "zh-CN" ? documentText[identity] : undefined;
   return text ? { ...field, title: text[0], description: text[1] } : field;
-}
-
-export function localizeSurface(surface: CatalogSurface, locale: Locale = effectiveLocale()): CatalogSurface {
-  const text = locale === "zh-CN" ? surfaceText[surface.id] : undefined;
-  return text === undefined ? surface : { ...surface, title: text[0], description: text[1] };
-}
-
-export function localizeFieldGroup(group: CatalogFieldGroup, locale: Locale = effectiveLocale()): CatalogFieldGroup {
-  const text = locale === "zh-CN" ? fieldGroupText[group.id] : undefined;
-  return text === undefined ? group : { ...group, title: text[0], description: text[1] };
 }
 
 export function localizeCollection(collection: CatalogCollection, locale: Locale = effectiveLocale()): CatalogCollection {

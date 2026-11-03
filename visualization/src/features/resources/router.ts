@@ -1,3 +1,4 @@
+import { message, type UiText } from "../../i18n/core";
 /**
  * ResourceRouter (plan §21.2).
  *
@@ -63,9 +64,9 @@ export type ResolveOutcome =
       /** A dynamic Memory reference without its recorded binding. */
       status: "unbound";
       reference: string;
-      detail: string;
+      detail: UiText;
     }
-  | { status: "failed"; reference: string; detail: string };
+  | { status: "failed"; reference: string; detail: UiText };
 
 export interface ResolveOptions {
   /** An already-resolved locator (Context/Session binding); skips API-18. */
@@ -95,7 +96,7 @@ export async function resolveReference(
     return {
       status: "failed",
       reference,
-      detail: "This text is not a resource reference.",
+      detail: message("resources.notReference"),
     };
   }
   if (options.locator !== undefined) {
@@ -105,7 +106,7 @@ export async function resolveReference(
     return {
       status: "failed",
       reference,
-      detail: "A relative reference needs the resource it was read from.",
+      detail: message("resources.relativeOrigin"),
     };
   }
   if (needsBackendResolve(kind, origin)) {
@@ -188,7 +189,7 @@ function resolveLocally(
       return {
         status: "failed",
         reference,
-        detail: "This reference cannot be routed.",
+        detail: message("resources.unroutable"),
       };
   }
 }
@@ -213,7 +214,7 @@ async function resolveViaBackend(
         status: "unbound",
         reference,
         detail:
-          "This dynamic reference has no recorded binding, so its target cannot be known from here.",
+          message("resources.unbound"),
       };
     }
     return {
@@ -236,7 +237,7 @@ function fromLocator(reference: string, locator: ResourceLocator): ResolveOutcom
     return {
       status: "failed",
       reference,
-      detail: "The resolved locator has no reference.",
+      detail: message("resources.missingReference"),
     };
   }
   const { resource, fragment } = splitFragment(source);
@@ -266,7 +267,7 @@ function fromLocator(reference: string, locator: ResourceLocator): ResolveOutcom
       return {
         status: "unbound",
         reference,
-        detail: "This Session reference has no recorded day binding.",
+        detail: message("resources.sessionDayMissing"),
       };
     }
     return resolved(
@@ -285,7 +286,7 @@ function fromLocator(reference: string, locator: ResourceLocator): ResolveOutcom
   return {
     status: "failed",
     reference,
-    detail: `The resolved owner of "${resource}" is not routable.`,
+    detail: message("resources.ownerUnroutable", { resource }),
   };
 }
 
@@ -351,7 +352,7 @@ export function routeTarget(epoch: number, target: RouteTarget): void {
       }
       app.pushToast(
         "info",
-        "This trace reference is no longer available — its Turn context has closed.",
+        message("resources.traceClosed"),
       );
       return;
     }
@@ -371,7 +372,7 @@ export async function openReference(
   const app = useAppStore.getState();
   const clients = useConnectionStore.getState().clients;
   if (clients === null) {
-    const detail = "Not connected to a backend.";
+    const detail = message("resources.notConnected");
     app.pushToast("error", detail);
     return { status: "failed", reference, detail };
   }
@@ -403,8 +404,8 @@ export function copyReference(reference: string): void {
   const write = navigator.clipboard?.writeText(reference);
   if (write) {
     void write.then(
-      () => useAppStore.getState().pushToast("success", "Reference copied."),
-      () => useAppStore.getState().pushToast("error", "Copy failed."),
+      () => useAppStore.getState().pushToast("success", message("resources.referenceCopied")),
+      () => useAppStore.getState().pushToast("error", message("resources.copyFailed")),
     );
   }
 }

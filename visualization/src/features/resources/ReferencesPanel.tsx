@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, LocalizedText } from "../../i18n";
 import type { DirectReference } from "../../api/v2/common";
 /**
  * The shared reference detail panel for owner pages (plan §11/§12).
@@ -174,11 +174,11 @@ export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
       className={`glass-panel absolute inset-y-0 right-0 z-20 flex flex-col border-l border-line shadow-pop transition-[width] ${
         graphMode ? "w-[min(600px,94%)]" : "w-[min(360px,90%)]"
       }`}
-      aria-label="引用"
+      aria-label={t("resources.references")}
     >
       <header className="flex items-center gap-2 border-b border-line bg-bg-elev px-3 py-2.5">
         <Link2 size={14} className="shrink-0 text-fg-faint" />
-        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">引用</h2>
+        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">{t("resources.references")}</h2>
         {graphAvailable && (
           <Tabs<"list" | "graph">
             items={[
@@ -187,8 +187,7 @@ export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
                 label: (
                   <span className="inline-flex items-center gap-1">
                     <List size={11} />
-                    列表
-                  </span>
+                    {t("resources.list")}</span>
                 ),
               },
               {
@@ -196,8 +195,7 @@ export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
                 label: (
                   <span className="inline-flex items-center gap-1">
                     <Waypoints size={11} />
-                    图谱
-                  </span>
+                    {t("resources.graph")}</span>
                 ),
               },
             ]}
@@ -205,7 +203,7 @@ export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
             onChange={setViewMode}
           />
         )}
-        <IconButton label="关闭引用" onClick={onClose}>
+        <IconButton label={t("resources.closeReferences")} onClick={onClose}>
           <X size={15} />
         </IconButton>
       </header>
@@ -223,15 +221,13 @@ export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
         </div>
       ) : (
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3">
-        <section aria-label="直接引用">
+        <section aria-label={t("resources.directReferences")}>
           <h3 className="flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-fg-faint">
             <ArrowUpRight size={11} />
-            引用了
-          </h3>
+            {t("resources.outgoing")}</h3>
           {directRefs.length === 0 ? (
             <p className="px-1 pt-1.5 text-[12px] text-fg-faint">
-              没有引用其它资源。
-            </p>
+              {t("resources.noOutgoing")}</p>
           ) : (
             <div className="mt-1.5 space-y-1">
               {directRefs.map(({ref, title, clue}) => {
@@ -281,21 +277,18 @@ export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
           )}
         </section>
 
-        <section aria-label="反向引用">
+        <section aria-label={t("resources.backlinks")}>
           <h3 className="flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-fg-faint">
             <ArrowDownLeft size={11} />
-            被引用
-          </h3>
+            {t("resources.incoming")}</h3>
           {caps === "loading" && (
             <p className="flex items-center gap-2 px-1 pt-1.5 text-[12px] text-fg-faint">
               <Loader2 size={12} className="animate-spin-slow" />
-              正在读取检索能力…
-            </p>
+              {t("resources.searching")}</p>
           )}
           {caps === "error" && (
             <p className="px-1 pt-1.5 text-[12px] text-fg-faint">
-              此资源所有者未声明反链检索。
-            </p>
+              {t("resources.noBacklinkSearch")}</p>
           )}
           {backlinksAvailable && results === null && (
             <div className="px-1 pt-1.5">
@@ -310,22 +303,20 @@ export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
                 }
               >
                 <ArrowDownLeft size={11} />
-                查找引用本文档的文档
-              </Button>
+                {t("resources.findBacklinks")}</Button>
             </div>
           )}
           {error !== null && (
             <div className="mt-1.5 flex items-start gap-2 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-[12px] text-danger">
               <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-              <span className="min-w-0 flex-1">{error.message}</span>
+              <span className="min-w-0 flex-1"><LocalizedText value={error.message} /></span>
             </div>
           )}
           {results !== null && (
             <div className="mt-1.5 space-y-1.5">
               {results.length === 0 && (
                 <p className="px-1 text-[12px] text-fg-faint">
-                  还没有文档引用本文档。
-                </p>
+                  {t("resources.noBacklinks")}</p>
               )}
               {results.map((item, index) => {
                 const { Icon, className: iconClass } = refTypeIcon(item.ref);

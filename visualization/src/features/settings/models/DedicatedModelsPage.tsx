@@ -47,10 +47,10 @@ import { MODEL_SERVICES_SOURCE, PROVIDERS_PATH } from "./DedicatedProvidersPage"
 const MODELS_PATH = "infra.model_services.models";
 const USES_PATH = "infra.model_services.uses";
 
-const KIND_OPTIONS = [
+function kindOptions() { return [
   { value: "embedding", label: "Embedding" },
-  { value: "decision", label: "Decision model" },
-];
+  { value: "decision", label: t("settings.decisionModel") },
+]; }
 
 /** The provider adapter a model of the given kind may bind. */
 export function expectedProviderAdapter(kind: string): string {
@@ -58,12 +58,13 @@ export function expectedProviderAdapter(kind: string): string {
 }
 
 export function DedicatedModelsPage() {
+  const { t } = useI18n();
   const [tab, setTab] = useState<"models" | "uses">("models");
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div
         role="tablist"
-        aria-label="Dedicated models and uses"
+        aria-label={t("settings.dedicatedModels")}
         className="flex shrink-0 gap-1 border-b border-line bg-bg-sunken/30 px-4 py-2"
       >
         <TabButton active={tab === "models"} onSelect={() => setTab("models")}>{t("settings.models")}</TabButton>
@@ -126,7 +127,7 @@ function MissingSourceNotice({ path }: { path: string }) {
     <div className="flex h-full items-center justify-center p-6">
       <EmptyState
         title={t("settings.writableSourceList")}
-        description={`The ${path} list is owned by a read-only source or no model-services include exists yet. Add configs/infra/model_services.toml to the project includes to manage it here.`}
+        description={t("settings.modelServicesReadOnly", { path })}
       />
     </div>
   );
@@ -137,6 +138,7 @@ function MissingSourceNotice({ path }: { path: string }) {
 // ---------------------------------------------------------------------------
 
 function ServiceModelsTab() {
+  const { t } = useI18n();
   const { effective, deleted, writeSource, commit } = useAtom(MODELS_PATH);
   const providers = useAtom(PROVIDERS_PATH).effective;
   const uses = useAtom(USES_PATH).effective;
@@ -170,7 +172,7 @@ function ServiceModelsTab() {
           })),
           ...deleted.map((entry) => ({
             id: entry.id,
-            summary: "delete pending",
+            summary: t("settings.deletePending"),
           })),
         ]}
         selected={selected}
@@ -182,8 +184,8 @@ function ServiceModelsTab() {
         headerBadges={
           current !== null && (
             <>
-              {current.status === "new" && <Badge tone="accent">草稿新增</Badge>}
-              {current.status === "modified" && <Badge tone="accent">已修改</Badge>}
+              {current.status === "new" && <Badge tone="accent">{t("settings.draftCreated")}</Badge>}
+              {current.status === "modified" && <Badge tone="accent">{t("common.modified")}</Badge>}
               <Badge tone="gray">{kindLabel(stringField(current.value, "kind"))}</Badge>
             </>
           )
@@ -217,7 +219,7 @@ function ServiceModelsTab() {
       </ObjectEditorLayout>
 
       <CreateObjectModal
-        title="新建专用模型"
+        title={t("settings.newDedicatedModel")}
         idTitle={t("settings.modelId")}
         idDescription="Stable identifier referenced by uses; dots, outer whitespace and numeric-only ids are not allowed."
         existing={effective.map((entry) => entry.id)}
@@ -239,7 +241,7 @@ function ServiceModelsTab() {
         }}
       />
       <DeleteObjectModal
-        title="删除专用模型"
+        title={t("settings.deleteDedicatedModel")}
         objectId={deleting ?? ""}
         references={
           deleting !== null
@@ -263,14 +265,14 @@ function ServiceModelsTab() {
 }
 
 function kindLabel(kind: string): string {
-  return KIND_OPTIONS.find((option) => option.value === kind)?.label ?? kind;
+  return kindOptions().find((option) => option.value === kind)?.label ?? kind;
 }
 
 function modelSummary(value: Record<string, JsonValue>): string {
   const bindings = Array.isArray(value.provider_bindings)
     ? value.provider_bindings
     : [];
-  return `${bindings.length} ${bindings.length === 1 ? "binding" : "bindings"}`;
+  return t("settings.bindingCount", { count: bindings.length });
 }
 
 function ServiceModelEditor({
@@ -282,6 +284,7 @@ function ServiceModelEditor({
   providers: Record<string, JsonValue>[];
   onReplace: (value: Record<string, JsonValue>) => void;
 }) {
+  const { t } = useI18n();
   const kind = stringField(entry, "kind");
   const expectedAdapter = expectedProviderAdapter(kind);
   const eligibleProviders = providers.filter(
@@ -305,9 +308,9 @@ function ServiceModelEditor({
           description={t("settings.embeddingModelsBindOpenaiCompatibleEmbeddingProvidersDecisionModels")}
         >
           <SelectInput
-            ariaLabel="Kind"
+            ariaLabel={t("settings.kind")}
             value={kind}
-            options={KIND_OPTIONS}
+            options={kindOptions()}
             onChange={(next) => {
               const updated: Record<string, JsonValue> = { ...entry, kind: next };
               if (next !== "embedding") delete updated.dimensions;
@@ -321,7 +324,7 @@ function ServiceModelEditor({
             description={t("settings.vectorDimensionsProducedByThisEmbeddingModelRequired")}
           >
             <NumberInput
-              ariaLabel="Dimensions"
+              ariaLabel={t("settings.dimensions")}
               integer
               min={1}
               value={typeof entry.dimensions === "number" ? entry.dimensions : 0}
@@ -331,7 +334,7 @@ function ServiceModelEditor({
         ) : null}
         <FieldRow title={t("settings.batchSize")} description={t("settings.itemsPerProviderCall1256")}>
           <NumberInput
-            ariaLabel="Batch size"
+            ariaLabel={t("settings.batchSize")}
             integer
             min={1}
             max={256}
@@ -388,7 +391,7 @@ function ServiceModelEditor({
                         : [
                             {
                               value: binding.provider_id,
-                              label: `${binding.provider_id} (missing)`,
+                              label: t("settings.missingId", { id: binding.provider_id }),
                             },
                           ]),
                       ...eligibleProviders.map((provider) => ({
@@ -409,10 +412,10 @@ function ServiceModelEditor({
                     }
                   />
                   <TextInput
-                    ariaLabel={`Provider model ${index + 1}`}
+                    ariaLabel={t("settings.providerModelNumber", { index: index + 1 })}
                     value={binding.model}
                     mono
-                    placeholder="provider-side model id"
+                    placeholder={t("settings.remoteModelId")}
                     onCommit={(value) => {
                       const trimmed = value.trim();
                       if (trimmed === "") return;
@@ -426,8 +429,7 @@ function ServiceModelEditor({
                 </OrderableRow>
                 {mismatch && (
                   <div className="mt-1 flex items-center gap-1.5 pl-7 text-[10px] text-warning">
-                    <AlertTriangle size={12} /> {binding.provider_id} is not a{" "}
-                    {expectedAdapter} provider.
+                    <AlertTriangle size={12} /> {t("settings.providerAdapterMismatch", { provider: binding.provider_id, adapter: expectedAdapter })}
                   </div>
                 )}
               </div>
@@ -465,7 +467,7 @@ function ServiceModelEditor({
               <Plus size={13} />{t("settings.addBinding")}</Button>
             {eligibleProviders.length === 0 && (
               <span className="text-[10px] text-fg-faint">
-                No {expectedAdapter} provider configured yet.
+                {t("settings.noAdapterProvider", { adapter: expectedAdapter })}
               </span>
             )}
           </OrderableListFooter>
@@ -498,6 +500,7 @@ function readBindings(value: JsonValue | undefined): ServiceBinding[] {
 // ---------------------------------------------------------------------------
 
 function ServiceUsesTab() {
+  const { t } = useI18n();
   const state = useConfigDraftStore();
   const { effective, deleted, writeSource, commit } = useAtom(USES_PATH);
   const models = useAtom(MODELS_PATH).effective;
@@ -527,11 +530,11 @@ function ServiceUsesTab() {
             dirty: entry.status === "modified",
             isNew: entry.status === "new",
             group: kindLabel(stringField(entry.value, "kind")),
-            summary: `→ ${stringField(entry.value, "model_id") || "no model"}`,
+            summary: `→ ${stringField(entry.value, "model_id") || t("settings.noModel")}`,
           })),
           ...deleted.map((entry) => ({
             id: entry.id,
-            summary: "delete pending",
+            summary: t("settings.deletePending"),
           })),
         ]}
         selected={selected}
@@ -543,8 +546,8 @@ function ServiceUsesTab() {
         headerBadges={
           current !== null && (
             <>
-              {current.status === "new" && <Badge tone="accent">草稿新增</Badge>}
-              {current.status === "modified" && <Badge tone="accent">已修改</Badge>}
+              {current.status === "new" && <Badge tone="accent">{t("settings.draftCreated")}</Badge>}
+              {current.status === "modified" && <Badge tone="accent">{t("common.modified")}</Badge>}
               <Badge tone="gray">{kindLabel(stringField(current.value, "kind"))}</Badge>
             </>
           )
@@ -579,7 +582,7 @@ function ServiceUsesTab() {
       </ObjectEditorLayout>
 
       <CreateObjectModal
-        title="新建用途"
+        title={t("settings.newUse")}
         idTitle={t("settings.useId")}
         idDescription="Stable capability identifier selected by consumers; dots, outer whitespace and numeric-only ids are not allowed."
         existing={effective.map((entry) => entry.id)}
@@ -602,7 +605,7 @@ function ServiceUsesTab() {
         }}
       />
       <DeleteObjectModal
-        title="删除用途"
+        title={t("settings.deleteUse")}
         objectId={deleting ?? ""}
         references={deleting !== null ? useReferences(state, deleting) : []}
         open={deleting !== null}
@@ -628,12 +631,12 @@ function useReferences(
     ...consumers.ownerRefs.map((reference) => ({
       owner: reference.label,
       path: reference.path,
-      detail: "owner configuration",
+      detail: t("settings.ownerConfiguration"),
     })),
     ...consumers.consumers.map((consumer) => ({
       owner: consumer,
       path: "action.models.bindings",
-      detail: "model-use binding",
+      detail: t("settings.modelUseBinding"),
     })),
   ];
 }
@@ -649,6 +652,7 @@ function ServiceUseEditor({
   consumers: ReturnType<typeof useConsumers>;
   onReplace: (value: Record<string, JsonValue>) => void;
 }) {
+  const { t } = useI18n();
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
   const kind = stringField(entry, "kind");
   const modelId = stringField(entry, "model_id");
@@ -665,9 +669,9 @@ function ServiceUseEditor({
       >
         <FieldRow title={t("settings.kind")}>
           <SelectInput
-            ariaLabel="Kind"
+            ariaLabel={t("settings.kind")}
             value={kind}
-            options={KIND_OPTIONS}
+            options={kindOptions()}
             onChange={(next) => {
               const modelStillValid = models.some(
                 (model) =>
@@ -684,12 +688,12 @@ function ServiceUseEditor({
         </FieldRow>
         <FieldRow
           title={t("settings.model")}
-          description={`Only ${kindLabel(kind).toLowerCase()} models are offered.`}
+          description={t("settings.onlyModelKind", { kind: kindLabel(kind) })}
         >
           <SelectInput
-            ariaLabel="Model"
+            ariaLabel={t("settings.model")}
             value={modelId}
-            emptyLabel="Select a model…"
+            emptyLabel={t("settings.selectModelPlaceholder")}
             options={[
               ...(modelId !== "" && !knownIds.has(modelId)
                 ? [{ value: modelId, label: `${modelId} (missing)` }]
@@ -735,7 +739,7 @@ function ServiceUseEditor({
                   )
                 }
               >
-                Open {reference.path.startsWith("home.") ? "Home" : "Memory"}
+                {t("common.open")}{reference.path.startsWith("home.") ? t("settings.page.home.title") : t("settings.page.memory.title")}
               </Button>
             </div>
           ))}
@@ -758,9 +762,10 @@ function PendingDeletions({
   entries: ProjectedAtomEntry[];
   onRestore: (entry: ProjectedAtomEntry) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="space-y-2 px-5 py-4">
-      <div className="text-[12px] font-medium text-fg">待删除项</div>
+      <div className="text-[12px] font-medium text-fg">{t("settings.deletedItems")}</div>
       {entries.map((entry) => (
         <div
           key={entry.id}

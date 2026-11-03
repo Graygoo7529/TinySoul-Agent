@@ -234,7 +234,7 @@ describe("sendUserMessage: new turn", () => {
     expect(sent).toBe(false);
     const echo = turnState().outgoing[0]!;
     expect(echo.state).toBe("failed");
-    expect(echo.error).toContain("queue is full");
+    expect(echo.error).toMatchObject({ id: "chat.queueFull" });
     expect(echo.text).toBe("hold this thought");
 
     // No automatic retry, no retargeting — time passes, nothing is re-sent.
@@ -273,7 +273,7 @@ describe("sendUserMessage: new turn", () => {
     expect(sent).toBe(false);
     const echo = turnState().outgoing[0]!;
     expect(echo.state).toBe("failed");
-    expect(echo.error).toContain("unknown");
+    expect(echo.error).toMatchObject({ id: "chat.sendUnknown" });
     // No formal state was read: the failure stays local to the echo.
     expect(endpoint.requests).toHaveLength(1);
   });
@@ -404,7 +404,7 @@ describe("sendUserMessage: append to the active turn", () => {
     expect(sent).toBe(false);
     const echo = turnState().outgoing[0]!;
     expect(echo.state).toBe("failed");
-    expect(echo.error).toContain("inbox");
+    expect(echo.error).toMatchObject({ id: "chat.inboxFull" });
     expect(echo.text).toBe("hold this");
 
     await vi.advanceTimersByTimeAsync(5000);
@@ -558,7 +558,7 @@ describe("questions", () => {
         { kind: "choice", option_id: "a" },
         "Execute",
       ),
-    ).rejects.toThrow("此问题已不再等待回复");
+    ).rejects.toMatchObject({ code: "turn.command_rejected" });
     expect(turnState().outgoing).toEqual([]);
   });
 });
@@ -919,7 +919,7 @@ describe("sendEchoAsNewTurn", () => {
     const failed = turnState().outgoing[0]!;
     expect(failed.state).toBe("failed");
     expect(failed.turnClosed).toBe(true);
-    expect(failed.error).toContain("closed");
+    expect(failed.error).toMatchObject({ id: "chat.turnClosed" });
 
     let createBody: Record<string, unknown>;
     endpoint.post("/v2/requests", (request) => {

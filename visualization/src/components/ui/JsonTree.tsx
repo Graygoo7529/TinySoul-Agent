@@ -1,3 +1,4 @@
+import { useI18n } from "../../i18n";
 import { useState } from "react";
 
 /**
@@ -43,6 +44,7 @@ interface NodeProps {
 }
 
 function JsonNode({ name, value, depth, defaultExpanded, defaultDepth, maxStringLength }: NodeProps) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(defaultExpanded || depth < defaultDepth);
   const isObject = value !== null && typeof value === "object";
   const entries = isObject
@@ -69,7 +71,7 @@ function JsonNode({ name, value, depth, defaultExpanded, defaultDepth, maxString
   const isArray = Array.isArray(value);
   const openBracket = isArray ? "[" : "{";
   const closeBracket = isArray ? "]" : "}";
-  const summary = `${entries.length} ${isArray ? "items" : "keys"}`;
+  const summary = `${entries.length} ${isArray ? t("settings.itemCountUnit") : "keys"}`;
 
   return (
     <div>

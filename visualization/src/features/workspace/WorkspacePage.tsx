@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, message } from "../../i18n";
 /**
  * Workspace page (plan §10/P06).
  *
@@ -96,9 +96,7 @@ export function WorkspacePage(): ReactElement {
             .getState()
             .pushToast(
               "error",
-              `Manifest refresh failed: ${
-                error instanceof Error ? error.message : String(error)
-              }`,
+              message("workspace.refreshFailed", { detail: error instanceof Error ? error.message : String(error) }),
             );
         } else {
           setManifestStatus("error");
@@ -177,12 +175,12 @@ export function WorkspacePage(): ReactElement {
     () => [
       {
         id: "all",
-        label: "全部",
+        label: t("settings.all"),
         value: { kind: "workspace" },
       },
       ...topLevelDirectories(manifest?.records ?? []).map((dir) => ({
         id: `dir:${dir}`,
-        label: `目录：${dir}`,
+        label: t("workspace.directoryName", { dir }),
         value: { kind: "directory", ref: `workspace:${dir}` },
       })),
     ],
@@ -270,8 +268,7 @@ export function WorkspacePage(): ReactElement {
               title={t("workspace.notInManifest")}
               description={
                 <>
-                  <span className="font-mono text-[11px]">{ref}</span> is not
-                  part of the {manifest?.day ?? ""} Workspace index.
+                  <span className="font-mono text-[11px]">{ref}</span> {t("workspace.notInIndex", { day: manifest?.day ?? "" })}
                 </>
               }
               action={
@@ -291,8 +288,8 @@ export function WorkspacePage(): ReactElement {
               title={t("shell.workspace")}
               description={
                 isActive
-                  ? "从目录树选择文件，或新建、拖入文件上传。"
-                  : `${manifest?.day ?? viewDay ?? ""} 的归档视图——只读。`
+                  ? t("workspace.selectFile")
+                  : t("workspace.archiveReadOnly", { day: manifest?.day ?? viewDay ?? "" })
               }
             />
           </div>

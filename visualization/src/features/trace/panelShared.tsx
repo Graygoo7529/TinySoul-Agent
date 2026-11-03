@@ -1,3 +1,4 @@
+import { useI18n, LocalizedText, message, type UiText } from "../../i18n";
 /**
  * Shared pieces of the trace feature's panels (plan §9).
  *
@@ -57,16 +58,16 @@ export function useAsyncRead<T>(
 /** Loading / error rows; null while ready (the caller renders the value). */
 export function AsyncStatus({
   state,
-  loading = "Reading the retained observation…",
+  loading = message("trace.readingObservation"),
 }: {
   state: AsyncRead<unknown>;
-  loading?: string;
+  loading?: UiText;
 }): ReactElement | null {
   if (state.kind === "loading") {
     return (
       <div className="flex items-center gap-2 px-1 py-3 text-[12px] text-fg-faint">
         <Loader2 size={13} className="animate-spin-slow" />
-        {loading}
+        <LocalizedText value={loading} />
       </div>
     );
   }
@@ -74,7 +75,7 @@ export function AsyncStatus({
     return (
       <div className="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-[12px] text-danger">
         <AlertTriangle size={12} className="shrink-0" />
-        <span className="min-w-0 flex-1">The read failed ({state.message}).</span>
+        <span className="min-w-0 flex-1"><LocalizedText value={message("common.readFailedDetail", { detail: state.message })} /></span>
       </div>
     );
   }
@@ -87,23 +88,21 @@ export function AsyncStatus({
  * from another call.
  */
 export function TruncationNotice(): ReactElement {
+  const { t } = useI18n();
   return (
     <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-[12px] text-warning">
       <AlertTriangle size={12} className="shrink-0" />
       <span className="min-w-0 flex-1">
-        The retained observation no longer covers this range — earlier records
-        are truncated, not missing from the display.
-      </span>
+        {t("trace.retainedRange")}</span>
     </div>
   );
 }
 
 /** A directed read answered no record at all. */
 export function MissingRecord({ what }: { what: string }): ReactElement {
+  const { t } = useI18n();
   return (
     <div className="rounded-lg border border-line bg-bg-elev px-3 py-2 text-[12px] text-fg-faint">
-      {what} was not found in the retained observation — it may never have
-      been recorded, or the record has been truncated.
-    </div>
+      {what} {t("trace.recordNotFound")}</div>
   );
 }

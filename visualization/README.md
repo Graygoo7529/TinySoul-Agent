@@ -52,10 +52,9 @@ pnpm build   # tsc + vite build
 
 - `src-tauri/src/lib.rs` — Tauri Rust boundary for frontend-only capabilities such as trace export; connection credentials stay in the client storage module.
 - `src/api/` — Endpoint HTTP client and WebSocket event stream (exponential-backoff reconnect, gap detection).
-- `src/derive/` — Derives the conversation model from the flat event stream: turns → cycles → phases, Phase1 control operations, working-state projection, activity feed, token usage, and turn trace export.
-- `src/store/appStore.ts` — Zustand store for UI state such as the active tab and toasts; connection targets are owned by `src/app/discovery.ts`.
+- `src/features/` — Feature owners for chat, trace, runtime, settings, workspace, history, context, resources, Home and Memory; each surface reads the typed Endpoint projections.
+- `src/store/` — Zustand stores for application, connection, turn, settings draft and interface preference state. Endpoint connection and credential persistence are coordinated by `src/app/connection.ts` and the connection store.
 - `src/components/ui/` + `src/components/markdown/` — design-system primitives and the shared Markdown renderer.
-- `src/components/chat/ | trace/ | workspace/ | monitor/ | shell/` — feature surfaces.
 
 ## Features
 
@@ -80,7 +79,7 @@ pnpm build   # tsc + vite build
 ### Workspace
 
 - Directory tree derived from the manifest, search filter, trash list with restore.
-- Text editor with live Markdown preview (source / split / preview), digest+revision CAS, and explicit conflict resolution (keep draft, Overwrite / Reload).
+- Text editor with live Markdown preview (source / split / preview). Saves update the active Workspace file; external concurrent edits are not protected by a revision/CAS protocol.
 - Binary resources preview (images render) and download.
 
 ### Global
@@ -91,12 +90,12 @@ pnpm build   # tsc + vite build
 
 ### Interface language
 
-The Settings → Interface page stores the project-shared `locale` in the backend Presentation configuration. `zh-CN` is the fixed default; connected controls that use the frontend dictionaries update immediately. Coverage is still partial: some controls, validation messages, notifications, and trace titles retain a fixed language. The [bilingual completion plan](../docs/analysis/20261103-前端双语界面收尾执行计划.md) tracks the remaining work and interaction checks. User input, files, Agent/model text, configuration values, and diagnostic details remain as received. Catalog entries use stable backend identities and fall back to source text when no frontend translation exists.
+The Settings → Interface page stores the project-shared `locale` in the backend Presentation configuration. `zh-CN` is the fixed default; connected controls use stable frontend message IDs and update immediately. Other clients see the change after they reconnect or refresh project presentation settings. Catalog entries use stable backend identities and fall back to source text when no frontend translation exists; user input, files, Agent/model text, configuration values, and diagnostics remain as received. See [frontend localization design](docs/design/i18n.md) for the ownership and dynamic content rules.
 
-Other clients use the new language after they reconnect or refresh the project presentation settings. Localized frontend copy lives under `src/i18n/` and uses stable message IDs. ConfigCatalog translations are keyed by backend identities and unknown entries fall back to source text; user, Agent, model, provider, Action, and diagnostic content remains unchanged.
+To add fixed interface copy, add the same stable ID to both locale modules under `src/i18n/messages/`. Mounted components can read it through `useI18n`; long-lived displayed messages use `message()` and `LocalizedText`. Keep user/model/catalog values out of the UI dictionaries. Run `pnpm test` and `pnpm build` after changing copy or translation projection.
 
 ## Notes
 
-- The frontend only communicates through the authenticated loopback Endpoint. It does not read `runtime/`, Session, Home, or Memory directly.
+- The frontend only communicates through the authenticated Endpoint at the address entered by the user. It does not read `runtime/`, Session, Home, or Memory directly.
 - The backend is owned by the visible Terminal that ran `tinysoul start`; closing the frontend only disconnects it.
-- Design documents are in `docs/design/`; completed plans and active execution plans are in `docs/plans/`.
+- Frontend design documents are in `docs/design/`; completed analysis and execution plans are in the repository's `../docs/analysis/done/` directory.

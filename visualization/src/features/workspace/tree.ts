@@ -1,3 +1,4 @@
+import { message, resolveText, effectiveLocale, type UiText } from "../../i18n";
 /**
  * Directory tree derivation for the Workspace page (plan §10/P06).
  *
@@ -58,9 +59,9 @@ export function fileKindIcon(record: WorkspaceResourceRecord): {
   return { Icon: File, className: "text-fg-faint" };
 }
 
-const MEDIA_TYPE_LABELS: Record<string, string> = {
+const MEDIA_TYPE_LABELS: Record<string, UiText> = {
   "text/markdown": "Markdown",
-  "text/plain": "纯文本",
+  "text/plain": message("workspace.type.plainText"),
   "text/x-python": "Python",
   "application/json": "JSON",
   "application/toml": "TOML",
@@ -76,19 +77,19 @@ const MEDIA_TYPE_LABELS: Record<string, string> = {
   "text/x-shellscript": "Shell",
   "text/x-powershell": "PowerShell",
   "text/x-msdos-batch": "Batch",
-  "image/png": "PNG 图片",
-  "image/jpeg": "JPEG 图片",
-  "image/gif": "GIF 图片",
-  "image/webp": "WebP 图片",
+  "image/png": message("workspace.type.pngImage"),
+  "image/jpeg": message("workspace.type.jpegImage"),
+  "image/gif": message("workspace.type.gifImage"),
+  "image/webp": message("workspace.type.webpImage"),
   "application/pdf": "PDF",
-  "application/msword": "Word 文档",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "Word 文档",
+  "application/msword": message("workspace.type.wordDocument"),
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": message("workspace.type.wordDocument"),
   "application/vnd.ms-powerpoint": "PowerPoint",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation": "PowerPoint",
   "application/vnd.ms-excel": "Excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "Excel",
-  "inode/directory": "目录",
-  "application/octet-stream": "二进制",
+  "inode/directory": message("workspace.type.directory"),
+  "application/octet-stream": message("workspace.type.binary"),
 };
 
 /**
@@ -98,7 +99,7 @@ const MEDIA_TYPE_LABELS: Record<string, string> = {
  */
 export function mediaTypeLabel(mediaType: string): string | null {
   if (mediaType === "") return null;
-  return MEDIA_TYPE_LABELS[mediaType] ?? mediaType;
+  return resolveText(MEDIA_TYPE_LABELS[mediaType] ?? mediaType, effectiveLocale());
 }
 
 export interface DirectoryStats {

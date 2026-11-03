@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { formatDateTime } from "../../utils/format";
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -17,6 +19,7 @@ import {
   wireConnectedStores,
 } from "../../app/testing";
 import { useInspectorStore } from "../../store/inspectorStore";
+import { useUiPrefsStore } from "../../store/uiPrefsStore";
 import { resetTurnController } from "../chat/turnController";
 import { useWorkspacePage } from "./store";
 import { directoryStats, fileKindIcon, mediaTypeLabel } from "./tree";
@@ -199,14 +202,14 @@ describe("WorkspacePage reading", () => {
     expect(container.textContent).not.toContain("line3");
 
     await act(async () => {
-      buttonByText("显示更多").click();
+      buttonByText(t("common.showMore")).click();
     });
     await flush();
     expect(container.textContent).toContain("line3");
     const reads = endpoint.calls("/v2/workspace/resource");
     expect(reads).toHaveLength(2);
     expect(queryOf(reads[1], "continuation")).toBe("tok1");
-    expect(container.textContent).not.toContain("显示更多");
+    expect(container.textContent).not.toContain(t("common.showMore"));
   });
 
   it("locates a #L fragment in the line view and highlights the real line", async () => {
@@ -232,7 +235,7 @@ describe("WorkspacePage reading", () => {
 
     // The rendered view stays one click away.
     await act(async () => {
-      buttonByText("Show rendered").click();
+      buttonByText(t("workspace.showRendered")).click();
     });
     expect(container.querySelector("#ws-line-3")).toBeNull();
     expect(container.textContent).toContain("three");
@@ -266,16 +269,22 @@ describe("WorkspacePage editing", () => {
 
     // The paged screen is not the whole file: editing needs the full read.
     await act(async () => {
-      buttonByText("Edit").click();
+      buttonByText(t("common.edit")).click();
     });
     const reads = endpoint.calls("/v2/workspace/resource");
     expect(reads.some((request) => queryOf(request, "full") === "true")).toBe(true);
     const editor = container.querySelector("textarea");
     expect(editor).not.toBeNull();
     expect(editor?.value).toBe("full text here");
+    const readsBeforeSwitch = endpoint.calls("/v2/workspace/resource").length;
+    act(() => useUiPrefsStore.setState({ pending: { locale: "en-US" } }));
+    expect(container.querySelector("textarea")).toBe(editor);
+    expect(editor?.value).toBe("full text here");
+    expect(endpoint.calls("/v2/workspace/resource")).toHaveLength(readsBeforeSwitch);
+    expect(endpoint.calls("/v2/workspace/resource", "PUT")).toHaveLength(0);
 
     await act(async () => {
-      buttonByText("保存").click();
+      buttonByText(t("common.save")).click();
     });
     const writes = endpoint.calls("/v2/workspace/resource", "PUT");
     expect(writes).toHaveLength(1);
@@ -302,7 +311,7 @@ describe("WorkspacePage editing", () => {
       fileRow("a.md").click();
     });
     await act(async () => {
-      buttonByText("Edit").click();
+      buttonByText(t("common.edit")).click();
     });
     expect(container.querySelector("textarea")).toBeNull();
     expect(container.textContent).toContain("partial");
@@ -323,8 +332,9 @@ describe("WorkspacePage archived day", () => {
     endpoint.get("/v2/workspace/resource", () =>
       jsonResponse(textPage("workspace:old.md", ARCHIVE, "archived body")),
     );
-    useWorkspacePage.getState().setDay(ARCHIVE);
     await renderPage();
+    expect(container.querySelector(`button[aria-label="${t("workspace.newFile")}"]`)).not.toBeNull();
+    await act(async () => useWorkspacePage.getState().setDay(ARCHIVE));
 
     expect(container.textContent).toContain("old.md");
     expect(container.textContent).not.toContain("today.md");
@@ -333,11 +343,13 @@ describe("WorkspacePage archived day", () => {
     });
     const reads = endpoint.calls("/v2/workspace/resource");
     expect(queryOf(reads[0], "day")).toBe(ARCHIVE);
-    expect(container.textContent).toContain("Archived · read-only");
+    expect(container.textContent).toContain(t("workspace.archivedReadOnly"));
     // No write affordances in an archived view.
-    expect(container.textContent).not.toContain("Edit");
-    expect(container.querySelector('button[aria-label="New file"]')).toBeNull();
-    expect(container.querySelector('button[aria-label="移入回收站"]')).toBeNull();
+    expect(container.textContent).not.toContain(t("common.edit"));
+    expect(container.querySelector(`button[aria-label="${t("workspace.newFile")}"]`)).toBeNull();
+    expect(container.querySelector(`button[aria-label="${t("workspace.moveTrash")}"]`)).toBeNull();
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(endpoint.calls("/v2/workspace/resource", "PUT")).toHaveLength(0);
   });
 });
 
@@ -371,16 +383,16 @@ describe("WorkspacePage trash", () => {
       fileRow("a.md").click();
     });
     await act(async () => {
-      (container.querySelector('button[aria-label="移入回收站"]') as HTMLButtonElement).click();
+      (container.querySelector(`button[aria-label="${t("workspace.moveTrash")}"]`) as HTMLButtonElement).click();
     });
     await act(async () => {
-      buttonByText("移入回收站").click();
+      buttonByText(t("workspace.moveTrash")).click();
     });
     const trashed = endpoint.calls("/v2/workspace/trash", "POST");
     expect(trashed).toHaveLength(1);
     expect(bodyJson(trashed[0])).toEqual({ ref: "workspace:a.md" });
     expect(useWorkspacePage.getState().ref).toBeNull();
-    expect(container.textContent).toContain("No files yet");
+    expect(container.textContent).toContain(t("workspace.noFiles"));
   });
 
   it("restores a trashed item", async () => {
@@ -416,19 +428,19 @@ describe("WorkspacePage trash", () => {
     );
     await renderPage();
     await act(async () => {
-      buttonByText("回收站").click();
+      buttonByText(t("workspace.trash")).click();
     });
     expect(container.textContent).toContain("a.md");
 
     await act(async () => {
-      buttonByText("恢复").click();
+      buttonByText(t("settings.restore")).click();
     });
     const restores = endpoint.calls("/v2/workspace/restore", "POST");
     expect(restores).toHaveLength(1);
     expect(bodyJson(restores[0])).toEqual({ trash_ref: "trash:1" });
     // The trash list re-read and is now empty; the file is back in the index.
     await act(async () => {
-      buttonByText("文件").click();
+      buttonByText(t("workspace.files")).click();
     });
     expect(container.textContent).toContain("a.md");
   });
@@ -455,7 +467,7 @@ describe("WorkspacePage external changes", () => {
       fileRow("a.md").click();
     });
     await act(async () => {
-      buttonByText("Edit").click();
+      buttonByText(t("common.edit")).click();
     });
     expect(container.querySelector("textarea")?.value).toBe("original");
 
@@ -463,21 +475,21 @@ describe("WorkspacePage external changes", () => {
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
     });
-    expect(container.textContent).toContain("changed on disk");
+    expect(container.textContent).toContain(t("workspace.changedOnDisk"));
     // The draft was never overwritten.
     expect(container.querySelector("textarea")?.value).toBe("original");
 
     await act(async () => {
-      buttonByText("Keep editing").click();
+      buttonByText(t("workspace.keepEditing")).click();
     });
-    expect(container.textContent).not.toContain("changed on disk");
+    expect(container.textContent).not.toContain(t("workspace.changedOnDisk"));
     expect(container.querySelector("textarea")?.value).toBe("original");
 
     // No new change: the banner does not come back on the next refresh.
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
     });
-    expect(container.textContent).not.toContain("changed on disk");
+    expect(container.textContent).not.toContain(t("workspace.changedOnDisk"));
   });
 });
 
@@ -569,10 +581,10 @@ describe("WorkspacePage search", () => {
     await renderPage();
 
     await act(async () => {
-      (container.querySelector('button[aria-label="检索工作区"]') as HTMLButtonElement).click();
+      (container.querySelector(`button[aria-label="${t("workspace.search")}"]`) as HTMLButtonElement).click();
     });
     await flush();
-    const input = container.querySelector('input[aria-label="检索内容"]') as HTMLInputElement;
+    const input = container.querySelector(`input[aria-label="${t("home.searchContent")}"]`) as HTMLInputElement;
     expect(input).not.toBeNull();
     const setter = Object.getOwnPropertyDescriptor(
       window.HTMLInputElement.prototype,
@@ -583,7 +595,7 @@ describe("WorkspacePage search", () => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => {
-      buttonByText("搜索").click();
+      buttonByText(t("resources.search")).click();
     });
     const searches = endpoint.calls("/v2/workspace/search", "POST");
     expect(searches).toHaveLength(1);
@@ -595,7 +607,7 @@ describe("WorkspacePage search", () => {
     expect(container.querySelector("mark")?.textContent).toBe("hello");
 
     // Open the hit from inside the panel (the tree row shows the same name).
-    const panel = container.querySelector('aside[aria-label="检索工作区"]');
+    const panel = container.querySelector(`aside[aria-label="${t("workspace.search")}"]`);
     expect(panel).not.toBeNull();
     const resultButton = Array.from(panel!.querySelectorAll("button")).find(
       (candidate) => candidate.textContent === "a.md",
@@ -711,8 +723,8 @@ describe("WorkspacePage header semantics", () => {
     act(() => {
       useWorkspacePage.getState().select("workspace:notes");
     });
-    expect(container.textContent).toContain("目录");
-    expect(container.textContent).toContain("its files appear in the tree");
+    expect(container.textContent).toContain(t("trace.directory"));
+    expect(container.textContent).toContain(t("workspace.directoryHint"));
     const matches = container.textContent!.match(/调研与草稿笔记/g) ?? [];
     expect(matches).toHaveLength(1);
   });
@@ -738,7 +750,7 @@ describe("WorkspacePage upload entry", () => {
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     expect(input).not.toBeNull();
     expect(input.multiple).toBe(true);
-    const button = container.querySelector('button[aria-label="上传文件"]') as HTMLButtonElement;
+    const button = container.querySelector(`button[aria-label="${t("workspace.upload")}"]`) as HTMLButtonElement;
     expect(button).not.toBeNull();
 
     // The button opens the picker (input.click()); the choice arrives as change.
@@ -768,13 +780,13 @@ describe("WorkspacePage upload entry", () => {
         : jsonResponse(manifest(ACTIVE, [textRecord("today.md")])),
     );
     await renderPage();
-    expect(container.querySelector('button[aria-label="上传文件"]')).not.toBeNull();
+    expect(container.querySelector(`button[aria-label="${t("workspace.upload")}"]`)).not.toBeNull();
     await act(async () => {
       useWorkspacePage.getState().setDay(ARCHIVE);
     });
     await flush();
-    expect(container.querySelector('button[aria-label="上传文件"]')).toBeNull();
-    expect(container.querySelector('button[aria-label="New file"]')).toBeNull();
+    expect(container.querySelector(`button[aria-label="${t("workspace.upload")}"]`)).toBeNull();
+    expect(container.querySelector(`button[aria-label="${t("workspace.newFile")}"]`)).toBeNull();
   });
 });
 
@@ -795,7 +807,7 @@ describe("WorkspacePage tree row facts", () => {
     const aRow = fileRow("notes/a.md");
     expect(aRow.textContent).toContain("128 B");
     expect(aRow.title).toContain("notes/a.md");
-    expect(aRow.title).toContain("Modified ");
+    expect(aRow.title).toContain(formatDateTime(1759968000));
     const bigRow = fileRow("big.json");
     expect(bigRow.textContent).toContain("18.0 KB");
     // More than two tags: the size yields instead of breaking the row.

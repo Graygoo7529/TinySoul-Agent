@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { useI18n } from "../../../i18n";
 /**
  * Shared object-editor chrome for the Models & Services pages (plan §16):
  * the left list / right editor layout retained from the original settings
@@ -67,6 +67,7 @@ export function ObjectEditorLayout({
   /** Pages with a specialized search control supply it in listHeader. */
   searchable?: boolean;
 }) {
+  const { t } = useI18n();
   const [query, setQuery] = useState("");
   const editor = useRef<HTMLElement>(null);
   const focusPath = useSettingsUiStore((s) => s.focusPath);
@@ -87,17 +88,16 @@ export function ObjectEditorLayout({
   const visibleItems = items.filter((item) => `${item.id} ${item.group ?? ""}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return (
     <div className="settings-object-layout min-h-full min-w-0">
-      <SettingsPicker kind="objects" label={selected ?? `选择${title}`}>{(close) => <aside className="min-h-0 overflow-y-auto border-r border-line bg-bg-sunken/25">
+      <SettingsPicker kind="objects" label={selected ?? t("settings.selectObjectTitle", { title })}>{(close) => <aside className="min-h-0 overflow-y-auto border-r border-line bg-bg-sunken/25">
         <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2.5">
           <div className="min-w-0">
             <div className="text-[12px] font-semibold text-fg">{title}</div>
             <div className="text-[10px] text-fg-faint">
-              已配置 {items.length} 项
-            </div>
+              {t("settings.configured")}{items.length} {t("settings.itemCountUnit")}</div>
           </div>
           {onAdd !== undefined && (
             <IconButton
-              label={addTitle ?? `Add ${title}`}
+              label={addTitle ?? t("settings.addObjectTitle", { title })}
               disabled={addDisabled}
               onClick={() => { close(); onAdd(); }}
             >
@@ -108,7 +108,7 @@ export function ObjectEditorLayout({
         {renderList ? renderList((id) => { onSelect(id); close(); }) : <>
         {listHeader}
         {searchable && <label className="mx-2 mt-2 flex items-center gap-1.5 rounded-md border border-line bg-bg px-2 py-1.5 text-fg-faint">
-          <Search size={12} /><input aria-label="搜索配置对象" placeholder="搜索…" value={query} onChange={(event) => setQuery(event.target.value)}
+          <Search size={12} /><input aria-label={t("settings.searchObjects")} placeholder={t("settings.searchPlaceholder")} value={query} onChange={(event) => setQuery(event.target.value)}
             className="min-w-0 flex-1 bg-transparent text-[12px] text-fg outline-none" />
         </label>}
         <div className="space-y-1 p-2">
@@ -131,11 +131,11 @@ export function ObjectEditorLayout({
                   <span className="truncate font-mono text-[11px] font-medium">
                     {item.id}
                   </span>
-                  {item.isNew && <Badge tone="accent">新增</Badge>}
+                  {item.isNew && <Badge tone="accent">{t("settings.newBadge")}</Badge>}
                   {!item.isNew && item.dirty && (
                     <span
                       className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
-                      title="Modified in the local draft"
+                      title={t("settings.modifiedLocally")}
                     />
                   )}
                 </div>
@@ -149,7 +149,7 @@ export function ObjectEditorLayout({
           ))}
           {visibleItems.length === 0 && (
             <div className="px-2.5 py-3 text-[11px] text-fg-faint">
-              {items.length === 0 ? "尚未配置。" : "没有匹配的条目。"}
+              {items.length === 0 ? t("settings.unconfigured") : t("settings.noMatches")}
             </div>
           )}
         </div>
@@ -158,7 +158,7 @@ export function ObjectEditorLayout({
       <main ref={editor} className="settings-form min-w-0">
         {selected === null ? (
           <EmptyState
-            title={`请选择${title}`}
+            title={t("settings.selectObjectTitle", { title })}
             description={description}
           />
         ) : (
@@ -216,6 +216,7 @@ export function CreateObjectModal({
   validHint?: string;
   children?: ReactNode;
 }) {
+  const { t } = useI18n();
   const [id, setId] = useState("");
   useEffect(() => {
     if (!open) setId("");
@@ -288,21 +289,16 @@ export function DeleteObjectModal({
   onClose: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useI18n();
   if (!open) return null;
   return (
     <Modal title={title} onClose={onClose}>
       <div className="space-y-4">
-        <p className="text-[12px] leading-5 text-fg-muted">{t("settings.delete")}<span className="font-mono text-fg">{objectId}</span>? The change
-          joins the local draft and only takes effect when you apply the
-          configuration.
-        </p>
+        <p className="text-[12px] leading-5 text-fg-muted">{t("settings.delete")}<span className="font-mono text-fg">{objectId}</span>{t("settings.deleteDraftHint")}</p>
         {references.length > 0 && (
           <div className="rounded-md border border-warning/30 bg-warning-soft px-3 py-2.5">
             <div className="flex items-center gap-1.5 text-[11px] font-medium text-warning">
-              <AlertTriangle size={13} /> Referenced in {references.length}{" "}
-              {references.length === 1 ? "place" : "places"} — update or remove
-              these references or the apply will be rejected:
-            </div>
+              <AlertTriangle size={13} /> {t("settings.referenceCount", { count: references.length })} {t("settings.referencesHint")}</div>
             <ul className="mt-1.5 space-y-1">
               {references.map((reference, index) => (
                 <li key={index} className="font-mono text-[11px] break-all text-fg">
@@ -351,6 +347,7 @@ export function RenameObjectModal({
   /** updateReferences=true asks the caller to also rewrite known references. */
   onRename: (newId: string, updateReferences: boolean) => void;
 }) {
+  const { t } = useI18n();
   const [id, setId] = useState(objectId);
   const [updateRefs, setUpdateRefs] = useState(true);
   useEffect(() => {
@@ -368,11 +365,11 @@ export function RenameObjectModal({
       <div className="space-y-4">
         <label className="block">
           <span className="mb-1.5 block text-[11px] font-medium text-fg-muted">
-            New id (the current id is <span className="font-mono">{objectId}</span>)
+            {t("settings.renameId", { id: objectId })}
           </span>
           <input
             autoFocus
-            aria-label="New id"
+            aria-label={t("settings.newIdPlaceholder")}
             value={id}
             onChange={(event) => setId(event.target.value)}
             className={`${inputClass} font-mono`}

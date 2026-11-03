@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { resetTurnController } from "./turnController";
 import { useTurnStore } from "../../store/turnStore";
+import { useUiPrefsStore } from "../../store/uiPrefsStore";
 import {
   FakeEndpoint,
   bodyJson,
@@ -76,7 +78,7 @@ function inputByPlaceholder(placeholder: string): HTMLInputElement {
 
 function replyButton(): HTMLButtonElement {
   const button = Array.from(container.querySelectorAll("button")).find(
-    (candidate) => candidate.textContent === "回复",
+    (candidate) => candidate.textContent === t("chat.question.reply"),
   );
   if (!button) throw new Error("Reply button not rendered");
   return button;
@@ -105,7 +107,7 @@ describe("QuestionCard: live question", () => {
     expect(container.textContent).toContain("Execute");
     expect(container.textContent).toContain("Use the approved plan");
     expect(radio()).toBeDefined();
-    expect(inputByPlaceholder("其它回答…")).toBeDefined();
+    expect(inputByPlaceholder(t("chat.question.otherAnswer"))).toBeDefined();
     // Nothing selected yet: submit stays disabled.
     expect(replyButton().disabled).toBe(true);
   });
@@ -158,7 +160,17 @@ describe("QuestionCard: live question", () => {
     });
     expect(radio().checked).toBe(true);
     expect(replyButton().disabled).toBe(false);
-    typeInto(inputByPlaceholder("补充想法（可选）…"), "Proceed");
+    typeInto(inputByPlaceholder(t("chat.question.additionalThoughts")), "Proceed");
+
+    const selected = radio();
+    const comment = inputByPlaceholder(t("chat.question.additionalThoughts"));
+    act(() => useUiPrefsStore.setState({ pending: { locale: "en-US" } }));
+    expect(radio()).toBe(selected);
+    expect(radio().checked).toBe(true);
+    expect(comment.value).toBe("Proceed");
+    expect(container.textContent).toContain(LIVE_QUESTION.question);
+    expect(container.textContent).toContain(LIVE_QUESTION.options[0].label);
+    expect(endpoint.calls("/v2/requests/contract-turn/reply", "POST")).toHaveLength(0);
 
     await act(async () => {
       replyButton().click();
@@ -171,7 +183,7 @@ describe("QuestionCard: live question", () => {
     const echo = useTurnStore.getState().outgoing[0]!;
     expect(echo.kind).toBe("reply");
     expect(echo.state).toBe("accepted");
-    expect(container.textContent).not.toContain("此问题已不再等待回复");
+    expect(container.textContent).not.toContain(t("chat.question.expired"));
   });
 
   it("submits a free-text Other answer", async () => {
@@ -186,7 +198,7 @@ describe("QuestionCard: live question", () => {
     });
     renderLive();
 
-    typeInto(inputByPlaceholder("其它回答…"), "Custom plan");
+    typeInto(inputByPlaceholder(t("chat.question.otherAnswer")), "Custom plan");
     // Typing an Other answer clears any option selection.
     expect(radio().checked).toBe(false);
 
@@ -216,7 +228,7 @@ describe("QuestionCard: live question", () => {
     });
     // Already answered earlier: the echo converges, no error, no new answer.
     expect(useTurnStore.getState().outgoing).toEqual([]);
-    expect(container.textContent).not.toContain("此问题已不再等待回复");
+    expect(container.textContent).not.toContain(t("chat.question.expired"));
   });
 
   it("keeps the draft and shows the error when the question went stale", async () => {
@@ -227,13 +239,17 @@ describe("QuestionCard: live question", () => {
     act(() => {
       radio().click();
     });
-    typeInto(inputByPlaceholder("补充想法（可选）…"), "Proceed");
+    typeInto(inputByPlaceholder(t("chat.question.additionalThoughts")), "Proceed");
 
     await act(async () => {
       replyButton().click();
     });
     expect(container.textContent).toContain(
-      "此问题已不再等待回复。",
+      t("chat.question.expiredError", { detail: "test failure" }),
+    );
+    act(() => useUiPrefsStore.setState({ pending: { locale: "en-US" } }));
+    expect(container.textContent).toContain(
+      t("chat.question.expiredError", { detail: "test failure" }),
     );
     // The draft survives the failed submit and can be adjusted/retried.
     expect(radio().checked).toBe(true);
@@ -260,7 +276,7 @@ describe("QuestionCard: read-only question", () => {
     expect(container.querySelector('[data-question-form="readonly"]')).not.toBeNull();
     expect(
       Array.from(container.querySelectorAll("button")).find(
-        (button) => button.textContent === "回复",
+        (button) => button.textContent === t("chat.question.reply"),
       ),
     ).toBeUndefined();
     expect(endpoint.requests).toHaveLength(0);
@@ -300,7 +316,7 @@ describe("QuestionCard: expired question", () => {
     act(() => {
       radio().click();
     });
-    typeInto(inputByPlaceholder("补充想法（可选）…"), "Proceed carefully");
+    typeInto(inputByPlaceholder(t("chat.question.additionalThoughts")), "Proceed carefully");
 
     // The wait lapses (superseded / turn moved on) before the reply went
     // out: the same card instance flips to the expired mode.
@@ -317,14 +333,14 @@ describe("QuestionCard: expired question", () => {
     });
 
     expect(container.textContent).toContain(
-      "此问题已不再等待回复。",
+      t("chat.question.expired"),
     );
     // The unsubmitted draft text is still visible, nothing was sent.
     expect(container.textContent).toContain("Proceed carefully");
     expect(endpoint.requests).toHaveLength(0);
     expect(
       Array.from(container.querySelectorAll("button")).find(
-        (button) => button.textContent === "回复",
+        (button) => button.textContent === t("chat.question.reply"),
       ),
     ).toBeUndefined();
     // The preserved selection is visible but no longer interactive.
@@ -346,7 +362,7 @@ describe("QuestionCard: expired question", () => {
     expect(container.textContent).toContain("Choose a direction");
     expect(container.textContent).toContain("Execute");
     expect(container.textContent).toContain(
-      "此问题已不再等待回复。",
+      t("chat.question.expired"),
     );
   });
 });

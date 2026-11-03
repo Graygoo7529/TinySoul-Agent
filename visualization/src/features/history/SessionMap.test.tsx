@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -156,7 +157,7 @@ describe("SessionMapPanel", () => {
     // Topics open eagerly; the unclassified empty line is its own message.
     expect(text).toContain("Release plan");
     expect(text).toContain(
-      "Every committed conversation is covered by a topic.",
+      t("history.allTurnsCovered"),
     );
     // The interpretations list stays unloaded until the section is expanded.
     const seenRefs = () =>
@@ -173,7 +174,7 @@ describe("SessionMapPanel", () => {
     // A retracted annotation hint keeps its status visible.
     const row = buttonByText("covers → Summarize the release plan");
     expect(row.querySelector(".line-through")).not.toBeNull();
-    expect(row.textContent).toContain("retracted");
+    expect(row.textContent).toContain(t("history.retracted"));
     expect(row.textContent).toContain("superseded by a newer note");
   });
 
@@ -182,7 +183,7 @@ describe("SessionMapPanel", () => {
     inspectRoute({});
     await renderAndSettle(<SessionMapPanel epoch={epoch} day={DAY} />);
     expect(container.textContent).toContain(
-      `No completed conversations on ${DAY}`,
+      t("history.noCompletedOn", { day: DAY }),
     );
     expect(container.textContent).not.toContain("No topics yet");
   });
@@ -194,7 +195,7 @@ describe("SessionMapPanel", () => {
     });
     await renderAndSettle(<SessionMapPanel epoch={epoch} day={DAY} />);
     expect(container.textContent).toContain(
-      "No topics yet — ask TinySoul in a conversation to organize this day.",
+      t("history.noTopicsHint"),
     );
     expect(container.textContent).not.toContain("No completed conversations");
   });
@@ -241,7 +242,7 @@ describe("SessionMapPanel", () => {
     // The card body opens the conversation (chevron); the adjacent button
     // drills into the recorded facts and carries a distinct panel icon.
     const inspect = container.querySelector(
-      'button[aria-label="查看已记录的事实"]',
+      `button[aria-label="${t("history.inspectRecordedFacts")}"]`,
     ) as HTMLButtonElement | null;
     expect(inspect).not.toBeNull();
     expect(inspect!.querySelector("svg.lucide-panel-right-open")).not.toBeNull();
@@ -275,11 +276,11 @@ describe("SessionMapPanel", () => {
     inspectRoute({});
     await renderAndSettle(<SessionMapPanel epoch={epoch} day={DAY} />);
     const input = container.querySelector(
-      'input[placeholder="Locate in this day…"]',
+      `input[placeholder="${t("history.locateDay")}"]`,
     ) as HTMLInputElement;
     typeInto(input, "rollout");
     await act(async () => {
-      buttonByText("定位").click();
+      buttonByText(t("settings.overview.locate")).click();
     });
     const entries = useInspectorStore.getState().entries;
     expect(entries).toHaveLength(1);
@@ -305,7 +306,7 @@ describe("SessionMapPanel", () => {
     await renderAndSettle(<SessionMapPanel epoch={epoch} day={DAY} />);
     expect(container.textContent).not.toContain("An older conversation");
     await act(async () => {
-      buttonByText("显示更多").click();
+      buttonByText(t("common.showMore")).click();
     });
     expect(container.textContent).toContain("An older conversation");
     const calls = endpoint
@@ -359,11 +360,11 @@ describe("SessionRefPanel", () => {
     expect(text).toContain("Release plan");
     expect(text).toContain("Discussed the rollout");
     expect(text).toContain("thread");
-    expect(text).toContain("interpretation");
+    expect(text).toContain(t("history.interpretation"));
     expect(text).toContain("covers");
-    expect(text).toContain("内容");
+    expect(text).toContain(t("trace.content"));
     expect(text).toContain("History fact");
-    expect(text).toContain("依据");
+    expect(text).toContain(t("history.evidence"));
     // The evidence chip carries the compact ref and opens its own page.
     await act(async () => {
       buttonByText("2026-09-28/1#output").click();
@@ -398,7 +399,7 @@ describe("SessionRefPanel", () => {
       (node) => node.textContent === "Old idea",
     );
     expect(title?.className).toContain("line-through");
-    expect(container.textContent).toContain("retracted");
+    expect(container.textContent).toContain(t("history.retracted"));
   });
 
   it("re-reads the same scope with the locate query and clears it", async () => {
@@ -422,11 +423,11 @@ describe("SessionRefPanel", () => {
         .calls("/v2/session/inspect")
         .filter((call) => queryOf(call, "ref") === "session:node/n1");
     expect(queryOf(calls()[0], "query")).toBe("rollout");
-    expect(container.textContent).toContain("Locate: rollout");
+    expect(container.textContent).toContain(`${t("history.locateLabel")}rollout`);
     expect(container.textContent).toContain("Located");
 
     await act(async () => {
-      buttonByText("清除").click();
+      buttonByText(t("history.clear")).click();
     });
     const all = calls();
     expect(all).toHaveLength(2);
@@ -492,18 +493,18 @@ describe("SessionRefPanel", () => {
     );
 
     const text = container.textContent ?? "";
-    expect(text).toContain("已提交轮次");
-    expect(text).toContain("answered");
-    expect(text).toContain("You");
+    expect(text).toContain(t("history.committedTurn"));
+    expect(text).toContain(t("protocol.runtime.answered"));
+    expect(text).toContain(t("history.you"));
     expect(text).toContain("Summarize the release plan");
     expect(text).toContain("Here is the summary…");
     expect(text).toContain("shell.exec");
     expect(text).toContain("success");
-    expect(text).toContain("关系");
+    expect(text).toContain(t("history.relations"));
     expect(text).toContain("contains");
 
     await act(async () => {
-      buttonByText("打开会话").click();
+      buttonByText(t("history.openConversation")).click();
     });
     expect(useTurnStore.getState().turnId).toBe("2026-09-28/1");
     expect(useTurnStore.getState().historyView).toBe(true);
@@ -517,7 +518,7 @@ describe("SessionRefPanel", () => {
       <SessionRefPanel epoch={epoch} day={DAY} targetRef="session:node/n1" />,
     );
     expect(container.textContent).toContain(
-      "Nothing recorded under this reference.",
+      t("history.noReferenceRecords"),
     );
   });
 });

@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { useI18n } from "../../../i18n";
 import { NetworkPolicyField } from "./NetworkPolicyEditor";
 /**
  * Web & Resource Fetching settings (config-coverage §4.3/§4.4). The external
@@ -15,10 +15,11 @@ const KIMI_MODEL_CHOICES = [
 ];
 
 export function WebPage() {
+  const { t } = useI18n();
   return (
     <SettingsPageBody>
-      <NetworkPolicyField path="capabilities.web.network" title="Web 默认代理" />
-      <NetworkPolicyField path="capabilities.web.search_by_kimi.network" title="Kimi 联网检索代理" parentLabel="Web 默认代理" />
+      <NetworkPolicyField path="capabilities.web.network" title={t("settings.webProxy")} />
+      <NetworkPolicyField path="capabilities.web.search_by_kimi.network" title={t("settings.kimiProxy")} parentLabel={t("settings.webProxy")} />
       <div className="rounded-lg border border-line bg-bg-elev px-3.5 py-2.5 text-[12px] leading-5 text-fg-muted">{t("settings.thisPageConfiguresTheExternalWebSearchPageDiscovery")}{" "}
         <span className="font-medium text-fg">{t("settings.behaviorSearchPolicies")}</span>.
       </div>

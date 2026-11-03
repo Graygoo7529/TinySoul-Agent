@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { useI18n } from "../../../i18n";
 import { useEffect, useState } from "react";
 import type { PresentationAsset } from "../../../api/v2/presentation";
 import { useConnectionStore } from "../../../store/connectionStore";
@@ -7,6 +7,7 @@ import { usePresentationAssetUrl } from "../presentationAssets";
 const PREVIEW_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/bmp"]);
 
 export function PresentationAssets() {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   return <details className="rounded-lg border border-line bg-bg-elev p-4" onToggle={(event) => setOpen(event.currentTarget.open)}>
     <summary className="cursor-pointer text-sm font-medium">{t("settings.projectSharedAssets")}</summary>
@@ -15,6 +16,7 @@ export function PresentationAssets() {
 }
 
 function AssetList() {
+  const { t } = useI18n();
   const clients = useConnectionStore((s) => s.clients);
   const connected = useConnectionStore((s) => s.phase === "connected" && !s.unreachable);
   const epoch = useConnectionStore((s) => s.epoch);

@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { message, type UiText } from "../../../i18n";
 
 import type { ConfigScenario } from "../../../api/v2/types";
 import { useConnectionStore } from "../../../store/connectionStore";
@@ -15,7 +16,7 @@ import { decodeActionsView, type ActionsView } from "./actionsView";
 
 interface CacheEntry {
   view: ActionsView | null;
-  error: string | null;
+  error: UiText | null;
 }
 
 const cache = new Map<string, CacheEntry>();
@@ -29,12 +30,12 @@ async function fetchView(
     const raw = await clients.config.actions(scenario);
     const view = decodeActionsView(raw);
     return view === null
-      ? { view: null, error: "The actions projection was not recognizable." }
+      ? { view: null, error: message("settings.actionsProjectionUnrecognized") }
       : { view, error: null };
   } catch (cause) {
     return {
       view: null,
-      error: cause instanceof Error ? cause.message : "Request failed",
+      error: cause instanceof Error ? cause.message : String(cause),
     };
   }
 }
@@ -43,7 +44,7 @@ export interface ActionsViewState {
   /** The decoded projection; null while loading or on error. */
   view: ActionsView | null;
   loading: boolean;
-  error: string | null;
+  error: UiText | null;
 }
 
 /** Test helper: drop cached projections and forget in-flight requests. */

@@ -10,7 +10,7 @@ import { Button } from "../ui/Button";
  * form. Browser and Tauri use the same address/token login path.
  */
 export function ConnectScreen() {
-  const { t } = useI18n();
+  const { t, text } = useI18n();
   const phase = useConnectionStore((s) => s.phase);
   const error = useConnectionStore((s) => s.error);
   const [address, setAddress] = useState("");
@@ -57,7 +57,7 @@ export function ConnectScreen() {
 
           {error && (
             <div className="mt-3 rounded-lg bg-danger-soft px-3 py-2 text-[12px] text-danger">
-              {error}
+              {text(error)}
             </div>
           )}
 

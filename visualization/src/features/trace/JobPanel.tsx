@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, message, tStatus } from "../../i18n";
 import { requestIdForTurn } from "../../store/turnStore";
 /**
  * Turn-owned Job detail (plan §9.1 job-control family).
@@ -79,7 +79,7 @@ export function JobPanel({
     [epoch, turnId, jobId, refreshTick],
   );
 
-  const status = AsyncStatus({ state: read, loading: "Reading the job…" });
+  const status = AsyncStatus({ state: read, loading: message("trace.readingJob") });
   if (status !== null) return status;
   if (read.kind !== "ready") return <></>;
   const { detail } = read.value;
@@ -117,7 +117,7 @@ export function JobPanel({
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="font-mono text-[13px] font-medium">{detail.job_id}</span>
-        <Badge tone={STATE_TONES[detail.state] ?? "gray"}>{detail.state}</Badge>
+        <Badge tone={STATE_TONES[detail.state] ?? "gray"}>{tStatus(detail.state)}</Badge>
         {detail.kind !== "" && <Badge tone="gray">{detail.kind}</Badge>}
         {running && (
           <button
@@ -138,7 +138,7 @@ export function JobPanel({
       )}
 
       {detail.pending_inputs.length > 0 && (
-        <Collapsible title={`Pending inputs (${detail.pending_inputs.length})`}>
+        <Collapsible title={t("trace.pendingInputCount", { count: detail.pending_inputs.length })}>
           <JsonTree value={detail.pending_inputs} defaultExpanded={false} />
         </Collapsible>
       )}
@@ -172,7 +172,7 @@ export function JobPanel({
           {t("trace.showMoreOutput")}</button>
         {moreError !== null && (
           <span className="text-[12px] text-danger">
-            read failed ({moreError})
+            {t("common.readFailedDetail", { detail: moreError })}
           </span>
         )}
       </div>
@@ -181,6 +181,7 @@ export function JobPanel({
 }
 
 function JobDetails({ details }: { details: Record<string, unknown> | null }) {
+  const { t } = useI18n();
   if (details === null) return null;
   const exitCode = asNumber(details.exit_code);
   const stdoutBytes = asNumber(details.stdout_bytes);
@@ -190,26 +191,26 @@ function JobDetails({ details }: { details: Record<string, unknown> | null }) {
     <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
       {exitCode !== null && (
         <>
-          <dt className="text-fg-faint">exit code</dt>
+          <dt className="text-fg-faint">{t("common.exitCode")}</dt>
           <dd className="text-fg-muted">{exitCode}</dd>
         </>
       )}
       {stdoutBytes !== null && (
         <>
-          <dt className="text-fg-faint">stdout</dt>
-          <dd className="text-fg-muted">{stdoutBytes} bytes</dd>
+          <dt className="text-fg-faint">{t("trace.stdout")}</dt>
+          <dd className="text-fg-muted">{stdoutBytes} {t("common.bytes")}</dd>
         </>
       )}
       {stderrBytes !== null && (
         <>
-          <dt className="text-fg-faint">stderr</dt>
-          <dd className="text-fg-muted">{stderrBytes} bytes</dd>
+          <dt className="text-fg-faint">{t("trace.stderr")}</dt>
+          <dd className="text-fg-muted">{stderrBytes} {t("common.bytes")}</dd>
         </>
       )}
       {workspaceLinks.length > 0 && (
         <>
-          <dt className="text-fg-faint">artifacts</dt>
-          <dd className="text-fg-muted">{workspaceLinks.length} workspace resources</dd>
+          <dt className="text-fg-faint">{t("trace.artifacts")}</dt>
+          <dd className="text-fg-muted">{workspaceLinks.length} {t("trace.workspaceResources")}</dd>
         </>
       )}
     </dl>
@@ -233,8 +234,7 @@ function JobChannels({
   if (channels.size === 0) {
     return (
       <div className="rounded-lg border border-line bg-bg-elev px-3 py-2 text-[12px] text-fg-faint">
-        No output read yet.
-      </div>
+        {t("trace.noOutput")}</div>
     );
   }
   return (

@@ -123,13 +123,12 @@ export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
               {activeDay === null
                 ? boundDay !== null
                   ? `active · ${boundDay}`
-                  : "active day"
+                  : t("memory.activeDay")
                 : `${activeDay} (archived)`}
             </Badge>
           </div>
           <div className="mt-0.5 text-[11px] text-fg-faint">
-            What the agent is recording this day — read-only here.
-          </div>
+            {t("memory.activeHint")}</div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           <IconButton
@@ -155,8 +154,7 @@ export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
       {page.loading ? (
         <div className="flex flex-1 items-center justify-center gap-2 text-[12px] text-fg-faint">
           <Loader2 size={15} className="animate-spin-slow" />
-          Reading the active memory…
-        </div>
+          {t("memory.loadingActive")}</div>
       ) : errorCode === "resource.not_found" ? (
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
@@ -164,8 +162,8 @@ export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
             title={t("memory.archivedMemoryDay")}
             description={
               activeDay !== null
-                ? `${activeDay} has no archived Memory.md. Days without one are simply not archived — pick another day.`
-                : "The active day has no Memory.md binding."
+                ? t("memory.noArchive", { day: activeDay })
+                : t("memory.noActiveBinding")
             }
           />
         </div>
@@ -175,8 +173,8 @@ export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
             icon={<AlertTriangle size={24} />}
             title={
               errorCode === "resource.unavailable"
-                ? "The active memory is unavailable"
-                : "The active memory could not be read"
+                ? t("memory.unavailable")
+                : t("memory.readFailed")
             }
             description={errorMessage}
             action={

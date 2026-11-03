@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { t, useI18n, resolveText, effectiveLocale } from "../../i18n";
 /**
  * LiveStatus — live activity disclosure for a running turn.
  *
@@ -230,7 +230,7 @@ export function LiveStatus({ activity, mode = "live", status, epoch, turnId, day
   const elapsedFormatted = formatDuration(startMs / 1000, live ? Date.now() / 1000 : (startMs + activity.timing.elapsedMs) / 1000);
 
   const stopping = live && activity.stopping === true;
-  const headlineLabel = stopping ? "正在停止轮次…" : activity.waitingToStart ? "等待开始…" : waiting ? "等待你的回复" : headline.label;
+  const headlineLabel = stopping ? t("chat.stopping") : activity.waitingToStart ? t("chat.waitingStart") : waiting ? t("chat.waitingReply") : resolveText(headline.label, effectiveLocale());
   const headlineDomain = headline.domain;
 
   const settled = live ? undefined : settledHeadline(status);
@@ -328,7 +328,7 @@ export function LiveStatus({ activity, mode = "live", status, epoch, turnId, day
                 trailOpenedOnce.current = true;
                 setTrailOpen(!trailOpen);
               }}
-              title={trailOpen ? "Fold the trail" : "Unfold the trail"}
+              title={trailOpen ? t("chat.foldTrail") : t("chat.unfoldTrail")}
               className="shrink-0 rounded p-0.5 text-fg-faint transition-colors hover:text-fg-muted"
             >
               <ChevronRight
@@ -393,10 +393,10 @@ export function LiveStatus({ activity, mode = "live", status, epoch, turnId, day
                 className="w-fit text-left text-[11px] text-fg-faint transition-colors hover:text-fg-muted"
               >
                 {showAll
-                  ? "Show fewer steps"
+                  ? t("chat.fewerSteps")
                   : overflow > 0
-                    ? `+${overflow} earlier steps`
-                    : "Show all steps"}
+                    ? t("chat.earlierSteps", { count: overflow })
+                    : t("chat.allSteps")}
               </button>
             </div>
           )}
@@ -408,8 +408,7 @@ export function LiveStatus({ activity, mode = "live", status, epoch, turnId, day
           {activity.incomplete && (
             <div className="mx-4 mb-3 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2">
               <div className="text-[11px] text-warning">
-                Activity stream incomplete (connection lost or gap detected)
-              </div>
+                {t("chat.incomplete")}</div>
             </div>
           )}
         </motion.div>
@@ -421,6 +420,7 @@ export function LiveStatus({ activity, mode = "live", status, epoch, turnId, day
 /* -------------------------- thinking stream -------------------------- */
 
 function ThinkingStream({ text, stepId }: { text: string; stepId: string }) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const [truncated, setTruncated] = useState(false);
   const holdFollow = useHoldChatFollow();
@@ -434,13 +434,12 @@ function ThinkingStream({ text, stepId }: { text: string; stepId: string }) {
     <div className="mx-4 mb-2.5 rounded-lg bg-accent-soft/40 px-3 py-2">
       <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold tracking-wide text-accent uppercase">
         <Brain size={10} />
-        Thinking
-        {collapsible && (
+        {t("chat.thinking")}{collapsible && (
           <button
             onClick={() => { holdFollow(); setExpanded(!expanded); }}
             className="ml-auto font-normal normal-case text-accent/80 transition-colors hover:text-accent"
           >
-            {expanded ? "Collapse" : "Expand"}
+            {expanded ? t("chat.collapse") : t("chat.expand")}
           </button>
         )}
       </div>
@@ -533,6 +532,7 @@ function ThinkingWriter({
 /* --------------------------- working zone ---------------------------- */
 
 export function WorkingZone({ working }: { working: WorkingState }) {
+  const { t } = useI18n();
   const reduced = useReducedMotion();
   const [showAllMilestones, setShowAllMilestones] = useState(false);
   const { todos, milestones } = working;
@@ -570,8 +570,8 @@ export function WorkingZone({ working }: { working: WorkingState }) {
                   className="w-fit text-left text-[11px] text-fg-faint transition-colors hover:text-fg-muted"
                 >
                   {showAllMilestones
-                    ? "Show fewer milestones"
-                    : `+${hiddenMilestones} earlier milestones`}
+                    ? t("chat.fewerMilestones")
+                    : t("chat.earlierMilestones", { count: hiddenMilestones })}
                 </button>
               </div>
             )}
@@ -581,7 +581,7 @@ export function WorkingZone({ working }: { working: WorkingState }) {
           <div>
             <div className="mb-1 flex items-center gap-1.5 text-[10px] font-medium tracking-wide text-fg-faint uppercase">
               <ListChecks size={10} />
-              Todos · {done}/{todos.length}
+              {t("chat.todosHeading")}{done}/{todos.length}
             </div>
             <div className="space-y-1">
               <AnimatePresence initial={false}>

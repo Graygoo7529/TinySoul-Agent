@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -117,7 +118,7 @@ describe("openContextDrawer", () => {
     expect(container.textContent).toContain("Review these changes carefully.");
     act(() => root.render(<BackgroundPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29" active={false} committed={false} reflection owner="home" />));
     await flush();
-    expect(container.textContent).toContain("整理已结束");
+    expect(container.textContent).toContain(t("chat.reflection.ended"));
     expect(container.textContent).toContain("Review these changes carefully.");
     expect(endpoint.calls(`/v2/session/turns/${TURN_ID}/background`)).toHaveLength(0);
   });
@@ -133,9 +134,9 @@ describe("openContextDrawer", () => {
 
     renderTop();
     await flush();
-    expect(container.textContent).toContain("Session map");
-    clickText("当前 Context");
-    expect(container.textContent).toContain("当前没有运行中的语境");
+    expect(container.textContent).toContain(t("context.tab.session"));
+    clickText(t("context.tab.current"));
+    expect(container.textContent).toContain(t("context.noActiveContext"));
     // No cached context of a previous turn is read.
     expect(endpoint.calls(`/v2/requests/${TURN_ID}/context`)).toHaveLength(0);
 
@@ -145,7 +146,7 @@ describe("openContextDrawer", () => {
     await openOverview();
 
     expect(topEntry().key).toBe(`context:overview:${TURN_ID}`);
-    for (const label of ["Trace", "Working"]) {
+    for (const label of [t("context.slot.trace"), t("context.slot.working")]) {
       expect(container.textContent).toContain(label);
     }
     expect(container.textContent).toMatch(/背景|Background/);
@@ -161,10 +162,10 @@ describe("openContextDrawer", () => {
       expect(container.textContent).toContain(id);
     }
     // Usage is reported in characters, never as tokens.
-    expect(container.textContent).toContain("11,317 chars");
+    expect(container.textContent).toContain(t("context.characterUsage", { count: "11,317" }));
     expect(container.textContent?.toLowerCase()).not.toContain("token");
     // Heap rows summarize installed/available.
-    expect(container.textContent).toContain("7 installed · 3 available");
+    expect(container.textContent).toContain(t("context.heapStatus", { installed: 7, available: 3 }));
     // Only the overview was fetched — segment bodies wait for selection.
     expect(endpoint.calls(`/v2/requests/${TURN_ID}/context`)).toHaveLength(1);
     expect(segmentRequests()).toHaveLength(0);
@@ -172,7 +173,7 @@ describe("openContextDrawer", () => {
 
   it("marks the overview refreshable on context install; refresh re-reads it", async () => {
     await openOverview();
-    expect(container.textContent).not.toContain("refresh to see the latest");
+    expect(container.textContent).not.toContain(t("context.changed"));
 
     // An unrelated status re-read is not a context change.
     act(() => {
@@ -183,17 +184,17 @@ describe("openContextDrawer", () => {
           makeStatus({ activity: "user_turn", activeTurnId: TURN_ID }),
         );
     });
-    expect(container.textContent).not.toContain("refresh to see the latest");
+    expect(container.textContent).not.toContain(t("context.changed"));
 
     act(() => {
       useConnectionStore.getState().noteContextInstalled();
     });
-    expect(container.textContent).toContain("refresh to see the latest");
+    expect(container.textContent).toContain(t("context.changed"));
 
     clickText("刷新");
     await flush();
     expect(endpoint.calls(`/v2/requests/${TURN_ID}/context`)).toHaveLength(2);
-    expect(container.textContent).not.toContain("refresh to see the latest");
+    expect(container.textContent).not.toContain(t("context.changed"));
     expect(container.textContent).toContain("identity");
   });
 
@@ -205,11 +206,11 @@ describe("openContextDrawer", () => {
         .getState()
         .applyStatus(epoch, makeStatus({ activity: "idle", activeTurnId: null }));
     });
-    expect(container.textContent).toContain("last captured view");
+    expect(container.textContent).toContain(t("context.ended"));
     // Already-read content stays on screen.
     expect(container.textContent).toContain("identity");
     // No new turn is active: the action routes into the day history.
-    clickText("Browse history");
+    clickText(t("context.browseHistory"));
     expect(topEntry().key).toBe("history:days");
   });
 
@@ -223,8 +224,8 @@ describe("openContextDrawer", () => {
           makeStatus({ activity: "user_turn", activeTurnId: "turn_2" }),
         );
     });
-    expect(container.textContent).toContain("last captured view");
-    clickText("Open current context");
+    expect(container.textContent).toContain(t("context.ended"));
+    clickText(t("context.openCurrent"));
     expect(topEntry().key).toBe("context:overview:turn_2");
   });
 
@@ -235,7 +236,7 @@ describe("openContextDrawer", () => {
     act(() => openContextDrawer(epoch));
     renderTop();
     await flush();
-    expect(container.textContent).toContain("本轮语境已关闭");
+    expect(container.textContent).toContain(t("context.turnSContextClosed"));
   });
 
   it("pushes the selected segment and reads its body only then", async () => {
@@ -253,7 +254,7 @@ describe("openContextDrawer", () => {
     renderTop();
     await flush();
     expect(segmentRequests()).toHaveLength(1);
-    expect(container.textContent).toContain("Installed body");
+    expect(container.textContent).toContain(t("context.installedBody"));
   });
 });
 
@@ -267,7 +268,7 @@ describe("ContextOverviewPanel direct", () => {
     });
     await flush();
     expect(container.textContent).toContain("test failure");
-    expect(container.textContent).toContain("重试");
+    expect(container.textContent).toContain(t("common.retry"));
 
     serveOverview();
     clickText("重试");
@@ -310,20 +311,20 @@ describe("TopBar integration", () => {
     act(() => {
       root.render(<TopBar />);
     });
-    expect(container.textContent).toContain("连接中…");
-    expect(container.textContent).not.toContain("重新连接中…");
+    expect(container.textContent).toContain(t("connection.connecting"));
+    expect(container.textContent).not.toContain(t("connection.reconnecting"));
 
     // A dropped live stream is the real reconnect.
     act(() => {
       useConnectionStore.getState().setEventsPhase("reconnecting");
     });
-    expect(container.textContent).toContain("重新连接中…");
+    expect(container.textContent).toContain(t("connection.reconnecting"));
 
     // Live again: no indicator at all.
     act(() => {
       useConnectionStore.getState().setEventsPhase("live");
     });
-    expect(container.textContent).not.toContain("连接中…");
-    expect(container.textContent).not.toContain("重新连接中…");
+    expect(container.textContent).not.toContain(t("connection.connecting"));
+    expect(container.textContent).not.toContain(t("connection.reconnecting"));
   });
 });

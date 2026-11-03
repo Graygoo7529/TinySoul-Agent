@@ -30,7 +30,7 @@ export function SettingsBottomBar() {
   const issueCount = useConfigDraftStore((s) => draftIssues(s).length);
   const applyPhase = useConfigDraftStore((s) => s.applyPhase);
   const pendingReload = useConfigDraftStore((s) => s.saved?.pending_reload === true);
-  const blocker = useConfigDraftStore(activationBlocker);
+  const blocker = useConfigDraftStore((state) => activationBlocker(state));
   const drafts = useConfigDraftStore((s) => s.drafts);
   const pageKeys = useMemo(() => pageDraftKeys(page, drafts), [page, drafts]);
   const resetEntries = useConfigDraftStore((s) => s.resetEntries);

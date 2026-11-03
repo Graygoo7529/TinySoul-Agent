@@ -1,3 +1,4 @@
+import { useI18n } from "../../i18n";
 import { useEffect, useRef, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
@@ -9,6 +10,7 @@ import { useSettingsUiStore } from "./uiStore";
 export function SettingsDisclosure({ title, paths = [], children, meta, className = "" }: {
   title: ReactNode; paths?: string[]; children: ReactNode; meta?: ReactNode; className?: string;
 }) {
+  const { t } = useI18n();
   const details = useRef<HTMLDetailsElement>(null);
   const state = useConfigDraftStore();
   const focusPath = useSettingsUiStore((s) => s.focusPath);
@@ -26,7 +28,7 @@ export function SettingsDisclosure({ title, paths = [], children, meta, classNam
     <summary className="focus-ring flex cursor-pointer list-none items-center gap-2 rounded-lg px-3 py-2.5 text-[13px] font-medium hover:bg-hover [&::-webkit-details-marker]:hidden">
       <ChevronRight size={13} className="shrink-0 text-fg-faint transition-transform group-open:rotate-90" />
       <span className="min-w-0 flex-1">{title}</span>
-      {errorCount > 0 ? <Badge tone="yellow">{errorCount} 项问题</Badge> : dirty ? <Badge tone="accent">已修改</Badge> : null}
+      {errorCount > 0 ? <Badge tone="yellow">{errorCount} {t("settings.issueCountUnit")}</Badge> : dirty ? <Badge tone="accent">{t("common.modified")}</Badge> : null}
       {meta}
     </summary>
     <div className="min-w-0 border-t border-line">{children}</div>

@@ -39,15 +39,15 @@ import { useOwnerPage } from "../resources/useOwnerPage";
 import { useHomePage } from "./store";
 
 interface HomeTypeBadge {
-  label: "Skill" | "Agent" | "域指导" | "动作指导";
+  label: string;
   tone: BadgeTone;
 }
 
 function homeTypeBadge(ref: string): HomeTypeBadge | null {
   if (ref.startsWith("home:top/skills/")) return { label: "Skill", tone: "purple" };
   if (ref.startsWith("home:top/agent/")) return { label: "Agent", tone: "accent" };
-  if (ref.startsWith("home:mount/domain/")) return { label: "域指导", tone: "blue" };
-  if (ref.startsWith("home:mount/action/")) return { label: "动作指导", tone: "teal" };
+  if (ref.startsWith("home:mount/domain/")) return { label: t("home.domainGuidance"), tone: "blue" };
+  if (ref.startsWith("home:mount/action/")) return { label: t("home.actionGuidance"), tone: "teal" };
   return null;
 }
 
@@ -149,8 +149,7 @@ export function HomeContentView({
       {page.loading ? (
         <div className="flex flex-1 items-center justify-center gap-2 text-[12px] text-fg-faint">
           <Loader2 size={15} className="animate-spin-slow" />
-          Reading the document…
-        </div>
+          {t("common.loadingDocument")}</div>
       ) : errorCode === "resource.invalid" ? (
         // Not UTF-8 text: show the reference and the supported operations,
         // never a disguised Workspace download.
@@ -160,10 +159,7 @@ export function HomeContentView({
             title={t("home.readableText")}
             description={
               <>
-                <span className="font-mono text-[11px]">{ref}</span> is not a
-                UTF-8 text resource, so the page cannot preview it. You can
-                still copy its reference or quote it in the conversation.
-              </>
+                <span className="font-mono text-[11px]">{ref}</span> {t("home.binaryHint")}</>
             }
             action={
                 <Button variant="outline" size="sm" onClick={() => copyReference(ref)}>
@@ -176,13 +172,10 @@ export function HomeContentView({
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
             icon={<FileWarning size={24} />}
-            title={`Not in the ${view} view`}
+            title={t("home.notInView", { view })}
             description={
               <>
-                <span className="font-mono text-[11px]">{ref}</span> does not
-                exist in the {view} {t("shell.home")}{view === "actual"
-                  ? ". It may exist only as an overlay change — check the effective view."
-                  : "."}
+                <span className="font-mono text-[11px]">{ref}</span> {t("home.missingInView", { view })} {view === "actual" && t("home.checkEffective")}
               </>
             }
           />
@@ -207,8 +200,7 @@ export function HomeContentView({
             title={t("home.documentEmpty")}
             description={
               <>
-                <span className="font-mono text-[11px]">{ref}</span> exists in
-                the {view} Home but has no content.
+                <span className="font-mono text-[11px]">{ref}</span> {t("home.emptyInView", { view })}
               </>
             }
           />

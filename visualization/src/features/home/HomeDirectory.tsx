@@ -103,13 +103,12 @@ export function HomeDirectory({ epoch }: { epoch: number }): ReactElement {
         {catalog.loading ? (
           <div className="flex items-center gap-2 px-2 py-3 text-[12px] text-fg-faint">
             <Loader2 size={13} className="animate-spin-slow" />
-            Reading the Home directory…
-          </div>
+            {t("home.loadingDirectory")}</div>
         ) : catalog.error !== null && groups.tops.length === 0 &&
           groups.skills.length === 0 && groups.resources.length === 0 &&
           groups.guidance.length === 0 ? (
           <EmptyState
-            title="目录读取失败"
+            title={t("common.directoryFailed")}
             description={catalog.error}
             action={
               <Button variant="outline" size="sm" onClick={catalog.reload}>
@@ -119,13 +118,13 @@ export function HomeDirectory({ epoch }: { epoch: number }): ReactElement {
           />
         ) : empty ? (
           <EmptyState
-            title={query.trim() === "" ? "Nothing in this view" : "No matches"}
+            title={query.trim() === "" ? t("home.emptyView") : t("memory.matches")}
             description={
               query.trim() === ""
                 ? view === "actual"
-                  ? "The accepted baseline has no entries here."
-                  : "Effective Home has no entries here."
-                : `No Home entries match "${query.trim()}".`
+                  ? t("home.emptyBaseline")
+                  : t("home.emptyEffective")
+                : t("home.noSearchMatch", { query: query.trim() })
             }
           />
         ) : (
@@ -233,6 +232,7 @@ function DirectoryRow({
   badge?: ReactElement;
   depth?: number;
 }): ReactElement {
+  const { t } = useI18n();
   const entry = useHomePage((s) => s.changes?.find((change) => change.ref === item.ref) ?? null);
   const row = <button
     type="button"
@@ -257,7 +257,7 @@ function DirectoryRow({
     {row}
     <button
       type="button"
-      aria-label={`Open ${status} diff for ${item.ref}`}
+      aria-label={t("home.openDiff", { status, ref: item.ref })}
       title={`${status}: ${item.ref}`}
       className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-hover"
       onClick={() => useHomePage.getState().openDiff(item.ref, entry.kind)}
@@ -277,6 +277,7 @@ function SkillGroupRows({
   selectedLink: string | null;
   onSelect: (ref: string) => void;
 }): ReactElement {
+  const { t } = useI18n();
   const containsSelection =
     selectedLink !== null &&
     (selectedLink === group.topLink ||
@@ -320,7 +321,7 @@ function SkillGroupRows({
           )}
           {group.topLink !== null && (
             <DirectoryRow
-              item={{ ref: group.topLink, title: "top entry", kind: "top", size: 0 }}
+              item={{ ref: group.topLink, title: t("home.topEntry"), kind: "top", size: 0 }}
               depth={1}
               selected={selectedLink === group.topLink}
               onSelect={() => onSelect(group.topLink!)}

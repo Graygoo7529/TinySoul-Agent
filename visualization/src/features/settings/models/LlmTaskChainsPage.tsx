@@ -1,4 +1,4 @@
-import { t, translatedField as matchField } from "../../../i18n";
+import { t, useI18n, translatedField as matchField } from "../../../i18n";
 /**
  * LLM Task Chains settings page: ordered model chains with call
  * and recovery parameters. The model order editor picks from the projected
@@ -51,6 +51,7 @@ import { MODEL_CAPABILITIES } from "./capabilities";
 const ROOT = "llm.tasks";
 
 export function LlmTaskChainsPage() {
+  const { t } = useI18n();
   const state = useConfigDraftStore();
   const objects = useMemo(
     () => projectCollection(state, ROOT),
@@ -100,7 +101,7 @@ export function LlmTaskChainsPage() {
         title={t("settings.taskChains")}
         description={
           collection?.description ??
-          "Ordered model chains and call policy selected by a stable task profile."
+          t("settings.taskChainsDescription")
         }
         items={objects.map((item) => ({
           id: item.id,
@@ -114,16 +115,16 @@ export function LlmTaskChainsPage() {
         addDisabled={!createSourceAvailable || models.length === 0}
         addTitle={
           !createSourceAvailable
-            ? "The task chains include file is missing or read-only"
+            ? t("settings.taskChainsReadOnly")
             : models.length === 0
-              ? "Create a model first"
-              : "New task chain"
+              ? t("settings.createModelFirst")
+              : t("settings.newTaskChain")
         }
         headerBadges={
           current !== null && (
             <>
-              {current.isNew && <Badge tone="accent">New</Badge>}
-              {!current.isNew && current.dirty && <Badge tone="accent">Modified</Badge>}
+              {current.isNew && <Badge tone="accent">{t("settings.newBadge")}</Badge>}
+              {!current.isNew && current.dirty && <Badge tone="accent">{t("common.modified")}</Badge>}
             </>
           )
         }
@@ -144,7 +145,7 @@ export function LlmTaskChainsPage() {
       </ObjectEditorLayout>
 
       <CreateObjectModal validateId={llmObjectIdError}
-        title="New task chain"
+        title={t("settings.newTaskChain")}
         idTitle={t("settings.taskChainId")}
         idDescription="Stable task profile identifier used by framework tasks and Action routes; dots, outer whitespace and numeric-only ids are not allowed."
         existing={objects.map((item) => item.id)}
@@ -162,12 +163,12 @@ export function LlmTaskChainsPage() {
           setCreating(false);
         }}
       >
-        <p className="text-[12px] text-fg-muted">首模型：<span className="font-mono">{firstModel || "尚未选择"}</span></p>
+        <p className="text-[12px] text-fg-muted">{t("settings.firstModel")}<span className="font-mono">{firstModel || t("settings.notSelected")}</span></p>
         <ModelSelectionList models={models} value={firstModel} onSelect={setFirstModel} />
       </CreateObjectModal>
 
       <DeleteObjectModal
-        title="Delete task chain"
+        title={t("settings.deleteTaskChain")}
         objectId={deleting?.id ?? ""}
         references={deleting !== null ? usageReferences(state, deleting.id) : []}
         open={deleting !== null}
@@ -183,12 +184,12 @@ export function LlmTaskChainsPage() {
 
 function chainSummary(object: ProjectedObject, state: ReturnType<typeof useConfigDraftStore.getState>): string {
   const count = stringListField(object.value, "models").length;
-  const parts = [`${count} ${count === 1 ? "model" : "models"}`];
+  const parts = [t("settings.modelCount", { count })];
   const usage = taskChainUsage(state, object.id);
   parts.push(...usage.phases);
   if (usage.consumers.length > 0) {
     parts.push(
-      `${usage.consumers.length} ${usage.consumers.length === 1 ? "consumer" : "consumers"}`,
+      t("settings.consumerCount", { count: usage.consumers.length }),
     );
   }
   return parts.join(" · ");
@@ -203,12 +204,12 @@ function usageReferences(
     ...usage.phases.map((phase) => ({
       owner: "Cycle",
       path: `loop.cycle.${phase === "Phase1" ? "phase1" : "phase2"}_task_profile`,
-      detail: "cycle phase binding",
+      detail: t("settings.phaseBinding"),
     })),
     ...usage.consumers.map((consumer) => ({
       owner: consumer,
       path: "action.models.bindings",
-      detail: "model-use binding",
+      detail: t("settings.modelUseBinding"),
     })),
   ];
 }
@@ -222,6 +223,7 @@ function TaskChainEditor({
   models: ProjectedObject[];
   createSource: string;
 }) {
+  const { t } = useI18n();
   const state = useConfigDraftStore();
   const catalog = state.catalog;
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
@@ -244,10 +246,10 @@ function TaskChainEditor({
   return (
     <div>
       <FieldSection
-        title={field("models").meta?.title ?? "Model Order"}
+        title={field("models").meta?.title ?? t("settings.modelOrder")}
         description={
           field("models").meta?.description ??
-          "Models attempted in order, with later models used after retry or switching decisions."
+          t("settings.modelOrderHint")
         }
         meta={<Badge>{modelIds.length}</Badge>}
       >
@@ -258,7 +260,7 @@ function TaskChainEditor({
               index={index}
               count={modelIds.length}
               disabled={field("models").lock !== null}
-              ariaLabel={`Model position ${index + 1}`}
+              ariaLabel={t("settings.modelPosition", { index: index + 1 })}
               onMove={(target) => commitModels(moveItem(modelIds, index, target))}
               onDrop={(source) => commitModels(moveItem(modelIds, source, index))}
               onRemove={
@@ -274,7 +276,7 @@ function TaskChainEditor({
             </OrderableRow>
           ))}
           <OrderableListFooter>
-            <ModelPicker label="添加模型" models={models} value={null} adding disabledIds={modelIds}
+            <ModelPicker label={t("settings.addModel")} models={models} value={null} adding disabledIds={modelIds}
               disabled={field("models").lock !== null}
               onSelect={(value) => commitModels([...modelIds, value])} />
           </OrderableListFooter>
@@ -282,7 +284,7 @@ function TaskChainEditor({
       </FieldSection>
 
       <FieldSection
-        title={field("required_capabilities").meta?.title ?? "Required Capabilities"}
+        title={field("required_capabilities").meta?.title ?? t("settings.requiredCapabilities")}
         description={field("required_capabilities").meta?.description}
       >
         <FieldRow
@@ -291,7 +293,7 @@ function TaskChainEditor({
           dirty={field("required_capabilities").dirty}
         >
           <ChoiceToggles
-            options={MODEL_CAPABILITIES}
+            options={MODEL_CAPABILITIES.map(({ value, labelId }) => ({ value, label: t(labelId) }))}
             values={stringListField(object.value, "required_capabilities")}
             disabled={field("required_capabilities").lock !== null}
             onCommit={(values) =>
@@ -304,10 +306,10 @@ function TaskChainEditor({
       <FieldSection
         title={t("settings.call")}
         description={t("settings.defaultRequestShapeForModelCallsInThisChain")}
-        meta={<Badge tone="gray">高级</Badge>}
+        meta={<Badge tone="gray">{t("settings.advanced")}</Badge>}
       >
         <EnumRow
-          label="Answer Format"
+          label={t("settings.answerFormat")}
           field={field("answer_format")}
           value={typeof object.value.answer_format === "string" ? object.value.answer_format : "none"}
           onCommit={(value) =>
@@ -315,7 +317,7 @@ function TaskChainEditor({
           }
         />
         <EnumRow
-          label="Tool Use"
+          label={t("settings.toolUse")}
           field={field("tool_use")}
           value={typeof object.value.tool_use === "string" ? object.value.tool_use : "disabled"}
           onCommit={(value) =>
@@ -323,7 +325,7 @@ function TaskChainEditor({
           }
         />
         <NumberRow
-          label="Temperature"
+          label={t("settings.temperature")}
           field={field("temperature")}
           value={typeof object.value.temperature === "number" ? object.value.temperature : 0.3}
           min={0}
@@ -332,7 +334,7 @@ function TaskChainEditor({
           }
         />
         <NumberRow
-          label="Maximum Output Tokens"
+          label={t("settings.maxOutputTokens")}
           field={field("max_output_tokens")}
           integer
           min={1}
@@ -345,7 +347,7 @@ function TaskChainEditor({
             setObjectField(ROOT, object, "max_output_tokens", value, createSource)
           }
         />
-        <NumberRow label="Top P" field={field("top_p")} min={0}
+        <NumberRow label={t("settings.topP")} field={field("top_p")} min={0}
           value={typeof object.value.top_p === "number" ? object.value.top_p : 1}
           onCommit={(value) => setObjectField(ROOT, object, "top_p", value, createSource)} />
       </FieldSection>
@@ -353,10 +355,10 @@ function TaskChainEditor({
       <FieldSection
         title={t("settings.recovery")}
         description={t("settings.retryAndSwitchingBehaviorInsideThisChainChainCycles")}
-        meta={<Badge tone="gray">高级</Badge>}
+        meta={<Badge tone="gray">{t("settings.advanced")}</Badge>}
       >
         <NumberRow
-          label="Retries Per Provider"
+          label={t("settings.retriesPerProvider")}
           field={field("max_retries_per_provider")}
           integer
           min={0}
@@ -370,7 +372,7 @@ function TaskChainEditor({
           }
         />
         <NumberRow
-          label="Retry Wait"
+          label={t("settings.retryWait")}
           field={field("retry_wait_seconds")}
           min={0}
           suffix="s"
@@ -384,7 +386,7 @@ function TaskChainEditor({
           }
         />
         <NumberRow
-          label="Provider Switch Wait"
+          label={t("settings.providerSwitchWait")}
           field={field("provider_switch_wait_seconds")}
           min={0}
           suffix="s"
@@ -404,7 +406,7 @@ function TaskChainEditor({
           }
         />
         <NumberRow
-          label="Model Switch Wait"
+          label={t("settings.modelSwitchWait")}
           field={field("model_switch_wait_seconds")}
           min={0}
           suffix="s"
@@ -418,7 +420,7 @@ function TaskChainEditor({
           }
         />
         <NumberRow
-          label="Maximum Chain Cycles"
+          label={t("settings.maxChainCycles")}
           field={field("max_cycles")}
           integer
           min={1}
@@ -430,7 +432,7 @@ function TaskChainEditor({
           }
         />
         <NumberRow
-          label="Successful Model Preference"
+          label={t("settings.preferSuccessfulModel")}
           field={field("prefer_successful_model_seconds")}
           min={0}
           suffix="s"
@@ -450,7 +452,7 @@ function TaskChainEditor({
           }
         />
         <NumberRow
-          label="Successful Provider Preference"
+          label={t("settings.preferSuccessfulProvider")}
           field={field("prefer_successful_provider_seconds")}
           min={0}
           suffix="s"

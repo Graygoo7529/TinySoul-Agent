@@ -31,6 +31,7 @@ export function SessionPage() {
 }
 
 function BackgroundBudgetRow() {
+  const { t } = useI18n();
   const saved = useConfigDraftStore((s) => s.saved);
   const active = useConfigDraftStore((s) => s.active);
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
@@ -38,9 +39,9 @@ function BackgroundBudgetRow() {
     <SectionCard title={t("settings.backgroundBudget")} description={t("settings.theContextPageOwnsTheSharedSessionBackgroundProjection")}>
       <div className="flex items-center gap-3">
         <span className="text-[13px] font-medium text-fg">session.max_background_chars</span>
-        <Badge tone="gray">由 Context 管理</Badge>
+        <Badge tone="gray">{t("settings.managedByContext")}</Badge>
         <span className="ml-auto flex items-center gap-3">
-          <span className="font-mono text-[12px] text-fg-muted">saved {valuePreview(savedValue(saved, "session.max_background_chars"))}{" · "}running {valuePreview(activeValue(active, "session.max_background_chars"))}</span>
+          <span className="font-mono text-[12px] text-fg-muted">{t("settings.savedBadge")}{valuePreview(savedValue(saved, "session.max_background_chars"))}{" · "}{t("common.running")}{valuePreview(activeValue(active, "session.max_background_chars"))}</span>
           <button type="button" className="flex items-center gap-1 text-[12px] font-medium text-accent hover:underline" onClick={() => navigateTo("context", "session.max_background_chars")}>
             {t("settings.editInContext")}<ArrowRight size={12} />
           </button>

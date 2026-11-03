@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -194,16 +195,16 @@ describe("ContextInspectPanel", () => {
     expect(container.textContent).toContain("first");
 
     const more = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("显示更多"),
+      (button) => button.textContent?.includes(t("common.showMore")),
     )!;
     act(() => {
       more.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await flush();
-    expect(container.textContent).toContain("last captured view");
+    expect(container.textContent).toContain(t("context.ended"));
     expect(container.textContent).toContain("first");
     expect(inspectCalls()).toHaveLength(2);
-    expect(container.textContent).not.toContain("显示更多");
+    expect(container.textContent).not.toContain(t("common.showMore"));
   });
 
   it("marks the page refreshable on context install without disturbing content", async () => {
@@ -212,7 +213,7 @@ describe("ContextInspectPanel", () => {
     );
     renderInspect();
     await flush();
-    expect(container.textContent).not.toContain("refresh to see the latest");
+    expect(container.textContent).not.toContain(t("context.changed"));
     // An unrelated status re-read is not a context change.
     act(() => {
       useConnectionStore
@@ -222,11 +223,11 @@ describe("ContextInspectPanel", () => {
           makeStatus({ activity: "user_turn", activeTurnId: TURN_ID }),
         );
     });
-    expect(container.textContent).not.toContain("refresh to see the latest");
+    expect(container.textContent).not.toContain(t("context.changed"));
     act(() => {
       useConnectionStore.getState().noteContextInstalled();
     });
-    expect(container.textContent).toContain("refresh to see the latest");
+    expect(container.textContent).toContain(t("context.changed"));
     expect(container.textContent).toContain("decision");
   });
 });

@@ -22,6 +22,8 @@ import { useState, type ReactElement } from "react";
 import type { Interaction, TurnQuestion } from "../../api/v2/types";
 import { replyToQuestion } from "./turnController";
 import { QuestionForm, type QuestionFormMode } from "./QuestionForm";
+import { apiErrorCode } from "../../api/v2/errors";
+import { message, type UiText } from "../../i18n";
 import {
   questionContentFromInteraction,
   questionContentFromTurn,
@@ -114,7 +116,7 @@ function StatefulQuestionCard({
   onSubmitted?: (draft: QuestionDraft) => void;
 }): ReactElement | null {
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<UiText | null>(null);
   const [submittedDraft, setSubmittedDraft] = useState<QuestionDraft | null>(null);
 
   const onSubmit = async (draft: QuestionDraft) => {
@@ -148,7 +150,16 @@ function StatefulQuestionCard({
       onSubmitted?.(draft);
     } catch (failure) {
       // The draft stays; the error sits next to the submit control.
-      setError(failure instanceof Error ? failure.message : String(failure));
+      const code = apiErrorCode(failure);
+      setError(
+        code === "turn.command_rejected" || code === "turn.not_found"
+          ? message("chat.question.expiredError", {
+              detail: failure instanceof Error ? failure.message : String(failure),
+            })
+          : failure instanceof Error
+            ? failure.message
+            : String(failure),
+      );
       setSubmitting(false);
     }
   };

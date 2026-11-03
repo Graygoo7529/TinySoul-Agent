@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -144,7 +145,7 @@ async function render(): Promise<void> {
 describe("PresetEntry", () => {
   it("uses a stable title and shows matching marks in the list", async () => {
     await render();
-    expect(container.querySelector("[data-slot='preset-entry'] > button")?.textContent).toContain("运行方案");
+    expect(container.querySelector("[data-slot='preset-entry'] > button")?.textContent).toContain(t("settings.page.plans.title"));
     await openPopover();
     expect(text()).toContain("匹配当前配置");
     await click(button("Thorough"));
@@ -157,7 +158,7 @@ describe("PresetEntry", () => {
     await render();
     await openPopover();
     expect(text()).toContain("尚未创建运行方案");
-    await click(button("管理方案"));
+    await click(button(t("settings.overview.managePlans")));
     expect(useAppStore.getState().activeTab).toBe("settings");
     expect(useSettingsUiStore.getState().page).toBe("plans");
   });
@@ -165,11 +166,11 @@ describe("PresetEntry", () => {
   it("uses the shared preview before sending a single apply request", async () => {
     await render();
     await openPopover();
-    const applyButtons = [...container.querySelectorAll<HTMLButtonElement>("button")].filter((item) => item.textContent?.trim() === "应用");
+    const applyButtons = [...container.querySelectorAll<HTMLButtonElement>("button")].filter((item) => item.textContent?.trim() === t("common.apply"));
     await click(applyButtons[1]);
     expect(text()).toContain("当前值");
     expect(endpoint.calls("/v2/config/apply", "POST")).toHaveLength(0);
-    await click(button("应用方案"));
+    await click(button(t("settings.applyPlan")));
     expect(endpoint.calls("/v2/config/apply", "POST")).toHaveLength(1);
     expect(bodyJson(endpoint.calls("/v2/config/apply", "POST")[0])).toEqual({ preset_id: "id-2" });
   });
@@ -178,9 +179,9 @@ describe("PresetEntry", () => {
     await render();
     await act(async () => useConfigDraftStore.getState().setValue("project:tinysoul.toml", "execution.enabled", false));
     await openPopover();
-    await click(button("应用"));
-    expect(text()).toContain("不包含在以上比较中");
-    await click(button("先处理草稿"));
+    await click(button(t("common.apply")));
+    expect(text()).toContain(t("settings.planPendingDraft", {"count":1}));
+    await click(button(t("settings.handleDraft")));
     expect(useAppStore.getState().activeTab).toBe("settings");
     expect(useSettingsUiStore.getState().page).toBe("overview");
     expect(Object.keys(useConfigDraftStore.getState().drafts)).toHaveLength(1);

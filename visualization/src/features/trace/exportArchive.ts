@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 
@@ -26,7 +27,7 @@ export async function saveTraceExport(bundle: TraceExportBundle): Promise<TraceE
     return { status: "downloaded", filename: `${bundle.root}.json` };
   }
   const archivePath = await save({
-    title: "Export turn trace",
+    title: t("trace.exportTurnTrace"),
     defaultPath: filename,
     filters: [{ name: "ZIP archive", extensions: ["zip"] }],
   });

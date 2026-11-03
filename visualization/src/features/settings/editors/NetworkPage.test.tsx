@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -75,7 +76,7 @@ it("edits the root through shared drafts, refreshes saved routes and opens the s
   expect(pageForPath("infra.network")?.id).toBe("network");
 
   await act(async () => {
-    const select = container.querySelector<HTMLSelectElement>('[aria-label="代理模式"]')!;
+    const select = container.querySelector<HTMLSelectElement>(`[aria-label="${t("settings.proxyMode")}"]`)!;
     select.value = "direct";
     select.dispatchEvent(new Event("change", { bubbles: true }));
   });
@@ -91,7 +92,7 @@ it("edits the root through shared drafts, refreshes saved routes and opens the s
   expect(container.textContent).not.toContain("http://proxy:8000");
 
   await act(async () => {
-    Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "前往配置")!.click();
+    Array.from(container.querySelectorAll("button")).find((button) => button.textContent === t("settings.openConsumerSettings"))!.click();
   });
   expect(useSettingsUiStore.getState()).toMatchObject({
     page: "dedicated-providers", focusPath: `${providersPath}.second.network`,

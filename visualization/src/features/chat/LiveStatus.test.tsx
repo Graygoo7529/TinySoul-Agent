@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -35,11 +36,11 @@ it("lands the row before its gist; ongoing renders do not postpone it or undo a 
     render();
   }
   expect(host.querySelector("[data-activity-gist]")?.textContent).toContain("Real body");
-  act(() => host.querySelector<HTMLButtonElement>('[title="Hide the result detail"]')!.click());
+  act(() => host.querySelector<HTMLButtonElement>(`[title="${t("chat.hideResult")}"]`)!.click());
   await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
   expect(host.querySelector("[data-activity-gist]")).toBeNull();
-  expect(host.querySelector('[title="Show the result detail"]')).not.toBeNull();
-  expect(host.querySelector('[title="Hide the result detail"]')).toBeNull();
+  expect(host.querySelector(`[title="${t("chat.showResult")}"]`)).not.toBeNull();
+  expect(host.querySelector(`[title="${t("chat.hideResult")}"]`)).toBeNull();
 });
 
 it("shows the gist immediately when motion is reduced", () => {
@@ -58,8 +59,8 @@ it("shows intent and domains independently while only reasoning enters the top s
   expect(host.querySelector(".thinking-slate")?.textContent).toContain("Provider reasoning");
   expect(host.querySelector(".thinking-slate")?.textContent).not.toContain("Choose the relevant tools");
   expect(host.querySelector('[data-activity-step="intent"]')?.textContent).toContain("Choose the relevant tools");
-  expect(host.querySelector('[data-activity-step="intent"]')?.textContent).not.toContain("Selected domains");
-  expect(host.querySelector('[data-activity-step="domains"]')?.textContent).toContain("Selected domains");
+  expect(host.querySelector('[data-activity-step="intent"]')?.textContent).not.toContain(t("chat.selectedDomains"));
+  expect(host.querySelector('[data-activity-step="domains"]')?.textContent).toContain(t("chat.selectedDomains"));
 });
 
 it("keeps new steps on top, removes old gists with their rows, and never shrinks the filled viewport", async () => {

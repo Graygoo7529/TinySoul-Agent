@@ -1,4 +1,4 @@
-import { t, translatedField as matchField, useI18n } from "../../../i18n";
+import { message, resolveText, effectiveLocale, type UiText, t, translatedField as matchField, useI18n } from "../../../i18n";
 /**
  * Shared settings field controls (implementation plan §15.1): every control
  * edits one writable atomic value through the shared ConfigDraft store — the
@@ -128,7 +128,7 @@ export function useDraftField(path: string): DraftFieldApi {
 
   let readOnly: string | null = readOnlyReason(saved, path);
   if (readOnly === null && sourceId === null && saved !== null) {
-    readOnly = "No writable source holds this field.";
+    readOnly = t("settings.noWritableSource");
   }
 
   return {
@@ -170,6 +170,7 @@ export function FieldRow({
   children: ReactNode;
   titleOverride?: string;
 }) {
+  const { t } = useI18n();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [flash, setFlash] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
@@ -207,20 +208,18 @@ export function FieldRow({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[13px] font-medium text-fg">{title}</span>
-            {api.dirty && !api.deleting && <Badge tone="accent">已修改</Badge>}
-            {api.deleting && <Badge tone="red">恢复默认</Badge>}
+            {api.dirty && !api.deleting && <Badge tone="accent">{t("common.modified")}</Badge>}
+            {api.deleting && <Badge tone="red">{t("settings.restoreDefault")}</Badge>}
             {api.stale && (
               <Badge
                 tone="yellow"
-                title="编辑期间，已保存的配置发生了变化"
+                title={t("settings.baselineChangedHint")}
               >
-                <AlertTriangle size={10} /> 基线已变化
-              </Badge>
+                <AlertTriangle size={10} /> {t("settings.baselineChanged")}</Badge>
             )}
             {api.readOnly !== null && (
               <Badge tone="gray" title={api.readOnly}>
-                <Lock size={10} /> 只读
-              </Badge>
+                <Lock size={10} /> {t("settings.overview.sourceReadonly")}</Badge>
             )}
           </div>
           {description !== "" && (
@@ -233,14 +232,14 @@ export function FieldRow({
           {children}
           {api.dirty && (
             <IconButton
-              label="撤销此修改"
+              label={t("settings.withdrawChange")}
               onClick={() => api.withdraw()}
             >
               <RotateCcw size={13} />
             </IconButton>
           )}
           <IconButton
-            label="配置项详情"
+            label={t("settings.fieldDetails")}
             active={detailsOpen}
             onClick={() => setDetailsOpen((open) => !open)}
           >
@@ -250,29 +249,26 @@ export function FieldRow({
       </div>
       {api.stale && (
         <div className="mt-1.5 flex items-center gap-2 rounded-md bg-warning-soft px-2.5 py-1.5 text-[11px] text-warning">
-          已保存的值发生了变化，请采用新值或保留本地修改。
-          <button
+          {t("settings.staleChoice")}<button
             className="font-medium underline"
             onClick={() => api.resolveStale("adopt")}
           >
-            采用新值
-          </button>
+            {t("settings.adoptSaved")}</button>
           <button
             className="font-medium underline"
             onClick={() => api.resolveStale("keep")}
           >
-            保留修改
-          </button>
+            {t("settings.keepChanges")}</button>
         </div>
       )}
       {detailsOpen && (
         <div className="mt-1.5 space-y-0.5 rounded-md bg-bg-sunken px-2.5 py-1.5 font-mono text-[11px] text-fg-muted">
-          <div className="break-all">路径：{path}</div>
+          <div className="break-all">{t("settings.pathLabel")}{path}</div>
           <div className="break-all">
-            来源：{api.sourceId ?? api.field?.surface ?? "—"}
+            {t("settings.sourceLabel")}{api.sourceId ?? api.field?.surface ?? "—"}
           </div>
           {api.readOnly !== null && (
-            <div className="break-all">只读：{api.readOnly}</div>
+            <div className="break-all">{t("settings.readOnlyLabel")}{api.readOnly}</div>
           )}
         </div>
       )}
@@ -326,10 +322,11 @@ export function DraftNumber({
   max?: number;
   unit?: string;
 }) {
+  const { t } = useI18n();
   const integer = api.field?.valueKind === "integer";
   const display = typeof api.value === "number" ? String(api.value) : "";
   const [text, setText] = useState(display);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<UiText | null>(null);
   useEffect(() => {
     setText(display);
     setError(null);
@@ -344,11 +341,11 @@ export function DraftNumber({
       return;
     }
     const value = Number(trimmed);
-    if (!Number.isFinite(value)) return setError("Not a number.");
+    if (!Number.isFinite(value)) return setError(message("settings.validation.notNumber"));
     if (integer && !Number.isInteger(value))
-      return setError("Must be an integer.");
-    if (min !== undefined && value < min) return setError(`Must be ≥ ${min}.`);
-    if (max !== undefined && value > max) return setError(`Must be ≤ ${max}.`);
+      return setError(message("settings.validation.integer"));
+    if (min !== undefined && value < min) return setError(message("settings.validation.minimum", { value: min }));
+    if (max !== undefined && value > max) return setError(message("settings.validation.maximum", { value: max }));
     setError(null);
     api.set(value);
   };
@@ -360,8 +357,8 @@ export function DraftNumber({
         className={`${inputClass} w-28 text-right ${error !== null ? "border-danger" : ""}`}
         value={text}
         disabled={api.readOnly !== null}
-        placeholder="default"
-        title={error ?? undefined}
+        placeholder={t("common.default")}
+        title={error === null ? undefined : resolveText(error, effectiveLocale())}
         onChange={(event) => setText(event.target.value)}
         onBlur={commit}
         onKeyDown={(event) => {
@@ -372,7 +369,7 @@ export function DraftNumber({
         <span className="w-9 text-[11px] text-fg-faint">{unit}</span>
       )}
       {error !== null && (
-        <span className="text-[11px] whitespace-nowrap text-danger">{error}</span>
+        <span className="text-[11px] whitespace-nowrap text-danger">{resolveText(error, effectiveLocale())}</span>
       )}
     </span>
   );
@@ -430,7 +427,7 @@ export function SliderField({
     <span className="flex items-center gap-2">
       <input
         type="range"
-        aria-label={`${api.path} slider`}
+        aria-label={t("settings.fieldSlider", { path: api.path })}
         className="w-32 accent-accent disabled:opacity-50"
         min={slider.min}
         max={slider.max}
@@ -441,7 +438,7 @@ export function SliderField({
       />
       <DraftNumber api={api} min={min} max={max} unit={unit} />
       <IconButton
-        label="Restore the owner default"
+        label={t("settings.restoreOwnerDefault")}
         title={t("settings.deleteOverrideRestoreOwnerDefault")}
         disabled={readOnly || value === undefined}
         onClick={() => api.clear()}
@@ -499,6 +496,7 @@ export function DraftEnum({
   api: DraftFieldApi;
   choices?: CatalogChoice[];
 }) {
+  const { t } = useI18n();
   const options = choices ?? api.field?.choices ?? [];
   const current = typeof api.value === "string" ? api.value : undefined;
   const known = current === undefined || options.some((c) => c.value === current);
@@ -516,7 +514,7 @@ export function DraftEnum({
         }
       }}
     >
-      {current === undefined && <option value="">默认</option>}
+      {current === undefined && <option value="">{t("common.default")}</option>}
       {!known && current !== undefined && (
         <option value={current}>{current}{t("settings.current")}</option>
       )}
@@ -564,6 +562,7 @@ export function DraftEnumList({ api }: { api: DraftFieldApi }) {
 
 /** string_list: one row per entry plus an add row; every edit commits the whole array. */
 export function DraftStringList({ api }: { api: DraftFieldApi }) {
+  const { t } = useI18n();
   const items = Array.isArray(api.value)
     ? api.value.filter((item): item is string => typeof item === "string")
     : [];
@@ -589,7 +588,7 @@ export function DraftStringList({ api }: { api: DraftFieldApi }) {
         <input
           type="text"
           className={`${inputClass} flex-1 font-mono`}
-          placeholder="Add…"
+          placeholder={t("settings.addPlaceholder")}
           value={newItem}
           disabled={disabled}
           onChange={(event) => setNewItem(event.target.value)}
@@ -601,7 +600,7 @@ export function DraftStringList({ api }: { api: DraftFieldApi }) {
           }}
         />
         <IconButton
-          label="Add entry"
+          label={t("settings.addEntry")}
           disabled={disabled || newItem.trim() === ""}
           onClick={() => {
             api.set([...items, newItem.trim()]);
@@ -626,6 +625,7 @@ function StringListRow({
   onCommit: (next: string) => void;
   onRemove: () => void;
 }) {
+  const { t } = useI18n();
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
   return (
@@ -644,7 +644,7 @@ function StringListRow({
           if (event.key === "Enter" && text.trim() !== "") onCommit(text.trim());
         }}
       />
-      <IconButton label="Remove entry" disabled={disabled} onClick={onRemove}>
+      <IconButton label={t("settings.removeEntry")} disabled={disabled} onClick={onRemove}>
         <X size={13} />
       </IconButton>
     </span>
@@ -686,6 +686,7 @@ export function CredentialValueEditor({
   name: string;
   compact?: boolean;
 }) {
+  const { t } = useI18n();
   const setValue = useConfigDraftStore((s) => s.setValue);
   const deleteValue = useConfigDraftStore((s) => s.deleteValue);
   const resetEntries = useConfigDraftStore((s) => s.resetEntries);
@@ -733,23 +734,23 @@ export function CredentialValueEditor({
         {name}
       </span>
       {draftDelete ? (
-        <Badge tone="red" title="Deletion is staged in the local draft">{t("settings.deletePending")}</Badge>
+        <Badge tone="red" title={t("settings.credentialDeleteStaged")}>{t("settings.deletePending")}</Badge>
       ) : draftSet ? (
-        <Badge tone="accent" title="A new value is staged in the local draft">{t("settings.pendingApply")}</Badge>
+        <Badge tone="accent" title={t("settings.credentialSetStaged")}>{t("settings.pendingApply")}</Badge>
       ) : stored ? (
-        <Badge tone="green" title="A value exists in the project dotenv file">{t("settings.configured")}</Badge>
+        <Badge tone="green" title={t("settings.credentialExists")}>{t("settings.configured")}</Badge>
       ) : (
-        <Badge tone="gray" title="No value found in the dotenv source">{t("settings.notSet")}</Badge>
+        <Badge tone="gray" title={t("settings.credentialMissing")}>{t("settings.notSet")}</Badge>
       )}
       {editing ? (
         <>
           <input
             autoFocus
-            aria-label={`New value for ${name}`}
+            aria-label={t("settings.newValueFor", { name })}
             type={visible ? "text" : "password"}
             autoComplete="new-password"
             value={text}
-            placeholder="Enter new value…"
+            placeholder={t("settings.credentialValuePlaceholder")}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") commit();
@@ -758,12 +759,12 @@ export function CredentialValueEditor({
             className={`${inputClass} h-7 max-w-44 font-mono text-[11px]`}
           />
           <IconButton
-            label={visible ? "Hide value" : "Show value"}
+            label={visible ? t("settings.hideValue") : t("settings.showValue")}
             onClick={() => setVisible((v) => !v)}
           >
             {visible ? <EyeOff size={13} /> : <Eye size={13} />}
           </IconButton>
-          <IconButton label="Stage new value" disabled={text === ""} onClick={commit}>
+          <IconButton label={t("settings.stageCredential")} disabled={text === ""} onClick={commit}>
             <Check size={13} />
           </IconButton>
           <button
@@ -779,15 +780,15 @@ export function CredentialValueEditor({
           disabled={!writable}
           title={
             writable
-              ? "Stage a new value in the shared credentials draft"
-              : "The dotenv source is read-only"
+              ? t("settings.stageCredentialHint")
+              : t("settings.dotenvReadOnly")
           }
           onClick={() => setEditing(true)}
         >{t("settings.setValue")}</button>
       )}
       {(stored || draftSet) && !draftDelete && (
         <IconButton
-          label="Stage credential deletion"
+          label={t("settings.deleteCredential")}
           disabled={!writable}
           onClick={() => deleteValue(sourceId, name)}
         >
@@ -796,7 +797,7 @@ export function CredentialValueEditor({
       )}
       {draft !== undefined && (
         <IconButton
-          label="Withdraw credential change"
+          label={t("settings.withdrawCredential")}
           onClick={() => resetEntries([key])}
         >
           <RotateCcw size={13} />
@@ -838,9 +839,9 @@ export function KeyValueMapEditor({
   onChange,
   booleanValues = false,
   disabled = false,
-  keyPlaceholder = "name",
-  valuePlaceholder = "value",
-  addLabel = "Add",
+  keyPlaceholder,
+  valuePlaceholder,
+  addLabel,
 }: {
   value: Record<string, JsonValue>;
   onChange: (next: Record<string, JsonValue>) => void;
@@ -850,9 +851,10 @@ export function KeyValueMapEditor({
   valuePlaceholder?: string;
   addLabel?: string;
 }) {
+  const { t } = useI18n();
   const signature = JSON.stringify(value);
   const [rows, setRows] = useState<MapRow[]>(() => toRows(value));
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<UiText | null>(null);
   useEffect(() => {
     setRows(toRows(JSON.parse(signature) as Record<string, JsonValue>));
     setError(null);
@@ -862,11 +864,11 @@ export function KeyValueMapEditor({
   const commit = (next: MapRow[]) => {
     const keys = next.map((row) => row.key.trim());
     if (keys.some((key) => key === "")) {
-      setError("Names cannot be empty.");
+      setError(message("settings.validation.emptyNames"));
       return;
     }
     if (new Set(keys).size !== keys.length) {
-      setError("Duplicate names.");
+      setError(message("settings.validation.duplicateNames"));
       return;
     }
     setError(null);
@@ -890,7 +892,7 @@ export function KeyValueMapEditor({
           <input
             type="text"
             className={`${inputClass} min-w-0 flex-1 font-mono`}
-            placeholder={keyPlaceholder}
+            placeholder={keyPlaceholder ?? t("settings.mapName")}
             value={row.key}
             disabled={disabled}
             onChange={(event) =>
@@ -930,7 +932,7 @@ export function KeyValueMapEditor({
             <input
               type="text"
               className={`${inputClass} min-w-0 flex-1 font-mono`}
-              placeholder={valuePlaceholder}
+              placeholder={valuePlaceholder ?? t("settings.mapValue")}
               value={row.value}
               disabled={disabled}
               onChange={(event) =>
@@ -944,7 +946,7 @@ export function KeyValueMapEditor({
             />
           )}
           <IconButton
-            label="Remove row"
+            label={t("settings.removeRow")}
             disabled={disabled}
             onClick={() =>
               commit(rows.filter((_, i) => i !== index))
@@ -961,13 +963,13 @@ export function KeyValueMapEditor({
           disabled={disabled}
           onClick={() => setRows([...rows, { key: "", value: booleanValues ? "true" : "" }])}
         >
-          <Plus size={12} /> {addLabel}
+          <Plus size={12} /> {addLabel ?? t("common.add")}
         </button>
         {rows.length === 0 && (
-          <span className="text-[11px] text-fg-faint">空映射</span>
+          <span className="text-[11px] text-fg-faint">{t("settings.emptyMap")}</span>
         )}
         {error !== null && (
-          <span className="text-[11px] text-danger">{error}</span>
+          <span className="text-[11px] text-danger">{resolveText(error, effectiveLocale())}</span>
         )}
       </div>
     </div>
@@ -987,8 +989,9 @@ function toRows(value: Record<string, JsonValue>): MapRow[] {
 
 /** Bounded collapsed region for catalog-`advanced` fields. */
 export function AdvancedFields({ children, paths = [] }: { children: ReactNode; paths?: string[] }) {
+  const { t } = useI18n();
   return (
-    <SettingsDisclosure title="扩展设置" paths={paths} className="m-2">
+    <SettingsDisclosure title={t("settings.extensions")} paths={paths} className="m-2">
       <div className="flex flex-col divide-y divide-line">{children}</div>
     </SettingsDisclosure>
   );
@@ -1163,6 +1166,7 @@ export function SettingsPageBody({ children }: { children: ReactNode }) {
  * default); the dedicated uses stay managed on their own page.
  */
 export function EmbeddingUseControl({ api }: { api: DraftFieldApi }) {
+  const { t } = useI18n();
   const usesValue = useConfigDraftStore((s) =>
     atomDisplayValue(s, "infra.model_services.uses"),
   );
@@ -1211,7 +1215,7 @@ export function EmbeddingUseControl({ api }: { api: DraftFieldApi }) {
           }
         }}
       >
-        <option value="">未设置（使用 owner 默认值）</option>
+        <option value="">{t("settings.ownerDefault")}</option>
         {!known && current !== undefined && (
           <option value={current}>{current}{t("settings.unknown")}</option>
         )}

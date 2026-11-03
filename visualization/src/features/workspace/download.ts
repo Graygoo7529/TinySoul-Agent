@@ -1,3 +1,4 @@
+import { message } from "../../i18n/core";
 /**
  * Authenticated blob download (plan §10): the endpoint requires a Bearer
  * header, so downloads fetch the bytes through the transport and hand a
@@ -14,7 +15,7 @@ export async function downloadWorkspaceBlob(
 ): Promise<void> {
   const clients = useConnectionStore.getState().clients;
   if (clients === null) {
-    useAppStore.getState().pushToast("error", "Not connected to a backend.");
+    useAppStore.getState().pushToast("error", message("connection.notConnected"));
     return;
   }
   try {
@@ -35,7 +36,7 @@ export async function downloadWorkspaceBlob(
       .getState()
       .pushToast(
         "error",
-        `Download failed: ${error instanceof Error ? error.message : String(error)}`,
+        message("workspace.downloadFailed", { detail: error instanceof Error ? error.message : String(error) }),
       );
   }
 }

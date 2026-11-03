@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 /**
  * Actions-view decoder tests: the projection narrows once at the boundary —
  * malformed entries are skipped, unknown shapes never throw, and the resolved
@@ -175,9 +176,9 @@ describe("decodeActionsView", () => {
 
 describe("unavailableReasonText", () => {
   it("labels the stable reasons and passes unknown ones through", () => {
-    expect(unavailableReasonText("not_granted")).toContain("granted");
-    expect(unavailableReasonText("executor_unavailable")).toContain("Executor");
-    expect(unavailableReasonText("hidden")).toContain("Hidden");
+    expect(unavailableReasonText("not_granted")).toBe(t("settings.notGrantedReason"));
+    expect(unavailableReasonText("executor_unavailable")).toBe(t("settings.executorUnavailableReason"));
+    expect(unavailableReasonText("hidden")).toBe(t("settings.hiddenReason"));
     expect(unavailableReasonText(null)).toBeNull();
     expect(unavailableReasonText("something_else")).toBe("something_else");
   });

@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 /**
  * Projected views over the shared ConfigDraft for the Models & Services pages
  * (implementation plan §15.1/§16).
@@ -337,17 +338,17 @@ export function moveItem<T>(items: T[], from: number, to: number): T[] {
 
 /** Collection-id validation (catalog identity rules: no dots/outer whitespace/numeric-only). */
 export function objectIdError(id: string): string | null {
-  if (id === "") return "An id is required.";
-  if (id !== id.trim()) return "The id cannot have leading or trailing whitespace.";
-  if (id.includes(".")) return "The id cannot contain dots.";
-  if (/^\d+$/.test(id)) return "The id cannot consist only of digits.";
+  if (id === "") return t("settings.validation.idRequired");
+  if (id !== id.trim()) return t("settings.validation.idWhitespace");
+  if (id.includes(".")) return t("settings.validation.idDots");
+  if (/^\d+$/.test(id)) return t("settings.validation.idNumeric");
   return null;
 }
 
 /** LLM object identities follow the backend's stable lower-kebab-case rule. */
 export function llmObjectIdError(id: string): string | null {
   return /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(id)
-    ? null : "Use lowercase letters and digits separated by hyphens, starting with a letter.";
+    ? null : t("settings.validation.idFormat");
 }
 
 export function cloneJsonValue<T extends JsonValue>(value: T): T {
@@ -415,7 +416,7 @@ export function resolveFamilySource(
   fileName = "",
 ): FamilySourceTarget {
   if (family === "") {
-    return { kind: "invalid", message: "Choose an existing family or enter a new one.", usesFileName: false };
+    return { kind: "invalid", message: t("settings.validation.chooseFamily"), usesFileName: false };
   }
   const owners = [...new Set(models
     .filter((model) => stringField(model.value, "family") === family)
@@ -424,22 +425,22 @@ export function resolveFamilySource(
     const sourceId = owners[0]!;
     return writableProjectSource(state, sourceId)
       ? { kind: "ready", sourceId, create: false, includeSourceId: null, usesFileName: false }
-      : { kind: "invalid", message: "This family's model file is read-only.", usesFileName: false };
+      : { kind: "invalid", message: t("settings.validation.familyReadOnly"), usesFileName: false };
   }
   const name = fileName.trim() || familyFileName(family);
   if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
-    return { kind: "invalid", message: "Enter a lowercase TOML file name such as qwen or qwen-vision.", usesFileName: true };
+    return { kind: "invalid", message: t("settings.fileNameHint"), usesFileName: true };
   }
   const relative = `configs/llm/models/${name}.toml`;
   const sourceId = `project:${relative}`;
   if (models.some((model) => model.ownerSources.includes(sourceId) && stringField(model.value, "family") !== family)) {
-    return { kind: "invalid", message: "This file contains another family's models; choose another file name.", usesFileName: true };
+    return { kind: "invalid", message: t("settings.fileFamilyConflict"), usesFileName: true };
   }
   if (writableProjectSource(state, sourceId)) {
     return { kind: "ready", sourceId, create: false, includeSourceId: null, usesFileName: true };
   }
   if (state.saved?.sources.some((source) => source.id === sourceId)) {
-    return { kind: "invalid", message: "This model file is read-only.", usesFileName: true };
+    return { kind: "invalid", message: t("settings.modelFileReadOnly"), usesFileName: true };
   }
   const include = projectedValue(state, "config.include");
   const includes = Array.isArray(include) ? include : [];
@@ -448,7 +449,7 @@ export function resolveFamilySource(
   const covered = includes.includes(relative) || includes.includes("configs/llm/models/*.toml");
   const includeSourceId = state.saved?.fields["config.include"]?.source ?? "project:tinysoul.toml";
   if (!covered && !writableProjectSource(state, includeSourceId)) {
-    return { kind: "invalid", message: "A writable project include list is required to add this family.", usesFileName: true };
+    return { kind: "invalid", message: t("settings.familyNeedsIncludes"), usesFileName: true };
   }
   return { kind: "ready", sourceId, create: true, includeSourceId: covered ? null : includeSourceId, usesFileName: true };
 }
@@ -466,7 +467,7 @@ export function fieldLockReason(
   if (field === undefined) return null;
   const source = state.saved?.sources.find((item) => item.id === field.source);
   if (source === undefined || source.writable) return null;
-  return `Overridden by read-only source ${field.source}`;
+  return t("settings.overriddenByReadOnly", { source: field.source });
 }
 
 // ---------------------------------------------------------------------------
@@ -495,7 +496,7 @@ export function providerReferences(
         references.push({
           owner: model.id,
           path: `llm.models.${model.id}.providers`,
-          detail: `chain position ${index + 1}`,
+          detail: t("settings.chainPosition", { index: index + 1 }),
         });
       }
     });
@@ -609,8 +610,8 @@ export function useConsumers(state: ConfigDraftState, useId: string): UseConsume
   const fields = projectedFields(state);
   const ownerRefs: { path: string; label: string }[] = [];
   for (const [path, label] of [
-    ["home.search.embedding_use", "Home search"],
-    ["memory.search.embedding_use", "Memory search"],
+    ["home.search.embedding_use", t("settings.homeSearch")],
+    ["memory.search.embedding_use", t("settings.memorySearch")],
   ] as const) {
     if (fields.get(path) === useId) ownerRefs.push({ path, label });
   }

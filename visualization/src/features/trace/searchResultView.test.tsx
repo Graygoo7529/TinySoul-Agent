@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -70,7 +71,7 @@ describe("SearchResultView (plan §9.2)", () => {
     expect(marks[0]!.textContent).toBe("Workspace guidance\n");
     expect(marks[0]!.title).toBe("model");
     // Coverage note: the fixture source is complete.
-    expect(container.textContent).toContain("source complete");
+    expect(container.textContent).toContain(t("trace.sourceComplete"));
 
     clickButton("contract");
     expect(onOpenReference).toHaveBeenCalledWith("home:top/agent/contract");
@@ -130,11 +131,11 @@ describe("SearchResultView (plan §9.2)", () => {
     expect(container.textContent).toContain("a real fragment with no recorded match");
     expect(container.querySelectorAll("mark")).toHaveLength(0);
     // Incomplete source + remaining results are stated, not hidden.
-    expect(container.textContent).toContain("source truncated");
-    clickButton("source truncated");
+    expect(container.textContent).toContain(t("trace.sourceTruncated"));
+    clickButton(t("trace.sourceTruncated"));
     await flush();
-    expect(container.textContent).toContain("missing stages: rerank");
-    expect(container.textContent).toContain("continuation");
+    expect(container.textContent).toContain(`${t("trace.missingStages")}rerank`);
+    expect(container.textContent).toContain(t("trace.moreSearchPages"));
   });
 
   it("keeps source score and evaluation score as separate facts", async () => {
@@ -158,10 +159,10 @@ describe("SearchResultView (plan §9.2)", () => {
     expect(text).toContain("0.90");
     // Two distinct badges: source channel vs model evaluation.
     expect(
-      container.querySelector('[title="来源通道分数"]'),
+      container.querySelector(`[title="${t("trace.sourceChannelScore")}"]`),
     ).not.toBeNull();
     expect(
-      container.querySelector('[title="模型评估分数"]'),
+      container.querySelector(`[title="${t("trace.modelEvaluationScore")}"]`),
     ).not.toBeNull();
   });
 

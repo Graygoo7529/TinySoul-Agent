@@ -122,7 +122,7 @@ describe("describeSearchError", () => {
 
   it("never fakes an empty result for a scope rejection", () => {
     const view = describeSearchError(apiError("search.scope_required"));
-    expect(view.message).toContain("narrower scope");
+    expect(view.message).toMatchObject({ id: "resources.searchNarrowScope" });
   });
 
   it("keeps a generic failure readable", () => {

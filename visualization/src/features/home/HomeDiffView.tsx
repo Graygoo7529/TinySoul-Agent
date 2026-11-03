@@ -107,14 +107,14 @@ export function HomeDiffView({
         </Badge>
         <Tabs<DiffMode>
           items={[
-            { value: "unified", label: "统一" },
-            { value: "side", label: "并排" },
+            { value: "unified", label: t("home.unifiedDiff") },
+            { value: "side", label: t("home.sideBySide") },
           ]}
           value={mode}
           onChange={setMode}
         />
         <IconButton
-          label="就这条发起整理"
+          label={t("home.reviewChange")}
           className="h-7 w-7"
           onClick={() => setOrganizeOpen(true)}
         >

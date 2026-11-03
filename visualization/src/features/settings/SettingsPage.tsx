@@ -163,7 +163,7 @@ function PageContent({ pageId }: { pageId: keyof typeof SETTINGS_PAGES }) {
       <div className="flex h-full items-center justify-center p-6">
         <EmptyState
           title={t("settings.error.configLoad")}
-          description={loadError ?? "Unknown error"}
+          description={loadError ?? t("common.unknown")}
         />
       </div>
     );
@@ -188,7 +188,7 @@ function SettingsHeader({ connected }: { connected: boolean }) {
   const def = SETTINGS_PAGES[page];
   const clients = useConnectionStore((s) => s.clients);
   const loadPhase = useConfigDraftStore((s) => s.loadPhase);
-  const blocker = useConfigDraftStore(activationBlocker);
+  const blocker = useConfigDraftStore((state) => activationBlocker(state));
 
   return (
     <header className="settings-header flex min-h-14 min-w-0 items-center gap-3 border-b border-line bg-bg-elev px-5 py-2">

@@ -1,27 +1,6 @@
 /** Presentation text indexed by the backend's declared field path, never by a value. */
 export type FieldText = readonly [title: string, description: string];
 
-/** Catalog display metadata is keyed by the backend-declared identity. */
-export const surfaceText: Record<string, FieldText> = {
-  providers: ["提供方", "模型提供方与端点配置。"],
-  models: ["模型", "模型能力、选项和提供方绑定。"],
-  task_chains: ["任务链", "任务使用的有序模型链。"],
-  model_services: ["专用模型服务", "Embedding 与 decision model 服务。"],
-  action_catalog: ["Action 目录", "Action 的稳定描述与语义。"],
-  action_routing: ["Action 路由", "Action 的运行与模型用途绑定。"],
-  workspace: ["工作区", "Workspace 运行配置。"],
-  memory: ["记忆", "Memory 运行配置。"],
-  session: ["会话", "Session 运行配置。"],
-  network: ["网络", "网络代理与连接配置。"],
-};
-
-export const fieldGroupText: Record<string, FieldText> = {
-  "models.adapter_options": ["适配器选项", "所选适配器提供的请求选项。"],
-  "providers.connection": ["连接", "提供方连接与端点设置。"],
-  "action.runtime": ["运行时", "Action 的执行限制和策略。"],
-  "action.semantic": ["语义", "Action 面向模型的语义说明。"],
-};
-
 export const collectionText: Record<string, FieldText> = {
   "llm.providers": ["LLM 提供方", "可供模型调用的对话模型提供方。"],
   "llm.models": ["LLM 模型", "具有 TinySoul 能力声明的模型。"],
