@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Small shared UI rows of the runtime-observation tabs (plan §14/P09).
  */
@@ -23,6 +24,7 @@ export function ReadError({
   message: string;
   onRetry?: () => void;
 }): ReactElement {
+  useI18n();
   return (
     <div className="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-[12px] text-danger">
       <AlertTriangle size={12} className="shrink-0" />
@@ -33,8 +35,7 @@ export function ReadError({
           onClick={onRetry}
           className="shrink-0 font-medium hover:underline"
         >
-          Retry
-        </button>
+          {t("common.retry")}</button>
       )}
     </div>
   );

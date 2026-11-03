@@ -107,7 +107,7 @@ export function LlmProvidersPage() {
   return (
     <>
       <ObjectEditorLayout
-        title={t("settings.text.87b7c08baed1")}
+        title={t("settings.providers")}
         description={
           collection?.description ??
           "API endpoints that chat models call through adapters."
@@ -152,13 +152,13 @@ export function LlmProvidersPage() {
                 disabled={!createSourceAvailable}
                 onClick={() => setDuplicateFrom(current)}
               >
-                <Copy size={13} />{t("settings.text.972d57379db3")}</Button>
+                <Copy size={13} />{t("settings.duplicate")}</Button>
               <Button
                 size="xs"
                 variant="danger"
                 onClick={() => setDeleting(current)}
               >
-                <Trash2 size={13} />{t("settings.text.f6fdbe48dc54")}</Button>
+                <Trash2 size={13} />{t("settings.delete")}</Button>
             </>
           )
         }
@@ -175,7 +175,7 @@ export function LlmProvidersPage() {
       <CreateObjectModal
         validateId={llmObjectIdError}
         title="New provider"
-        idTitle={t("settings.text.610992ef9948")}
+        idTitle={t("settings.providerId")}
         idDescription="Stable identifier referenced by model provider chains; dots, outer whitespace and numeric-only ids are not allowed."
         existing={objects.map((item) => item.id)}
         open={creating}
@@ -294,8 +294,8 @@ function ProviderEditor({
   return (
     <div>
       <FieldSection
-        title={t("settings.text.681b5b5ae10b")}
-        description={t("settings.text.1c221ec2943d")}
+        title={t("settings.availability")}
+        description={t("settings.whetherThisConnectionIsBuiltIntoTheRunningConfiguration")}
       >
         <FieldRow
           title={field("enabled").meta?.title ?? "Enabled"}
@@ -317,14 +317,14 @@ function ProviderEditor({
         {enabled && missingCredential && (
           <div className="flex items-center gap-2 px-5 py-2.5 text-[11px] text-warning">
             <AlertTriangle size={13} className="shrink-0" />
-            <span>{t("settings.text.e099916fdbdd")}</span>
+            <span>{t("settings.noneOfTheDeclaredCredentialNamesCurrentlyResolvesTo")}</span>
           </div>
         )}
       </FieldSection>
 
       <FieldSection
-        title={t("settings.text.6512ee1541e9")}
-        description={t("settings.text.80097d66ed7d")}
+        title={t("settings.connection")}
+        description={t("settings.requestBehaviorAndEndpointOfThisProvider")}
       >
         <FieldRow
           title="API 入口"
@@ -368,8 +368,8 @@ function ProviderEditor({
       </FieldSection>
 
       <FieldSection
-        title={t("settings.text.dd097a229701")}
-        description={t("settings.text.0031639aa4a1")}
+        title={t("settings.credentials")}
+        description={t("settings.environmentVariableNamesCheckedForThisProviderSApi")}
       >
         <FieldRow
           title={field("api_key_envs").meta?.title ?? "Credential names"}
@@ -388,18 +388,18 @@ function ProviderEditor({
         </FieldRow>
         <div className="space-y-1.5 px-5 py-3">
           {apiKeyEnvs.length === 0 && (
-            <div className="text-[11px] text-fg-faint">{t("settings.text.4899b60f6e59")}</div>
+            <div className="text-[11px] text-fg-faint">{t("settings.noCredentialNamesDeclared")}</div>
           )}
           {apiKeyEnvs.map((name) => (
             <CredentialValueEditor key={name} name={name} compact />
           ))}
           <div className="flex items-center justify-between pt-1">
-            <span className="text-[10px] text-fg-faint">{t("settings.text.9034fcc46fd1")}</span>
+            <span className="text-[10px] text-fg-faint">{t("settings.readinessReflectsTheSavedDotenvFileAndTheRunning")}</span>
             <Button
               size="xs"
               variant="ghost"
               onClick={() => navigateTo("credentials")}
-            >{t("settings.text.ac66aa0c9cfa")}</Button>
+            >{t("settings.openCredentials")}</Button>
           </div>
         </div>
       </FieldSection>

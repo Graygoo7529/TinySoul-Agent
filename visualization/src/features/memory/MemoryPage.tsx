@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Memory page (plan §12/P08).
  *
@@ -33,15 +34,16 @@ import { ActiveMemoryView } from "./ActiveMemoryView";
 import { MemoryDocumentView } from "./MemoryDocumentView";
 
 const SEARCH_SCOPES: SearchScopeChoice[] = [
-  { id: "all", label: "全部知识", value: "all" },
-  { id: "daily", label: "日记", value: "daily" },
-  { id: "entity", label: "实体", value: "entity" },
-  { id: "concept", label: "概念", value: "concept" },
-  { id: "fact", label: "事实", value: "fact" },
-  { id: "note", label: "便签", value: "note" },
+  { id: "all", get label() { return t("memory.scopeAll"); }, value: "all" },
+  { id: "daily", get label() { return t("memory.scopeDaily"); }, value: "daily" },
+  { id: "entity", get label() { return t("memory.scopeEntity"); }, value: "entity" },
+  { id: "concept", get label() { return t("memory.scopeConcept"); }, value: "concept" },
+  { id: "fact", get label() { return t("memory.scopeFact"); }, value: "fact" },
+  { id: "note", get label() { return t("memory.scopeNote"); }, value: "note" },
 ];
 
 export function MemoryPage(): ReactElement {
+  useI18n();
   const epoch = useConnectionStore((s) => s.epoch);
   const section = useMemoryPage((s) => s.section);
   const ref = useMemoryPage((s) => s.ref);
@@ -128,15 +130,15 @@ export function MemoryPage(): ReactElement {
       <header className="flex flex-wrap items-center gap-2 border-b border-line bg-bg-elev/60 px-3 py-2">
         <Tabs<MemorySection>
           items={[
-            { value: "active", label: "活动记忆" },
-            { value: "persistent", label: "知识库" },
+            { value: "active", label: t("memory.active") },
+            { value: "persistent", label: t("memory.persistent") },
           ]}
           value={section}
           onChange={(value) => useMemoryPage.getState().setSection(value)}
         />
         <span className="text-[11px] text-fg-faint">
           {section === "active"
-            ? "Agent 当日正在记录的内容"
+            ? t("memory.activeHint")
             : "整理后的持久知识"}
         </span>
         <div className="flex-1" />
@@ -150,12 +152,10 @@ export function MemoryPage(): ReactElement {
           }
         >
           <Search size={12} />
-          检索知识
-        </Button>
+          {t("memory.search")}</Button>
         <Button variant="outline" size="xs" onClick={() => setOrganizeOpen(true)}>
           <Sparkles size={12} />
-          整理 Memory
-        </Button>
+          {t("memory.organize")}</Button>
       </header>
 
       <div className="flex min-h-0 flex-1">
@@ -174,7 +174,7 @@ export function MemoryPage(): ReactElement {
             <div className="flex h-full items-center justify-center p-6">
               <EmptyState
                 icon={<Brain size={26} />}
-                title="知识库"
+                title={t("memory.persistent")}
                 description="Persistent daily, entity, concept, fact and note documents. Pick one from the list, or search the knowledge base."
               />
             </div>
@@ -187,8 +187,8 @@ export function MemoryPage(): ReactElement {
           epoch={epoch}
           actionId="memory.search"
           identityKey="memory"
-          title="检索 Memory"
-          placeholder="检索持久知识…"
+          title={t("memory.searchTitle")}
+          placeholder={t("memory.searchPlaceholder")}
           scopes={SEARCH_SCOPES}
           run={runSearch}
           documentAnchor={documentAnchor}

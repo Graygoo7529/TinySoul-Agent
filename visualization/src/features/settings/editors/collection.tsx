@@ -1,4 +1,4 @@
-import { t, translatedField as matchField } from "../../../i18n";
+import { t, localizeCollection, translatedField as matchField, useI18n } from "../../../i18n";
 import { SettingsPicker } from "../SettingsPicker";
 /**
  * Collection object editor shared by the MCP and ACP pages (config-coverage
@@ -62,8 +62,10 @@ export function CollectionObjectEditor({
   /** Extra sections below the collection editor (shared limits). */
   limits?: ReactNode;
 }) {
+  const { locale } = useI18n();
   const catalog = useConfigDraftStore((s) => s.catalog);
-  const collection = catalog?.collections.find((item) => item.id === collectionId) ?? null;
+  const sourceCollection = catalog?.collections.find((item) => item.id === collectionId) ?? null;
+  const collection = sourceCollection === null ? null : localizeCollection(sourceCollection, locale);
   const [selected, setSelected] = useState<string | null>(null);
 
   if (collection === null) {
@@ -92,7 +94,7 @@ export function CollectionObjectEditor({
           />}</SettingsPicker>
           <div className="settings-form min-w-0">
             {selected === null ? (
-              <div className="py-6 text-center text-[12px] text-fg-faint">{t("settings.text.6567841b80cf")}</div>
+              <div className="py-6 text-center text-[12px] text-fg-faint">{t("settings.selectAnEntryToEditOrCreateANew")}</div>
             ) : (
               <CollectionObjectDetail
                 collection={collection}
@@ -199,7 +201,7 @@ function CollectionList({
               disabled={newId.trim() === ""}
               onClick={create}
             >
-              <Plus size={11} />{t("settings.text.6e157c5da441")}</Button>
+              <Plus size={11} />{t("settings.create")}</Button>
             {error !== null && (
               <span className="text-[10px] text-danger">{error}</span>
             )}
@@ -344,7 +346,7 @@ function CollectionObjectDetail({
         {ctx.dirty && !ctx.draftOnly && <Badge tone="accent">已修改</Badge>}
         {ctx.draftOnly && <Badge tone="blue">新增</Badge>}
         {ctx.readOnly !== null && (
-          <Badge tone="gray" title={ctx.readOnly}>{t("settings.text.1d8d39a6e91a")}</Badge>
+          <Badge tone="gray" title={ctx.readOnly}>{t("settings.readOnly")}</Badge>
         )}
         <span className="ml-auto">
           <Button

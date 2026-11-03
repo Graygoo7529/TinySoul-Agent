@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Home overlay changes (left panel, plan §11): the read-only create/modify/
  * delete entries the runs proposed. Selecting one opens its actual →
@@ -47,6 +48,7 @@ const KIND_TONES: Record<string, BadgeTone> = {
 };
 
 export function HomeChanges({ epoch }: { epoch: number }): ReactElement {
+  useI18n();
   const diffLink = useHomePage((s) => s.diffLink);
   const changes = usePagedSequence<JsonValue, PageEnvelope>(
     (token, signal) => {
@@ -77,31 +79,27 @@ export function HomeChanges({ epoch }: { epoch: number }): ReactElement {
   return (
     <aside className="flex h-full w-72 shrink-0 flex-col border-r border-line bg-bg-elev/40">
       <div className="border-b border-line px-3 py-2 text-[11px] leading-4.5 text-fg-faint">
-        各轮运行提出的 overlay 变更，等待 Home 整理审核。
-        此处只读。
-      </div>
+        {t("home.overlayChangesProposedRunsWaitingHomeReflection")}</div>
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5">
         {changes.loading ? (
           <div className="flex items-center gap-2 px-2 py-3 text-[12px] text-fg-faint">
             <Loader2 size={13} className="animate-spin-slow" />
-            正在读取 overlay 变更…
-          </div>
+            {t("home.readingOverlayChanges")}</div>
         ) : changes.error !== null && entries.length === 0 ? (
           <EmptyState
-            title="变更列表读取失败"
+            title={t("home.changesRead")}
             description={String(changes.error)}
             action={
               <Button variant="outline" size="sm" onClick={changes.reload}>
                 <RotateCcw size={13} />
-                Retry
-              </Button>
+                {t("common.retry")}</Button>
             }
           />
         ) : entries.length === 0 ? (
           <EmptyState
             icon={<GitCompareArrows size={22} />}
-            title="没有 overlay 变更"
-            description="当前生效的 Home 与已接受基线一致。"
+            title={t("home.overlayChanges")}
+            description={t("home.effectiveHomeCurrentlyMatchesAcceptedBaseline")}
           />
         ) : (
           <div className="space-y-1">
@@ -124,7 +122,7 @@ export function HomeChanges({ epoch }: { epoch: number }): ReactElement {
                 </span>
                 <Badge tone={KIND_TONES[entry.kind] ?? "gray"}>{entry.kind}</Badge>
                 {entry.baselineDiverged && (
-                  <Badge tone="orange" title="记录此 overlay 变更后，actual 基线已变化">
+                  <Badge tone="orange" title={t("home.actualBaselineChangedSinceOverlayChangeRecorded")}>
                     diverged
                   </Badge>
                 )}
@@ -138,8 +136,7 @@ export function HomeChanges({ epoch }: { epoch: number }): ReactElement {
                 loading={changes.loadingMore}
                 onClick={changes.loadMore}
               >
-                显示更多
-              </Button>
+                {t("common.showMore")}</Button>
             )}
           </div>
         )}

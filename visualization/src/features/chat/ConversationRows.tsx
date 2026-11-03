@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /** Baseline conversation presentation over v2 interactions and question snapshots. */
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
@@ -39,6 +40,7 @@ export function TurnFooter({ epoch, turnId, day, status, items, elapsedMs }: {
   epoch: number; turnId: string; day: string | null; status: string | null;
   items: Interaction[]; elapsedMs?: number;
 }) {
+  useI18n();
   const outcomes = items.filter((item) => typeof item.action === "string" && typeof item.outcome === "string");
   const failed = outcomes.filter((item) => item.outcome === "failed" || item.outcome === "failure").length;
   const timeout = outcomes.filter((item) => item.outcome === "timeout").length;
@@ -47,14 +49,13 @@ export function TurnFooter({ epoch, turnId, day, status, items, elapsedMs }: {
     <div className="flex flex-wrap items-center gap-2 px-1 text-[11px] text-fg-faint">
       {status !== null && <>
         <Badge tone={tone}>{turnStatusText(status)}</Badge>
-        {elapsedMs !== undefined && <span title="所捕获活动的用时">{formatDuration(0, elapsedMs / 1000)}</span>}
-        {outcomes.length > 0 && <span title="保留交互记录中表示的动作">
+        {elapsedMs !== undefined && <span title={t("chat.elapsedTimeCapturedActivity")}>{formatDuration(0, elapsedMs / 1000)}</span>}
+        {outcomes.length > 0 && <span title={t("chat.actionsRepresentedRetainedInteractionRecord")}>
           {outcomes.length} 个动作{failed > 0 ? ` ${failed} 失败` : ""}{timeout > 0 ? ` ${timeout} 超时` : ""}
         </span>}
       </>}
       <Button variant="outline" size="xs" className="ml-auto" onClick={() => openTurnProcess(epoch, turnId, day)}>
-        <PanelRightOpen size={12} /> Details
-      </Button>
+        <PanelRightOpen size={12} /> {t("common.details")}</Button>
     </div>
   );
 }
@@ -74,6 +75,7 @@ export function InteractionRow({
   turnId: string | null;
   nested?: boolean;
 }) {
+  useI18n();
   const projectionItems = useTurnStore((s) =>
     turnId !== null && turnId !== s.turnId
       ? s.runtimeProjections[turnId]?.items ?? s.sessionProjections[turnId]?.items ?? s.items
@@ -90,7 +92,7 @@ export function InteractionRow({
     case "user.reply":
       if (projectionItems.some((candidate) => candidate.role === "agent.question" &&
         candidate.question_id === item.question_id)) return null;
-      return wrapper(<UserBubble text={replyDisplayText(item, projectionItems)} label="Reply" />);
+      return wrapper(<UserBubble text={replyDisplayText(item, projectionItems)} label={t("chat.question.reply")} />);
     case "agent.output":
       return nested ? <AnswerCard text={item.text ?? ""} stream={fresh} origin={origin} />
         : <AgentOutput text={item.text ?? ""} stream={fresh} origin={origin} />;

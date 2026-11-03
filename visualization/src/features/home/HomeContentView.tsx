@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Home content reader (center, plan §11).
  *
@@ -75,6 +76,7 @@ export function HomeContentView({
   view: HomeView;
   fragment: string | null;
 }): ReactElement {
+  useI18n();
   const rightPanel = useHomePage((s) => s.rightPanel);
   const page = useOwnerPage<HomeContentItem, HomeContentPage, HomeContentMetadata>(
     (token, signal) => {
@@ -122,7 +124,7 @@ export function HomeContentView({
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           <IconButton
-            label="引用与反链"
+            label={t("home.referencesBacklinks")}
             active={rightPanel === "references"}
             onClick={() =>
               useHomePage
@@ -132,11 +134,11 @@ export function HomeContentView({
           >
             <Link2 size={15} />
           </IconButton>
-          <IconButton label="Copy reference" onClick={() => copyReference(ref)}>
+          <IconButton label={t("resources.copyReference")} onClick={() => copyReference(ref)}>
             <Copy size={15} />
           </IconButton>
           <IconButton
-            label="引用到对话"
+            label={t("resources.quote")}
             onClick={() => quoteReference(ref, { ref, homeView: view })}
           >
             <MessageSquareQuote size={15} />
@@ -155,7 +157,7 @@ export function HomeContentView({
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
             icon={<FileWarning size={24} />}
-            title="无法按文本读取"
+            title={t("home.readableText")}
             description={
               <>
                 <span className="font-mono text-[11px]">{ref}</span> is not a
@@ -166,8 +168,7 @@ export function HomeContentView({
             action={
                 <Button variant="outline" size="sm" onClick={() => copyReference(ref)}>
                   <Copy size={13} />
-                  Copy reference
-                </Button>
+                  {t("resources.copyReference")}</Button>
             }
           />
         </div>
@@ -179,8 +180,7 @@ export function HomeContentView({
             description={
               <>
                 <span className="font-mono text-[11px]">{ref}</span> does not
-                exist in the {view} Home
-                {view === "actual"
+                exist in the {view} {t("shell.home")}{view === "actual"
                   ? ". It may exist only as an overlay change — check the effective view."
                   : "."}
               </>
@@ -191,13 +191,12 @@ export function HomeContentView({
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
             icon={<AlertTriangle size={24} />}
-            title="文档读取失败"
+            title={t("home.documentRead")}
             description={errorMessage}
             action={
               <Button variant="outline" size="sm" onClick={page.reload}>
                 <RotateCcw size={13} />
-                Retry
-              </Button>
+                {t("common.retry")}</Button>
             }
           />
         </div>
@@ -205,7 +204,7 @@ export function HomeContentView({
         // Empty is a fact of the document, distinct from missing above.
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
-            title="文档内容为空"
+            title={t("home.documentEmpty")}
             description={
               <>
                 <span className="font-mono text-[11px]">{ref}</span> exists in
@@ -232,8 +231,7 @@ export function HomeContentView({
           <span className="min-w-0 flex-1">{errorMessage}</span>
           <Button variant="ghost" size="xs" onClick={page.reload}>
             <RotateCcw size={12} />
-            Retry
-          </Button>
+            {t("common.retry")}</Button>
         </div>
       )}
 
@@ -245,8 +243,7 @@ export function HomeContentView({
             loading={page.loadingMore}
             onClick={page.loadMore}
           >
-            显示更多
-          </Button>
+            {t("common.showMore")}</Button>
         </div>
       )}
     </div>

@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Model-call Inspector (plan §9.3).
  *
@@ -132,6 +133,7 @@ function ExportButton({
   target: ModelCallTarget;
   window: EventWindow;
 }): ReactElement {
+  useI18n();
   const id =
     target.kind === "llm"
       ? target.taskId
@@ -156,7 +158,7 @@ function ExportButton({
       type="button"
       onClick={onExport}
       className="inline-flex items-center gap-1 text-[12px] text-accent hover:underline"
-      title="将此视图保留的事件导出为 JSON"
+      title={t("trace.downloadRetainedEventsViewJson")}
     >
       <Download size={12} />
       Export retained records

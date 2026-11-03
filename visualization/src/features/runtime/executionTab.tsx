@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Execution tab (plan §14): what the Agent is doing right now — the active
  * Turn's formal state, its real wait reason with the way back to the
@@ -44,13 +45,14 @@ export function ExecutionTab({
 }
 
 function CurrentTurnCard({ read }: { read: ActiveTurnRead }): ReactElement {
+  useI18n();
   if (!read.settled) return <LoadingRow text="Reading the active turn…" />;
   if (read.turnId === null) {
     return (
       <EmptyState
         icon={<PlayCircle size={26} />}
-        title="当前没有运行中的轮次"
-        description="新轮次从对话发起；排队的轮次会显示在下方。"
+        title={t("runtime.turnRunning")}
+        description={t("runtime.newTurnsStartConversationQueuedTurnsAppear")}
       />
     );
   }
@@ -76,15 +78,14 @@ function CurrentTurnCard({ read }: { read: ActiveTurnRead }): ReactElement {
           <span className="text-[12px] text-fg-faint" title={snapshot.turn_id ?? snapshot.request_id}>
             {shortTurnId(snapshot.turn_id ?? snapshot.request_id)}
           </span>
-          <CopyButton text={() => snapshot.turn_id ?? snapshot.request_id} label="复制轮次 ID" />
+          <CopyButton text={() => snapshot.turn_id ?? snapshot.request_id} label={t("runtime.copyTurnId")} />
           <span className="flex-1" />
           <Button
             variant="outline"
             size="xs"
             onClick={() => useAppStore.getState().setActiveTab("chat")}
           >
-            在对话中打开
-          </Button>
+            {t("runtime.openConversation")}</Button>
         </div>
         <WaitingLine snapshot={snapshot} />
         {snapshot.jobs.length > 0 && <JobsLine count={snapshot.jobs.length} />}
@@ -145,19 +146,20 @@ function JobsLine({ count }: { count: number }): ReactElement {
  * after the fact — related, never merged into one red box.
  */
 function ResultCard({ result }: { result: TurnResult }): ReactElement {
+  useI18n();
   const hasCleanup =
     (result.finish_failures?.length ?? 0) > 0 || (result.cleanup?.length ?? 0) > 0;
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-[12px]">
-        <span className="text-fg-faint">Result</span>
+        <span className="text-fg-faint">{t("runtime.result")}</span>
         <Badge tone={result.status === "answered" ? "green" : "gray"}>
           {result.status}
         </Badge>
       </div>
       {result.failure != null && (
         <Collapsible
-          title="执行失败"
+          title={t("runtime.executionFailure")}
           meta={<Badge tone="red">failed</Badge>}
           defaultOpen
         >
@@ -165,18 +167,18 @@ function ResultCard({ result }: { result: TurnResult }): ReactElement {
         </Collapsible>
       )}
       {result.output != null && (
-        <Collapsible title="输出">
+        <Collapsible title={t("runtime.output")}>
           <JsonTree value={result.output} defaultExpanded={false} />
         </Collapsible>
       )}
       {result.completion != null && (
-        <Collapsible title="收尾">
+        <Collapsible title={t("runtime.completion")}>
           <JsonTree value={result.completion} defaultExpanded={false} />
         </Collapsible>
       )}
       {hasCleanup && (
         <Collapsible
-          title="收尾与清理诊断"
+          title={t("runtime.finishCleanupDiagnostics")}
           meta={
             <Badge tone="yellow">
               {(result.finish_failures?.length ?? 0) + (result.cleanup?.length ?? 0)}
@@ -185,9 +187,7 @@ function ResultCard({ result }: { result: TurnResult }): ReactElement {
         >
           <div className="space-y-2 text-[12px] text-fg-muted">
             <p>
-              在收尾或清理阶段产生——与上方轮次自身的
-              结果分开呈现。
-            </p>
+              {t("runtime.raisedFinishingCleaningUpSeparateTurnS")}</p>
             {(result.finish_failures?.length ?? 0) > 0 && (
               <JsonTree value={result.finish_failures ?? []} defaultExpanded={false} />
             )}
@@ -209,12 +209,12 @@ function QueueCard({
   epoch: number;
   queued: string[];
 }): ReactElement | null {
+  useI18n();
   if (queued.length === 0) return null;
   return (
     <div className="rounded-lg border border-line bg-bg-elev px-4 py-3">
       <div className="mb-2 flex items-center gap-2 text-[12px] text-fg-faint">
-        排队的轮次——取消其中一个不影响正在运行的轮次。
-      </div>
+        {t("runtime.queuedTurnsCancellingNeverAffectsRunningTurn")}</div>
       <div className="space-y-1">
         {queued.map((turnId) => (
           <div key={turnId} className="flex items-center gap-2 text-[13px]">
@@ -222,7 +222,7 @@ function QueueCard({
             <span className="font-medium" title={turnId}>
               {shortTurnId(turnId)}
             </span>
-            <CopyButton text={() => turnId} label="复制轮次 ID" />
+            <CopyButton text={() => turnId} label={t("runtime.copyTurnId")} />
             <span className="flex-1" />
             <Button
               variant="ghost"
@@ -230,8 +230,7 @@ function QueueCard({
               onClick={() => void cancelQueuedTurn(epoch, turnId)}
             >
               <CircleStop size={12} />
-              取消
-            </Button>
+              {t("runtime.cancel")}</Button>
           </div>
         ))}
       </div>

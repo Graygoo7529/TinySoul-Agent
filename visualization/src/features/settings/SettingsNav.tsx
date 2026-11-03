@@ -21,7 +21,7 @@ import { SettingsPicker } from "./SettingsPicker";
  * count of local changes routed to it.
  */
 export function SettingsNav() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const page = useSettingsUiStore((s) => s.page);
   const setPage = useSettingsUiStore((s) => s.setPage);
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
@@ -42,7 +42,7 @@ export function SettingsNav() {
     return counts;
   }, [drafts]);
 
-  const hits = useMemo(() => searchConfig(catalog, query), [catalog, query]);
+  const hits = useMemo(() => searchConfig(catalog, query, 20, locale), [catalog, query, locale]);
   const searching = query.trim() !== "";
 
   return (

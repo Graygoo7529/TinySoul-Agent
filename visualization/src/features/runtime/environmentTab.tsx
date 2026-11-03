@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Environment tab (plan §14 Environment): API-01 `runtime.sources` owner
  * projections next to a directed API-17 window of what was actually
@@ -35,6 +36,7 @@ const SOURCE_STATE_TONES: Record<string, "green" | "red" | "yellow" | "gray"> = 
 };
 
 export function EnvironmentTab({ epoch }: { epoch: number }): ReactElement {
+  useI18n();
   const sources = useConnectionStore((s) => s.status?.runtime.sources ?? []);
   const [filters, setFilters] = useState<EnvironmentFilters>(
     EMPTY_ENVIRONMENT_FILTERS,
@@ -156,8 +158,7 @@ export function EnvironmentTab({ epoch }: { epoch: number }): ReactElement {
             onClick={() => setNonce((n) => n + 1)}
           >
             <RefreshCw size={12} />
-            重新读取
-          </Button>
+            {t("runtime.reRead")}</Button>
         </div>
         {window_.kind === "loading" && (
           <LoadingRow text="Reading the retained observation…" />

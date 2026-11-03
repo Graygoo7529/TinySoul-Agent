@@ -20,14 +20,14 @@ export function ReflectionPage() {
   return (
     <SettingsPageBody>
       <SectionCard
-        title={t("settings.text.dd93a5c7b77e")}
-        description={t("settings.text.ccf610176e56")}
+        title={t("settings.manualReflections")}
+        description={t("settings.reviewingAndAcceptingHomeOrMemoryChangesOnDemand")}
       >
-        <div className="px-4 py-3 text-[12px] leading-5 text-fg-muted">{t("settings.text.01758597f026")}</div>
+        <div className="px-4 py-3 text-[12px] leading-5 text-fg-muted">{t("settings.toStartOneReflectionRightAwayUseTheHome")}</div>
       </SectionCard>
       <FieldSection
-        title={t("settings.text.81b507f7c2b9")}
-        description={t("settings.text.15fe4e96ea47")}
+        title={t("settings.dailySchedule")}
+        description={t("settings.whenTheDailyHomeAndMemoryReflectionsRunIn")}
         paths={[
           "reflection.schedule.enabled",
           "reflection.schedule.daily_time",
@@ -95,7 +95,7 @@ function DailyTimeControl({ api }: { api: DraftFieldApi }) {
         }}
       />
       {invalid && (
-        <span className="text-[11px] whitespace-nowrap text-danger">{t("settings.text.4af7e0177b20")}</span>
+        <span className="text-[11px] whitespace-nowrap text-danger">{t("settings.useHhMm24Hour")}</span>
       )}
     </span>
   );

@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * The Session map of one day (plan §7, API-08 `/v2/session/map` + inspect).
  *
@@ -67,6 +68,7 @@ const EMPTY_LINE: Record<SectionRole, string> = {
 };
 
 export function SessionMapPanel({ epoch, day }: { epoch: number; day: string }) {
+  useI18n();
   const [queryDraft, setQueryDraft] = useState("");
   const [historyEmpty, setHistoryEmpty] = useState<boolean | null>(null);
   const seq = usePagedSequence<JsonValue, DisclosurePage>(
@@ -113,8 +115,7 @@ export function SessionMapPanel({ epoch, day }: { epoch: number; day: string }) 
           className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-hover px-3 text-[12px] font-medium text-fg-muted transition-colors hover:text-fg disabled:opacity-40"
         >
           <Search size={12} />
-          Locate
-        </button>
+          {t("settings.overview.locate")}</button>
       </form>
 
       {seq.loading ? (
@@ -126,7 +127,7 @@ export function SessionMapPanel({ epoch, day }: { epoch: number; day: string }) 
         <EmptyState
           icon={<MessageSquareText size={26} />}
           title={`No completed conversations on ${day}`}
-          description="轮次结束后，其事实会提交到这里，Agent 可以将其整理为话题。"
+          description={t("history.onceTurnFinishesFactsCommittedHereAgent")}
         />
       ) : (
         sections.map((child) => (

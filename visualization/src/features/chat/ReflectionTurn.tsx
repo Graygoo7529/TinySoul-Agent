@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /** c479ca0's maintenance bubble over the shared v2 Turn presentation. */
 import { useRef } from "react";
 import { Wrench, Square, PanelRightOpen } from "lucide-react";
@@ -28,6 +29,7 @@ const REASON_LABELS: Record<string, string> = {
 export function ReflectionTurn({ epoch, summary, projection, latest }: {
   epoch: number; summary: TurnSummary; projection?: RuntimeTurnProjection; latest: boolean;
 }) {
+  useI18n();
   const id = summary.turn_id ?? summary.request_id;
   const snapshot = projection?.snapshot ?? null;
   const items = projection?.items ?? EMPTY_ITEMS;
@@ -70,7 +72,7 @@ export function ReflectionTurn({ epoch, summary, projection, latest }: {
       <div className="flex items-center justify-end gap-2">
         {active && <Button variant="ghost" size="xs" disabled={snapshot?.cancel_requested}
           onClick={() => void cancelReflection(epoch, summary.request_id)}><Square size={11} />{snapshot?.cancel_requested ? "正在停止…" : summary.state === "queued" ? "取消本次整理" : "停止整理"}</Button>}
-        {(hasProcess || result?.tasks?.some((task) => task.turn !== undefined)) && <Button variant="ghost" size="xs" onClick={() => openTurnProcess(epoch, id, day)}><PanelRightOpen size={12} /> Details</Button>}
+        {(hasProcess || result?.tasks?.some((task) => task.turn !== undefined)) && <Button variant="ghost" size="xs" onClick={() => openTurnProcess(epoch, id, day)}><PanelRightOpen size={12} /> {t("common.details")}</Button>}
       </div>
     </AgentRow>
   </section>;

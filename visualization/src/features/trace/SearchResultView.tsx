@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Search result card (plan §9.2).
  *
@@ -215,6 +216,7 @@ function SearchItemCard({
   item: unknown;
   onOpenReference?: (reference: string) => void;
 }): ReactElement | null {
+  useI18n();
   const object = asObject(item);
   if (object === null) return null;
   const ref = asString(object.ref);
@@ -244,12 +246,12 @@ function SearchItemCard({
           </span>
         )}
         {sourceScore !== null && (
-          <Badge tone="gray" title="来源通道分数">
+          <Badge tone="gray" title={t("trace.sourceChannelScore")}>
             source {formatScore(sourceScore)}
           </Badge>
         )}
         {evaluationScore !== null && (
-          <Badge tone="blue" title="模型评估分数">
+          <Badge tone="blue" title={t("trace.modelEvaluationScore")}>
             score {formatScore(evaluationScore)}
           </Badge>
         )}

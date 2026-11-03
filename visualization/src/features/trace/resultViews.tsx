@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Result-family views (plan §9.1).
  *
@@ -387,6 +388,7 @@ function InspectView({ result, nav }: ResultViewProps) {
  * operation and locator only; opening shows the owner's current content.
  */
 function WriteView({ result, params, nav }: ResultViewProps) {
+  useI18n();
   if (result === null) return <EmptyResult />;
   const operation = asString(result.operation) ?? asString(result.action);
   const links = referenceFields(result);
@@ -516,7 +518,7 @@ function WriteView({ result, params, nav }: ResultViewProps) {
           {operation !== null && <FactRow label="operation" value={operation} />}
           {result.written === true && <FactRow label="written" value="yes" />}
           {asNumber(result.chars) !== null && (
-            <FactRow label="chars" value={asNumber(result.chars)} />
+            <FactRow label={t("home.chars")} value={asNumber(result.chars)} />
           )}
           {result.changed === true && <FactRow label="changed" value="yes" />}
           {result.cleared === true && <FactRow label="cleared" value="yes" />}
@@ -547,6 +549,7 @@ function WriteView({ result, params, nav }: ResultViewProps) {
 // ---------------------------------------------------------------------------
 
 function WebView({ action, result, params, nav }: ResultViewProps) {
+  useI18n();
   if (result === null) return <EmptyResult />;
   const model = webResult(action, result);
   if (model === null) return <GenericView result={result} params={params} nav={nav} />;
@@ -575,7 +578,7 @@ function WebView({ action, result, params, nav }: ResultViewProps) {
           External content — shown as fetched, not trusted instructions.
         </div>
       )}
-      <LinksBlock payload={result} onOpen={nav.openReference} title="产出资源" />
+      <LinksBlock payload={result} onOpen={nav.openReference} title={t("trace.producedResources")} />
       {result.truncated === true && asString(result.see_more_at) !== null && (
         <ReferenceButton
           reference={asString(result.see_more_at)!}
@@ -633,14 +636,14 @@ function WebSearchDetails({ model }: { model: WebSearchResult }) {
 }
 
 function WebFetchDetails({ model, sourceUrl }: { model: WebFetchResult; sourceUrl: string | null }) {
+  useI18n();
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         {model.extractor !== null && <Badge tone="teal">{model.extractor}</Badge>}
         {model.contentChars !== null && (
           <span className="text-[11px] text-fg-faint">
-            正文 {model.contentChars.toLocaleString()} 字符
-          </span>
+            正文 {model.contentChars.toLocaleString()} {t("home.chars")}</span>
         )}
       </div>
       {model.title !== null && model.title !== "" && (
@@ -759,6 +762,7 @@ function ExternalTitleLink({ url, title }: { url: string | null; title: string }
 // ---------------------------------------------------------------------------
 
 function AnalysisView({ action, result, params, nav }: ResultViewProps) {
+  useI18n();
   if (result === null) return <EmptyResult />;
   const narrative = analysisNarrative(action, result);
   const intent =
@@ -854,7 +858,7 @@ function AnalysisView({ action, result, params, nav }: ResultViewProps) {
           {(coverageLine !== null || narrative !== null) && (
             <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10.5px] text-fg-faint">
               {coverageLine !== null && <span>{coverageLine}</span>}
-              {narrative !== null && <span>{narrative.text.length} 字符</span>}
+              {narrative !== null && <span>{narrative.text.length} {t("home.chars")}</span>}
             </div>
           )}
           {sources.length > 0 && (
@@ -871,7 +875,7 @@ function AnalysisView({ action, result, params, nav }: ResultViewProps) {
               })}
             </div>
           )}
-          <LinksBlock payload={result} onOpen={nav.openReference} title="输出资源" />
+          <LinksBlock payload={result} onOpen={nav.openReference} title={t("trace.outputResources")} />
           {visualRefs.length > 0 && (
             <div className="space-y-0.5">
               <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
@@ -911,6 +915,7 @@ function JobChip({ id }: { id: string }) {
 }
 
 function ExecutionView({ result, params, nav }: ResultViewProps) {
+  useI18n();
   if (result === null) return <EmptyResult />;
   const jobId = asString(result.job_id);
   const paramJobId = params !== null ? asString(params.job_id) : null;
@@ -1023,7 +1028,7 @@ function ExecutionView({ result, params, nav }: ResultViewProps) {
           Bounded read — the full output stays on the Job.
         </div>
       )}
-      <LinksBlock payload={result} onOpen={nav.openReference} title="结果资源" />
+      <LinksBlock payload={result} onOpen={nav.openReference} title={t("trace.resultResources")} />
     </div>
   );
 }
@@ -1089,6 +1094,7 @@ function JobControlView({ result, params, nav }: ResultViewProps) {
 }
 
 function AcpView({ action, result, nav }: ResultViewProps) {
+  useI18n();
   if (result === null) return <EmptyResult />;
   const jobId = asString(result.job_id);
   const connectionId = asString(result.connection_id);
@@ -1130,7 +1136,7 @@ function AcpView({ action, result, nav }: ResultViewProps) {
           <Excerpt text={outputText} max={4000} />
         </div>
       )}
-      <LinksBlock payload={result} onOpen={nav.openReference} title="结果资源" />
+      <LinksBlock payload={result} onOpen={nav.openReference} title={t("trace.resultResources")} />
       {jobId === null && connectionId === null && agents === null && (
         <GenericView result={result} params={null} nav={nav} />
       )}
@@ -1139,6 +1145,7 @@ function AcpView({ action, result, nav }: ResultViewProps) {
 }
 
 function McpView({ result, params, nav }: ResultViewProps) {
+  useI18n();
   if (result === null) return <EmptyResult />;
   if (isSearchPage(result)) {
     // MCP natural-language discovery is a real directory+pipeline Search.
@@ -1172,7 +1179,7 @@ function McpView({ result, params, nav }: ResultViewProps) {
         </Collapsible>
       )}
       {content !== undefined && content !== null && (
-        <Collapsible title="工具结果内容" defaultOpen>
+        <Collapsible title={t("trace.toolResultContent")} defaultOpen>
           <JsonTree value={content as JsonValue} defaultExpanded={false} />
         </Collapsible>
       )}
@@ -1378,6 +1385,7 @@ function EmptyResult() {
  * the result is never swallowed.
  */
 export function GenericView({ result, params }: Omit<ResultViewProps, "action">) {
+  useI18n();
   if (result === null && params === null) return <EmptyResult />;
   return (
     <div className="space-y-2">
@@ -1387,16 +1395,14 @@ export function GenericView({ result, params }: Omit<ResultViewProps, "action">)
       {result !== null && (
         <div className="space-y-1">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Result
-          </div>
+            {t("runtime.result")}</div>
           <JsonTree value={result} defaultExpanded={false} />
         </div>
       )}
       {result === null && params !== null && (
         <div className="space-y-1">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Call params
-          </div>
+            {t("settings.callParams")}</div>
           <JsonTree value={params} defaultExpanded={false} />
         </div>
       )}

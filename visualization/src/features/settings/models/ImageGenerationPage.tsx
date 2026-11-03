@@ -15,8 +15,8 @@ export function ImageGenerationPage() {
           <ImageIcon size={20} />
         </div>
         <h2 className="text-sm font-semibold text-fg">暂不可配置</h2>
-        <p className="mt-2 text-[12px] leading-5 text-fg-muted">{t("settings.text.06e4c9b9bc4e")}</p>
-        <p className="mt-2 text-[11px] leading-4 text-fg-faint">{t("settings.text.5b5f8e414855")}</p>
+        <p className="mt-2 text-[12px] leading-5 text-fg-muted">{t("settings.tinysoulHasNoImageGenerationCapabilityTodayWhenIt")}</p>
+        <p className="mt-2 text-[11px] leading-4 text-fg-faint">{t("settings.thereIsNothingToSaveOrTestHereThis")}</p>
       </div>
     </div>
   );

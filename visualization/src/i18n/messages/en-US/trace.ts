@@ -1,0 +1,27 @@
+/** Fixed trace interface copy. */
+export const traceMessages = {
+  "trace.process": "Process",
+  "trace.title": "Turn Trace",
+  "trace.actionDetail": "Action detail",
+  "trace.modelTask": "Model task",
+  "trace.modelCall": "Model call",
+  "trace.searchEvaluation": "Search evaluation",
+  "trace.turnJob": "Job in this turn",
+  "trace.rawResultPayload": "Raw result payload",
+  "trace.showMoreOutput": "Show more output",
+  "trace.outputReadsBoundedShowMoreContinuesLast": "Output reads are bounded; \"Show more\" continues from the last position.",
+  "trace.downloadRetainedEventsViewJson": "Download the retained events of this view as JSON",
+  "trace.workingContext": "Working Context",
+  "trace.capturedLastRecordedModelTask": "Captured before the last recorded model task.",
+  "trace.steps": "steps",
+  "trace.overview": "Overview",
+  "trace.usageRetainedModelResponsesUnavailableResponsesExcluded": "Usage of retained model responses; unavailable responses are excluded",
+  "trace.observedPhasesElapsedTime": "Observed phases elapsed time",
+  "trace.viewLlmMessageStack": "View the LLM message stack",
+  "trace.producedResources": "Produced resources",
+  "trace.outputResources": "Output resources",
+  "trace.resultResources": "Result resources",
+  "trace.toolResultContent": "Tool result content",
+  "trace.sourceChannelScore": "Source channel score",
+  "trace.modelEvaluationScore": "Model evaluation score"
+} as const;

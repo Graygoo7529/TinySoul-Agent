@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * The shared page-level search panel (plan §13).
  *
@@ -98,6 +99,7 @@ interface SearchResults {
 const DEFAULT_PAGE_LIMIT = 20;
 
 export function SearchPanel(props: SearchPanelProps): ReactElement {
+  useI18n();
   const { epoch, actionId, identityKey, title, placeholder, scopes, run, onOpenRef, documentAnchor, onClose } = props;
   const [caps, setCaps] = useState<SearchCapabilities | null | "loading" | "error">(
     "loading",
@@ -502,8 +504,7 @@ export function SearchPanel(props: SearchPanelProps): ReactElement {
                       submit({ continuation: results.continuation }, "page")
                     }
                   >
-                    显示更多
-                  </Button>
+                    {t("common.showMore")}</Button>
                 )}
               </div>
             )}
@@ -574,6 +575,7 @@ function RefineRow({
   onRefine: (op: "select" | "rerank" | "filter") => void;
   busy: boolean;
 }) {
+  useI18n();
   const selectAvailable = capabilities.selectContexts?.includes("none") ?? false;
   const rerankAvailable = capabilities.rerankContexts?.includes("none") ?? false;
   const hasWhereDraft = capabilities.whereFields.length > 0;
@@ -587,8 +589,8 @@ function RefineRow({
           <input
             value={criterion}
             onChange={(event) => onCriterionChange(event.target.value)}
-            placeholder="优化条件…"
-            aria-label="优化条件"
+            placeholder={t("resources.refine")}
+            aria-label={t("resources.refineCriterion")}
             className="h-7 min-w-0 flex-1 rounded-md border border-line bg-bg-elev px-2 text-[12px] outline-none focus:border-accent"
           />
           {selectAvailable && (
@@ -600,8 +602,7 @@ function RefineRow({
               onClick={() => onRefine("select")}
             >
               <ListFilter size={11} />
-              按语义筛选
-            </Button>
+              {t("resources.filterMeaning")}</Button>
           )}
           {rerankAvailable && (
             <Button
@@ -611,8 +612,7 @@ function RefineRow({
               disabled={criterion.trim() === ""}
               onClick={() => onRefine("rerank")}
             >
-              重新排序
-            </Button>
+              {t("resources.reRank")}</Button>
           )}
         </div>
       )}
@@ -624,8 +624,7 @@ function RefineRow({
           onClick={() => onRefine("filter")}
         >
           <Filter size={11} />
-          对结果应用属性筛选
-        </Button>
+          {t("resources.applyAttributeFilterResults")}</Button>
       )}
     </div>
   );
@@ -641,6 +640,7 @@ function SearchResultRow({
   onOpenRef: (ref: string) => void;
   showKind: boolean;
 }) {
+  useI18n();
   const kind = showKind ? memoryKindFromRef(item.ref) : null;
   const meta = kind === null ? null : memoryKindMeta(kind);
   const KindIcon = meta?.icon;
@@ -663,11 +663,11 @@ function SearchResultRow({
             {item.content_coverage}
           </Badge>
         )}
-        <IconButton label="复制引用" className="h-6 w-6" onClick={() => copyReference(item.ref)}>
+        <IconButton label={t("resources.copyReference")} className="h-6 w-6" onClick={() => copyReference(item.ref)}>
           <Copy size={12} />
         </IconButton>
         <IconButton
-          label="引用到对话"
+          label={t("resources.quote")}
           className="h-6 w-6"
           onClick={() => quoteReference(item.ref, {})}
         >

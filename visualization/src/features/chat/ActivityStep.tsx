@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * One semantic activity step — shared renderer behind the live status stack
  * in the chat view and the activity timeline in the trace view.
@@ -106,6 +107,7 @@ export function ActivityStep({
 /* ------------------------------ per kind ----------------------------- */
 
 function StepBody({ item }: { item: ActivityStepType }) {
+  useI18n();
   const content = item.content;
   switch (content.type) {
     case "thinking":
@@ -113,7 +115,7 @@ function StepBody({ item }: { item: ActivityStepType }) {
     case "domain_select":
       return <DomainSelectBody {...content} />;
     case "skill_mount":
-      return <ResourceBody label="任务指导" refs={content.refs} />;
+      return <ResourceBody label={t("chat.taskGuidance")} refs={content.refs} />;
     case "background":
       return <ResourceBody label={content.operation === "load" ? "Loaded" : "Evicted"} refs={content.refs} />;
     case "control_failure":

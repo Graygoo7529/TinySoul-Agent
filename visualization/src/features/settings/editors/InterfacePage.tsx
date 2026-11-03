@@ -1,4 +1,4 @@
-import { rawText, useI18n } from "../../../i18n";
+import { useI18n } from "../../../i18n";
 /** Shared project interface settings, saved independently of Agent configuration. */
 
 import { useEffect, useState, type ReactNode } from "react";
@@ -60,20 +60,20 @@ export function InterfacePage() {
   return (
     <SettingsPageBody>
       <div className="rounded-lg border border-line bg-bg-elev px-3.5 py-2.5 text-[12px] leading-5 text-fg-muted">
-        {t("settings.text.29310f302509")}
+        {t("settings.savedInThisProjectThisInterfaceUpdatesImmediatelyOther")}
         <div className="mt-2 flex flex-wrap items-center gap-3" aria-live="polite">
-          <span>{!connected ? t("settings.text.d02b78ed97cc")
-            : state.phase === "loading" ? t("settings.text.1a0c4ca8917a")
-            : state.loadError ? t("settings.text.24446863c2dc")
-            : state.saving ? t("settings.text.de70e750bd54")
-            : state.saveError ? t("settings.text.6dfc76c8b8cc")
-            : state.phase === "ready" ? t("settings.text.bc46e103d1fe") : t("settings.text.1eaed6a80143")}</span>
+          <span>{!connected ? t("settings.connectToEditSharedInterfaceSettings")
+            : state.phase === "loading" ? t("settings.loadingInterfaceSettings")
+            : state.loadError ? t("settings.interfaceSettingsCouldNotBeLoaded")
+            : state.saving ? t("settings.savingInterfaceSettings")
+            : state.saveError ? t("settings.interfaceSettingsCouldNotBeSaved")
+            : state.phase === "ready" ? t("settings.savedToProject") : t("settings.waitingForInterfaceSettings")}</span>
           <button type="button" className="text-accent disabled:opacity-40" disabled={!connected || state.saving || state.phase === "loading"}
             onClick={() => void refreshInterface(Object.keys(state.pending).length > 0)}>
-            {Object.keys(state.pending).length > 0 ? t("settings.text.abf21fc0bb51") : t("settings.text.56e3badc4e6c")}
+            {Object.keys(state.pending).length > 0 ? t("settings.discardChangesAndReload") : t("settings.refresh")}
           </button>
           {state.saveError && <button type="button" className="text-accent disabled:opacity-40" disabled={disabled || state.saving}
-            onClick={() => void retryInterfaceSave()}>{t("settings.text.71e1aa94f815")}</button>}
+            onClick={() => void retryInterfaceSave()}>{t("settings.retrySaving")}</button>}
         </div>
         {(state.loadError || state.saveError) && <p className="mt-1 text-danger" role="alert">{state.loadError ?? state.saveError}</p>}
       </div>
@@ -93,8 +93,8 @@ export function InterfacePage() {
           </PrefRow>
         </SectionCard>
 
-        <SectionCard title={t("settings.text.41def7a0febe")} description={t("settings.text.95c25478805a")}>
-          <PrefRow label={t("settings.text.a797e30923ac")}>
+        <SectionCard title={t("settings.appearance")} description={t("settings.themeOfTheWholeInterface")}>
+          <PrefRow label={t("settings.theme")}>
             <Segmented
               options={THEME_OPTIONS.map((option) => ({
                 ...option,
@@ -107,11 +107,11 @@ export function InterfacePage() {
         </SectionCard>
 
         <SectionCard
-          title={t("settings.text.f4beb9af58f7")}
-          description={t("settings.text.f8f238985db4")}
+          title={t("settings.typography")}
+          description={t("settings.readingFontsSizeAndLineHeightAcrossTheApp")}
         >
           <PrefRow
-            label={t("settings.text.30c49d756643")}
+            label={t("settings.interfaceFont")}
             preview={<FontPreview family="var(--font-sans)" mono={false} />}
           >
             <SelectControl
@@ -123,7 +123,7 @@ export function InterfacePage() {
               onChange={(next) => setInterfacePref("fontSans", next as SansFontChoice)}
             />
           </PrefRow>
-          <PrefRow label={t("settings.text.83ca9e48c37c")} description={`${FONT_SIZE_RANGE.min}–${FONT_SIZE_RANGE.max}px`}>
+          <PrefRow label={t("settings.fontSize")} description={`${FONT_SIZE_RANGE.min}–${FONT_SIZE_RANGE.max}px`}>
             <NumberControl
               value={prefs.fontSize}
               min={FONT_SIZE_RANGE.min}
@@ -133,7 +133,7 @@ export function InterfacePage() {
             />
           </PrefRow>
           <PrefRow
-            label={t("settings.text.65be5133e74b")}
+            label={t("settings.lineHeight")}
             description={`${LINE_HEIGHT_RANGE.min}–${LINE_HEIGHT_RANGE.max}`}
           >
             <NumberControl
@@ -145,7 +145,7 @@ export function InterfacePage() {
             />
           </PrefRow>
           <PrefRow
-            label={t("settings.text.fd3f96571839")}
+            label={t("settings.codeFont")}
             preview={<FontPreview family="var(--font-mono)" mono />}
           >
             <SelectControl
@@ -160,10 +160,10 @@ export function InterfacePage() {
         </SectionCard>
 
         <SectionCard
-          title={t("settings.text.d7da6355bb6b")}
-          description={t("settings.text.a306fe6bfa67")}
+          title={t("settings.layoutMotion")}
+          description={t("settings.spacingDensityAndAnimationBehavior")}
         >
-          <PrefRow label={t("settings.text.f9160c22f517")}>
+          <PrefRow label={t("settings.density")}>
             <Segmented
               options={DENSITY_OPTIONS.map((option) => ({
                 ...option,
@@ -174,8 +174,8 @@ export function InterfacePage() {
             />
           </PrefRow>
           <PrefRow
-            label={t("settings.text.25a5aef56243")}
-            description={t("settings.text.34634c2542e0")}
+            label={t("settings.reduceMotion")}
+            description={t("settings.minimizesAnimationsAndTransitionsAcrossTheInterface")}
           >
             <PreferenceSwitch
               on={prefs.reducedMotion}
@@ -189,7 +189,7 @@ export function InterfacePage() {
             type="button"
             className="h-8 rounded-lg border border-line bg-bg-elev px-3 text-[13px] font-medium text-fg hover:border-line-strong hover:bg-hover"
             onClick={resetInterfaceDefaults}
-          >{t("settings.text.05420d7f6eb5")}</button>
+          >{t("settings.resetProjectInterfaceDefaults")}</button>
         </div>
       </fieldset>
       <PresentationAssets />
@@ -211,7 +211,7 @@ function PrefRow({
   return (
     <div className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
       <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium text-fg">{rawText(label)}</div>
+        <div className="text-[13px] font-medium text-fg">{label}</div>
         {description !== undefined && (
           <div className="mt-0.5 text-[11px] text-fg-muted">{description}</div>
         )}
@@ -255,7 +255,7 @@ function Segmented<T extends string>({
               : "bg-bg-elev text-fg-muted hover:bg-hover hover:text-fg"
           }`}
         >
-          {rawText(option.label)}
+          {option.label}
         </button>
       ))}
     </span>
@@ -279,7 +279,7 @@ function SelectControl<T extends string>({
     >
       {options.map((option) => (
         <option key={option.value} value={option.value}>
-          {rawText(option.label)}
+          {option.label}
         </option>
       ))}
     </select>

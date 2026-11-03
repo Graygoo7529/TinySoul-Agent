@@ -5,6 +5,7 @@ import type { RuntimeStatus } from "../api/v2/types";
 import { selectGenerationId, useConnectionStore } from "../store/connectionStore";
 import { useTurnStore } from "../store/turnStore";
 import { useAppStore } from "../store/appStore";
+import { resolveText } from "../i18n";
 import { useUiPrefsStore } from "../store/uiPrefsStore";
 import presentationFixture from "../../test/fixtures/contracts/presentation-config.json";
 import { resetTurnController } from "../features/chat/turnController";
@@ -435,7 +436,7 @@ describe("event invalidation", () => {
     expect(useConnectionStore.getState().eventCursor).toBe(53);
     expect(
       useAppStore.getState().toasts.some((toast) =>
-        toast.text.includes("new generation"),
+        resolveText(toast.text, "en-US").includes("new generation"),
       ),
     ).toBe(true);
     // The day history re-syncs after the generation change.
@@ -563,7 +564,7 @@ describe("disconnect and restart", () => {
     expect(useTurnStore.getState().outgoing).toEqual([]);
     expect(
       useAppStore.getState().toasts.some((toast) =>
-        toast.text.includes("new generation"),
+        resolveText(toast.text, "en-US").includes("new generation"),
       ),
     ).toBe(true);
     expect(endpoint.calls("/v2/session/turns").length).toBeGreaterThanOrEqual(1);

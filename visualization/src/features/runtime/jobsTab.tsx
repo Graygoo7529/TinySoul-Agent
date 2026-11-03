@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 import { requestIdForTurn } from "../../store/turnStore";
 /**
  * Jobs tab (plan §14 Jobs, API-14).
@@ -67,6 +68,7 @@ export function JobsTab({
   listIntervalMs?: number;
   outputIntervalMs?: number;
 }): ReactElement {
+  useI18n();
   // The turn this tab binds, captured once: jobs belong to one Turn and are
   // reclaimed with it, so a later turn never inherits this view.
   const [bound] = useState(() => ({
@@ -125,8 +127,8 @@ export function JobsTab({
     return (
       <EmptyState
         icon={<ListTodo size={26} />}
-        title="没有活动轮次"
-        description="后台任务属于发起它们的轮次——当前没有轮次在运行。"
+        title={t("runtime.activeTurn")}
+        description={t("runtime.jobsBelongTurnStartedThemNoneRunning")}
       />
     );
   }
@@ -138,7 +140,7 @@ export function JobsTab({
         <span className="font-medium text-fg-muted" title={bound.turnId}>
           {shortTurnId(bound.turnId)}
         </span>
-        <CopyButton text={() => bound.turnId ?? ""} label="复制轮次 ID" />
+        <CopyButton text={() => bound.turnId ?? ""} label={t("runtime.copyTurnId")} />
       </div>
       {reclaimed && (
         <ReclaimedNotice epoch={epoch} turnId={bound.turnId} day={bound.day} />
@@ -384,6 +386,7 @@ function JobDetailBody({
   day: string | null;
   detail: JobDetail;
 }): ReactElement {
+  useI18n();
   return (
     <div className="space-y-2 text-[12px]">
       {detail.summary !== "" && (
@@ -403,8 +406,7 @@ function JobDetailBody({
             size="xs"
             onClick={() => useAppStore.getState().setActiveTab("chat")}
           >
-            在对话中打开
-          </Button>
+            {t("runtime.openConversation")}</Button>
         </div>
       )}
       {detail.result_refs.length > 0 && (
@@ -429,7 +431,7 @@ function JobDetailBody({
         </div>
       )}
       {detail.details !== null && detail.details !== undefined && (
-        <Collapsible title="详情">
+        <Collapsible title={t("common.details")}>
           <JsonTree value={detail.details} defaultExpanded={false} />
         </Collapsible>
       )}
@@ -449,12 +451,12 @@ function JobOutputView({
   day: string | null;
   output: JobOutputState;
 }): ReactElement {
+  useI18n();
   const channels = channelTexts(output.items);
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-[12px] text-fg-faint">
-        Output
-        {output.reading && (
+        {t("runtime.output")}{output.reading && (
           <span className="text-fg-faint">(reading…)</span>
         )}
       </div>

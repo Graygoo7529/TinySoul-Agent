@@ -25,8 +25,8 @@ export function PhaseBindingsPage() {
   return (
     <SettingsPageBody>
       <FieldSection
-        title={t("settings.text.01c9c50bc741")}
-        description={t("settings.text.7b2cd8ccdd80")}
+        title={t("settings.cyclePhases")}
+        description={t("settings.theTaskChainsCalledByTheTwoModelTasks")}
         paths={[PHASE1_PATH, PHASE2_PATH]}
         overrides={{
           [PHASE1_PATH]: {
@@ -79,9 +79,9 @@ function TaskChainRefControl({
           }
         }}
       >
-        <option value="">{ownerDefault}{t("settings.text.c8283858bcc3")}</option>
+        <option value="">{ownerDefault}{t("settings.default")}</option>
         {current !== "" && !known && (
-          <option value={current}>{current}{t("settings.text.d4bdf564e902")}</option>
+          <option value={current}>{current}{t("settings.unknown")}</option>
         )}
         {chains.map((chain) => (
           <option key={chain.id} value={chain.id}>
@@ -95,7 +95,7 @@ function TaskChainRefControl({
           type="button"
           className="flex items-center gap-1 text-[12px] font-medium whitespace-nowrap text-accent hover:underline"
           onClick={() => navigateTo("llm-tasks", `llm.tasks.${current}`)}
-        >{t("settings.text.1bb5cf37b7d9")}<ArrowRight size={12} />
+        >{t("settings.openChain")}<ArrowRight size={12} />
         </button>
       )}
     </span>

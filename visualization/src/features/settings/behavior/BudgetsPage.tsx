@@ -15,8 +15,8 @@ export function BudgetsPage() {
   return (
     <SettingsPageBody>
       <FieldSection
-        title={t("settings.text.66f1e6ff5b4b")}
-        description={t("settings.text.6c1a2c9e0a76")}
+        title={t("settings.turnCycles")}
+        description={t("settings.completeAgentCyclesAllowedInOneTurnOfEach")}
         paths={[
           "loop.user.max_cycles",
           "reflection.home.max_cycles",

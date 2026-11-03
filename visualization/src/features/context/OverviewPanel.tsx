@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 import { requestIdForTurn } from "../../store/turnStore";
 /**
  * Context overview: the first screen of the Context drawer (plan §8).
@@ -52,6 +53,7 @@ export function ContextOverviewPanel({
   epoch: number;
   turnId: string;
 }): ReactElement {
+  useI18n();
   const [state, setState] = useState<OverviewState>({ kind: "loading" });
   const [refreshing, setRefreshing] = useState(false);
   // A 409 on refresh marks the context closed even before the next status
@@ -129,15 +131,14 @@ export function ContextOverviewPanel({
             className="inline-flex shrink-0 items-center gap-1 font-medium hover:underline"
           >
             <RotateCw size={11} />
-            Retry
-          </button>
+            {t("common.retry")}</button>
         </div>
       )}
       {state.kind === "closed" && (
         <EmptyState
           icon={<Layers size={26} />}
-          title="本轮语境已关闭"
-          description="这一轮在语境被读取前就已结束；已提交的记录可以在日历史中查看。"
+          title={t("context.turnSContextClosed")}
+          description={t("context.turnEndedContextReadBrowseDayHistory")}
           action={
             <Button variant="outline" onClick={() => openHistoryBrowser(epoch)}>
               Browse history
@@ -190,6 +191,7 @@ function OverviewBody({
   overview: ContextOverview;
   closed: boolean;
 }): ReactElement {
+  useI18n();
   const groups = groupBySlot(overview.segments);
   return (
     <>
@@ -198,13 +200,13 @@ function OverviewBody({
           Captured <span className="font-mono">{overview.captured_at}</span>
         </span>
         {overview.day && <span>Day {overview.day}</span>}
-        <span title={overview.measurement}>Usage in characters</span>
+        <span title={overview.measurement}>{t("context.usageInCharacters")}</span>
       </div>
       {groups.length === 0 ? (
         <EmptyState
           icon={<Layers size={26} />}
-          title="尚未安装语境段"
-          description="这一轮还没有安装任何语境段。"
+          title={t("context.segmentsInstalled")}
+          description={t("context.turnInstalledAnyContextSegmentsYet")}
         />
       ) : (
         groups.map((group) => (

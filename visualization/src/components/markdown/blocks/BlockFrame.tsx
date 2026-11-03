@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../../i18n";
 import { useState, type ReactNode } from "react";
 
 export type BlockStatus = "idle" | "queued" | "rendering" | "done" | "error";
@@ -29,6 +30,7 @@ export function BlockFrame({
   onExport?: () => void;
   children: ReactNode;
 }) {
+  useI18n();
   const [view, setView] = useState<"diagram" | "source">("diagram");
   const [zoom, setZoom] = useState(1);
   const showSource = status === "error" || view === "source";
@@ -55,7 +57,7 @@ export function BlockFrame({
               <button
                 type="button"
                 className="cb-frame-toggle"
-                aria-label="缩小"
+                aria-label={t("resources.zoomOut")}
                 onClick={() => zoomBy(-1)}
               >
                 −
@@ -63,7 +65,7 @@ export function BlockFrame({
               <button
                 type="button"
                 className="cb-frame-toggle cb-frame-zoom"
-                title="重置缩放"
+                title={t("resources.resetZoom")}
                 onClick={() => setZoom(1)}
               >
                 {Math.round(zoom * 100)}%
@@ -71,7 +73,7 @@ export function BlockFrame({
               <button
                 type="button"
                 className="cb-frame-toggle"
-                aria-label="放大"
+                aria-label={t("resources.zoomIn")}
                 onClick={() => zoomBy(1)}
               >
                 +
@@ -80,7 +82,7 @@ export function BlockFrame({
           )}
           {status === "done" && onExport !== undefined && (
             <button type="button" className="cb-frame-toggle" onClick={onExport}>
-              导出 SVG
+              {t("resources.exportSvg")}
             </button>
           )}
           {status === "done" && (
@@ -94,21 +96,20 @@ export function BlockFrame({
           )}
           {status === "error" && onRetry !== undefined && (
             <button type="button" className="cb-frame-toggle" onClick={onRetry}>
-              重试
-            </button>
+              {t("common.retry")}</button>
           )}
         </span>
       </div>
       {status === "error" && (
         <div className="cb-frame-error" role="alert">
-          渲染失败：{error}
+          {t("resources.renderFailed")}{error}
         </div>
       )}
       {status === "rendering" && !showSource && (
-        <div className="cb-frame-loading">渲染中…</div>
+        <div className="cb-frame-loading">{t("common.loading")}</div>
       )}
       {status === "queued" && !showSource && (
-        <div className="cb-frame-loading">排队等待编译…</div>
+        <div className="cb-frame-loading">{t("resources.waitingToCompile")}</div>
       )}
       {showSource ? (
         <pre className="cb-frame-source">

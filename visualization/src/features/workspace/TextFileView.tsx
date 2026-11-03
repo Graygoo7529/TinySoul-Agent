@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Text resource read and edit (plan §10/P06).
  *
@@ -66,6 +67,7 @@ export function TextFileView({
   /** The fragment was honoured; clear it from the page selection. */
   onConsumeFragment: () => void;
 }): ReactElement {
+  useI18n();
   const [retry, setRetry] = useState(0);
   const text = useWorkspaceText(ref, day, reloadToken + retry);
   const draftKey = workspaceDraftKey(day, ref);
@@ -180,8 +182,7 @@ export function TextFileView({
               onClick={() => void save()}
             >
               <Save size={12} />
-              Save
-            </Button>
+              {t("common.save")}</Button>
           </>
         ) : (
           <>
@@ -235,8 +236,7 @@ export function TextFileView({
           <span className="min-w-0 flex-1">{text.error}</span>
           <Button variant="ghost" size="xs" onClick={() => setRetry((n) => n + 1)}>
             <RotateCcw size={12} />
-            Retry
-          </Button>
+            {t("common.retry")}</Button>
         </div>
       )}
 
@@ -293,8 +293,7 @@ export function TextFileView({
             loading={text.loadingMore}
             onClick={text.loadMore}
           >
-            显示更多
-          </Button>
+            {t("common.showMore")}</Button>
         </div>
       )}
     </div>

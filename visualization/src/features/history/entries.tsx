@@ -22,13 +22,14 @@ import { DayListPanel } from "./DayListPanel";
 import { DayTurnsPanel } from "./DayTurnsPanel";
 import { SessionMapPanel } from "./SessionMapPanel";
 import { SessionRefPanel } from "./SessionRefPanel";
+import { LocalizedText, message } from "../../i18n";
 
 /** Root of the history browser: the day directory. */
 export function openHistoryBrowser(epoch: number): void {
   useInspectorStore.getState().open({
     key: "history:days",
-    title: "History",
-    subtitle: "Pick a day to browse its conversations",
+    title: <LocalizedText value={message("history.title")} />,
+    subtitle: <LocalizedText value={message("history.pickDay")} />,
     render: () => <DayListPanel epoch={epoch} />,
   });
 }
@@ -38,7 +39,7 @@ export function pushDayTurns(epoch: number, day: DayEntry): void {
   useInspectorStore.getState().push({
     key: `history:day:${day.day}`,
     title: day.day,
-    subtitle: day.active ? "Active day" : "Archived day · read-only",
+    subtitle: <LocalizedText value={message(day.active ? "history.activeDay" : "history.archivedDay")} />,
     render: () => <DayTurnsPanel epoch={epoch} day={day} />,
   });
 }
@@ -47,7 +48,7 @@ export function pushDayTurns(epoch: number, day: DayEntry): void {
 export function openSessionMap(epoch: number, day: string): void {
   useInspectorStore.getState().open({
     key: `session-map:${day}`,
-    title: "Session map",
+    title: <LocalizedText value={message("history.sessionMap")} />,
     subtitle: day,
     render: () => <SessionMapPanel epoch={epoch} day={day} />,
   });
@@ -82,7 +83,7 @@ export function pushSessionQuery(
   refEntryCounter += 1;
   useInspectorStore.getState().push({
     key: `session-ref:${day}:${ref}:query:${refEntryCounter}`,
-    title: `Locate: ${query}`,
+    title: <LocalizedText value={message("history.locate", { query })} />,
     subtitle: ref,
     render: () => (
       <SessionRefPanel epoch={epoch} day={day} targetRef={ref} initialQuery={query} />

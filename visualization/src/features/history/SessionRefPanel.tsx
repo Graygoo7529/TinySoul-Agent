@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * One Session inspect page (plan §7, API-08 `/v2/session/inspect`): the
  * detail pushed for a topic, an interpretation edge, a turn or a single fact
@@ -50,6 +51,7 @@ export function SessionRefPanel({
   targetRef: string;
   initialQuery?: string | null;
 }) {
+  useI18n();
   const [query, setQuery] = useState<string | null>(initialQuery);
   const [draft, setDraft] = useState("");
   const seq = usePagedSequence<JsonValue, DisclosurePage>(
@@ -88,8 +90,7 @@ export function SessionRefPanel({
             onClick={() => openHistoryConversation(epoch, turnId, day)}
           >
             <BookOpen size={12} />
-            打开会话
-          </Button>
+            {t("history.openConversation")}</Button>
         )}
         <form
           className="flex min-w-0 flex-1 items-center gap-1.5"
@@ -116,7 +117,7 @@ export function SessionRefPanel({
             className="inline-flex items-center gap-0.5 text-[11px] text-fg-faint hover:text-fg"
           >
             <X size={10} />
-            Clear
+            {t("history.clear")}
           </button>
         </div>
       )}
@@ -126,7 +127,7 @@ export function SessionRefPanel({
       ))}
 
       {parsed.relations.length > 0 && (
-        <PanelSection title="关系">
+        <PanelSection title={t("history.relations")}>
           {parsed.relations.map((relation, index) => (
             <RelationRow
               key={`${relation.source}-${relation.relation}-${relation.target}-${index}`}
@@ -153,7 +154,7 @@ export function SessionRefPanel({
       )}
 
       {parsed.sources.length > 0 && (
-        <PanelSection title="依据">
+        <PanelSection title={t("history.evidence")}>
           <div className="flex flex-wrap gap-1.5">
             {parsed.sources.map((ref) => (
               <RefChip key={ref} epoch={epoch} day={day} ref_={ref} />
@@ -231,6 +232,7 @@ function ContentCard({
   day: string;
   item: JsonObject;
 }): ReactElement {
+  useI18n();
   const annotation = parseAnnotation(item);
   if (annotation !== null) {
     return <AnnotationCard epoch={epoch} day={day} item={annotation} />;
@@ -255,7 +257,7 @@ function ContentCard({
     return <FactCard label={String(item.title ?? item.role ?? item.kind ?? "Content")}>
       <FactText text={item.narrative} />
       <div className="text-xs text-fg-muted">{coverageDescription(item.coverage)}</div>
-      <Collapsible title="事实" tone="sunken">
+      <Collapsible title={t("history.facts")} tone="sunken">
         <JsonTree value={item} defaultExpanded={false} />
       </Collapsible>
     </FactCard>;
@@ -267,7 +269,7 @@ function ContentCard({
       return <InteractionCard item={item} />;
     case "session_input":
       return (
-        <FactCard label="用户输入">
+        <FactCard label={t("history.userInput")}>
           <FactText text={typeof item.narrative === "string" ? item.narrative : typeof item.text === "string" ? item.text : ""} />
         </FactCard>
       );
@@ -282,7 +284,7 @@ function ContentCard({
       return <ActionFactCard item={item} />;
     case "session_working":
       return (
-        <FactCard label="最终工作状态">
+        <FactCard label={t("history.finalWorkingState")}>
           <JsonTree value={item.working ?? {}} defaultExpanded={false} />
         </FactCard>
       );
@@ -325,9 +327,10 @@ function FactText({ text }: { text: string }) {
 }
 
 function TurnHeaderCard({ item }: { item: JsonObject }) {
+  useI18n();
   const failures = Array.isArray(item.failures) ? item.failures : [];
   return (
-    <FactCard label="已提交轮次">
+    <FactCard label={t("history.committedTurn")}>
       <div className="flex items-center gap-2 text-[12px]">
         <span className="text-fg-muted">
           {typeof item.day === "string" ? item.day : ""}
@@ -400,6 +403,7 @@ const OUTCOME_TONE: Record<string, "green" | "red" | "gray"> = {
 };
 
 function ActionFactCard({ item }: { item: JsonObject }) {
+  useI18n();
   const outcome = typeof item.outcome === "string" ? item.outcome : "";
   const failure =
     typeof item.failure === "object" && item.failure !== null
@@ -423,11 +427,11 @@ function ActionFactCard({ item }: { item: JsonObject }) {
       )}
       {item.request !== undefined && (
         <div className="mt-2 space-y-1.5">
-          <Collapsible title="请求" tone="sunken">
+          <Collapsible title={t("history.request")} tone="sunken">
             <JsonTree value={item.request} defaultExpanded={false} />
           </Collapsible>
           {item.result !== undefined && (
-            <Collapsible title="结果" tone="sunken">
+            <Collapsible title={t("runtime.result")} tone="sunken">
               <JsonTree value={item.result} defaultExpanded={false} />
             </Collapsible>
           )}
@@ -439,8 +443,9 @@ function ActionFactCard({ item }: { item: JsonObject }) {
 }
 
 function ResourceFactCard({ item }: { item: JsonObject }) {
+  useI18n();
   return (
-    <FactCard label="被引用的资源">
+    <FactCard label={t("history.referencedResource")}>
       <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
         <code className="rounded bg-bg-sunken px-1.5 py-0.5 font-mono text-[11px] break-all">
           {typeof item.ref === "string" ? item.ref : "(unknown link)"}

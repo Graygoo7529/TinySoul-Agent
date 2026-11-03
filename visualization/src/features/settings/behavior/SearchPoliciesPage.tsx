@@ -62,8 +62,8 @@ export function SearchPoliciesPage() {
 
   return (
     <ObjectEditorLayout
-      title={t("settings.text.8105a5e4e7dd")}
-      description={t("settings.text.fffb8118782a")}
+      title={t("settings.searchPolicies")}
+      description={t("settings.retrievalSourcesConstraintOperationsContextsAndBudgetsPerSearch")}
       items={SEARCH_CAPABILITIES.map((capability) => ({
         id: capability.actionId,
         summary: capability.title,
@@ -116,12 +116,12 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
   return (
     <div>
       {readOnly && (
-        <div className="border-b border-line bg-warning-soft px-5 py-2.5 text-[11px] text-warning">{t("settings.text.04ba9fa9289a")}</div>
+        <div className="border-b border-line bg-warning-soft px-5 py-2.5 text-[11px] text-warning">{t("settings.actionRetrievalIsOwnedByAReadOnlySource")}</div>
       )}
       {issues.length > 0 && (
         <div className="border-b border-line bg-warning-soft px-5 py-2.5">
           <div className="flex items-center gap-1.5 text-[11px] font-medium text-warning">
-            <AlertTriangle size={13} />{t("settings.text.feb1e31a691b")}</div>
+            <AlertTriangle size={13} />{t("settings.localValidationApplyStaysAuthoritative")}</div>
           <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[11px] text-warning">
             {issues.map((issue, index) => (
               <li key={index}>{issue}</li>
@@ -131,7 +131,7 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
       )}
 
       <FieldSection
-        title={t("settings.text.14549a445b10")}
+        title={t("settings.sourcesOperations")}
         description={capability.description}
         meta={
           dirty ? (
@@ -145,8 +145,8 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
         }
       >
         <FieldRow
-          title={t("settings.text.2eb56be3c2d9")}
-          description={t("settings.text.6e739e3a94ab")}
+          title={t("settings.sources")}
+          description={t("settings.candidateOriginsStage2MayCombineAtLeastOne")}
           dirty={dirty}
         >
           <ChoiceToggles
@@ -162,8 +162,8 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
           />
         </FieldRow>
         <FieldRow
-          title={t("settings.text.a1fdaa6b2a84")}
-          description={t("settings.text.6c7ced98d1ca")}
+          title={t("settings.operations")}
+          description={t("settings.constraintOperationsAvailableToStage2MayBeEmpty")}
           dirty={dirty}
         >
           <ChoiceToggles
@@ -177,8 +177,8 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
           />
         </FieldRow>
         <FieldRow
-          title={t("settings.text.94163fc4ad75")}
-          description={t("settings.text.54e92f3b4be8")}
+          title={t("settings.queryChannels")}
+          description={t("settings.lexicalMatchingAlwaysWorksTheEmbeddingChannelResolvesThrough")}
           dirty={dirty}
         >
           <ChoiceToggles
@@ -207,8 +207,8 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
 
       {draft.operations.length > 0 && (
         <FieldSection
-          title={t("settings.text.4a7c7c630624")}
-          description={t("settings.text.52db8590a681")}
+          title={t("settings.operationContextInput")}
+          description={t("settings.whichContextEachOperationMayReadAndHowMany")}
         >
           {draft.operations.map((operation) => {
             const step = stepDraft(operation);
@@ -263,10 +263,10 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
       )}
 
       <FieldSection
-        title={t("settings.text.c13c82424822")}
-        description={t("settings.text.7512d2bd1dc9")}
+        title={t("settings.budgets")}
+        description={t("settings.stepCountSnapshotSizeAndPageShapeOfOne")}
       >
-        <FieldRow title={t("settings.text.ff1ac466fdd7")} dirty={dirty}>
+        <FieldRow title={t("settings.maxSteps")} dirty={dirty}>
           <NumberInput
             ariaLabel="Max steps"
             value={draft.maxSteps}
@@ -278,7 +278,7 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
             onCommit={(value) => patch({ maxSteps: value })}
           />
         </FieldRow>
-        <FieldRow title={t("settings.text.fbd5b496d333")} dirty={dirty}>
+        <FieldRow title={t("settings.snapshotBudget")} dirty={dirty}>
           <NumberInput
             ariaLabel="Snapshot max chars"
             value={draft.snapshotMaxChars}
@@ -289,7 +289,7 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
             onCommit={(value) => patch({ snapshotMaxChars: value })}
           />
         </FieldRow>
-        <FieldRow title={t("settings.text.c118e242c0b5")} dirty={dirty}>
+        <FieldRow title={t("settings.pageSize")} dirty={dirty}>
           <NumberInput
             ariaLabel="Page max items"
             value={draft.pageMaxItems}
@@ -300,7 +300,7 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
             onCommit={(value) => patch({ pageMaxItems: value })}
           />
         </FieldRow>
-        <FieldRow title={t("settings.text.c1aea1e3a935")} dirty={dirty}>
+        <FieldRow title={t("settings.pageBudget")} dirty={dirty}>
           <NumberInput
             ariaLabel="Page max chars"
             value={draft.pageMaxChars}
@@ -341,7 +341,7 @@ function ModelOperationRow({
   return (
     <FieldRow
       title={`${operation} binding`}
-      description={t("settings.text.b12fa5a8616d")}
+      description={t("settings.theModelImplementationOfThisOperationEditedPerConsumer")}
     >
       <span className="flex items-center gap-1.5">
         {!enabled && <Badge tone="gray">操作已禁用</Badge>}
@@ -349,7 +349,7 @@ function ModelOperationRow({
         {entry !== null && entry.status !== "saved" && (
           <Badge tone="accent">{entry.status}</Badge>
         )}
-        <Button size="xs" variant="ghost" onClick={onOpenActions}>{t("settings.text.084ed241d86b")}<ArrowRight size={11} />
+        <Button size="xs" variant="ghost" onClick={onOpenActions}>{t("settings.editInActions")}<ArrowRight size={11} />
         </Button>
       </span>
     </FieldRow>

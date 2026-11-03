@@ -15,14 +15,15 @@ import { ContextInspectPanel } from "./ContextInspectPanel";
 import { ContextInspectorPanel } from "./ContextInspectorPanel";
 import { OwnerResourcePanel } from "./OwnerResourcePanel";
 import { SegmentPanel, type SegmentContext } from "./SegmentPanel";
+import { LocalizedText, message } from "../../i18n";
 
 /** Entry into the Context drawer: the active turn's installed context. */
 export function openContextDrawer(epoch: number): void {
   const turnId = selectActiveTurnId(useConnectionStore.getState());
   useInspectorStore.getState().open({
     key: `context:overview:${turnId}`,
-    title: "Context",
-    subtitle: turnId === null ? "Session map / 已加载背景" : `Turn ${turnId}`,
+    title: <LocalizedText value={message("context.title")} />,
+    subtitle: turnId === null ? <LocalizedText value={message("context.background")} /> : `Turn ${turnId}`,
     render: () => <ContextInspectorPanel epoch={epoch} turnId={turnId} />,
   });
 }
@@ -97,7 +98,7 @@ export function pushOwnerResource(
   useInspectorStore.getState().push({
     key: `context:resource:${reference}:${detailCounter}`,
     title: reference,
-    subtitle: "Owner's current content",
+    subtitle: <LocalizedText value={message("context.currentContent")} />,
     copyText: reference,
     render: () => (
       <OwnerResourcePanel

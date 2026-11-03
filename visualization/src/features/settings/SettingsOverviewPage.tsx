@@ -1,4 +1,4 @@
-import { t, rawText, useI18n } from "../../i18n";
+import { t, useI18n } from "../../i18n";
 import {
   AlertTriangle,
   ArrowRight,
@@ -69,7 +69,7 @@ export function SettingsOverviewPage() {
           <CheckCircle2 size={16} className="shrink-0 text-accent" />
           <span>{saved.pending_reload ? translate("settings.overview.pending") : translate("settings.overview.current")}</span>
         </div>
-        {!activity.can_reload && <p className="mt-2 text-[12px] text-fg-muted">{rawText(activityReasonText(activity.reason))}</p>}
+        {!activity.can_reload && <p className="mt-2 text-[12px] text-fg-muted">{activityReasonText(activity.reason)}</p>}
         {draftCount === 0 && <p className="mt-2 text-[12px] text-fg-faint">{translate("settings.bottom.noChanges")}</p>}
       </SectionCard>
 
@@ -171,19 +171,19 @@ function DraftList({
             {isStale && (
               <span className="flex shrink-0 items-center gap-1">
                 <Badge tone="yellow" title={t("settings.overview.staleTitle")}>
-                  <AlertTriangle size={10} />{t("settings.text.a4e976a3d3fc")}</Badge>
+                  <AlertTriangle size={10} />{t("settings.stale")}</Badge>
                 <Button
                   variant="ghost"
                   size="xs"
                   title={t("settings.overview.staleAdopt")}
                   onClick={() => onResolveStale(entry.key, "adopt")}
-                >{t("settings.text.3937d8446f2d")}</Button>
+                >{t("settings.adopt")}</Button>
                 <Button
                   variant="ghost"
                   size="xs"
                   title={t("settings.overview.staleKeep")}
                   onClick={() => onResolveStale(entry.key, "keep")}
-                >{t("settings.text.466fc492747c")}</Button>
+                >{t("settings.keep")}</Button>
               </span>
             )}
           </div>

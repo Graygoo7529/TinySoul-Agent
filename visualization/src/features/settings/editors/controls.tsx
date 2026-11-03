@@ -1,4 +1,4 @@
-import { t, rawText, translatedField as matchField } from "../../../i18n";
+import { t, translatedField as matchField, useI18n } from "../../../i18n";
 /**
  * Shared settings field controls (implementation plan §15.1): every control
  * edits one writable atomic value through the shared ConfigDraft store — the
@@ -103,6 +103,7 @@ export interface DraftFieldApi {
 
 /** Bind one config path to the shared draft store. */
 export function useDraftField(path: string): DraftFieldApi {
+  const { locale } = useI18n();
   const saved = useConfigDraftStore((s) => s.saved);
   const catalog = useConfigDraftStore((s) => s.catalog);
   const setValue = useConfigDraftStore((s) => s.setValue);
@@ -119,7 +120,7 @@ export function useDraftField(path: string): DraftFieldApi {
     key !== null ? s.stale[key] === true : false,
   );
 
-  const field = matchField(catalog, path);
+  const field = matchField(catalog, path, locale);
   const savedBaseline = savedValue(saved, path);
   const deleting = draft?.op.op === "delete";
   const value =
@@ -193,7 +194,7 @@ export function FieldRow({
     return () => clearTimeout(timer);
   }, [flash]);
 
-  const title = titleOverride ? rawText(titleOverride) : api.field?.title ?? lastSegment(path);
+  const title = titleOverride ? titleOverride : api.field?.title ?? lastSegment(path);
   const description = api.field?.description ?? "";
 
   return (
@@ -404,6 +405,7 @@ export function SliderField({
   max?: number;
   unit?: string;
 }) {
+  useI18n();
   const integer = api.field?.valueKind === "integer";
   const readOnly = api.readOnly !== null;
   const value = typeof api.value === "number" ? api.value : undefined;
@@ -440,7 +442,7 @@ export function SliderField({
       <DraftNumber api={api} min={min} max={max} unit={unit} />
       <IconButton
         label="Restore the owner default"
-        title="删除覆盖并恢复所有者默认值"
+        title={t("settings.deleteOverrideRestoreOwnerDefault")}
         disabled={readOnly || value === undefined}
         onClick={() => api.clear()}
       >
@@ -516,7 +518,7 @@ export function DraftEnum({
     >
       {current === undefined && <option value="">默认</option>}
       {!known && current !== undefined && (
-        <option value={current}>{current}{t("settings.text.3d527c249175")}</option>
+        <option value={current}>{current}{t("settings.current")}</option>
       )}
       {options.map((choice) => (
         <option key={choice.value} value={choice.value}>
@@ -703,7 +705,7 @@ export function CredentialValueEditor({
 
   if (name.trim() === "") {
     return (
-      <span className="text-[11px] text-fg-faint">{t("settings.text.517ffb49387b")}</span>
+      <span className="text-[11px] text-fg-faint">{t("settings.setTheVariableNameFirst")}</span>
     );
   }
 
@@ -731,13 +733,13 @@ export function CredentialValueEditor({
         {name}
       </span>
       {draftDelete ? (
-        <Badge tone="red" title="Deletion is staged in the local draft">{t("settings.text.4cd5b7cc5087")}</Badge>
+        <Badge tone="red" title="Deletion is staged in the local draft">{t("settings.deletePending")}</Badge>
       ) : draftSet ? (
-        <Badge tone="accent" title="A new value is staged in the local draft">{t("settings.text.05bc7b848032")}</Badge>
+        <Badge tone="accent" title="A new value is staged in the local draft">{t("settings.pendingApply")}</Badge>
       ) : stored ? (
-        <Badge tone="green" title="A value exists in the project dotenv file">{t("settings.text.3d3f949bd1c9")}</Badge>
+        <Badge tone="green" title="A value exists in the project dotenv file">{t("settings.configured")}</Badge>
       ) : (
-        <Badge tone="gray" title="No value found in the dotenv source">{t("settings.text.ef374c577ee1")}</Badge>
+        <Badge tone="gray" title="No value found in the dotenv source">{t("settings.notSet")}</Badge>
       )}
       {editing ? (
         <>
@@ -768,7 +770,7 @@ export function CredentialValueEditor({
             type="button"
             className="h-7 rounded-md px-1.5 text-xs font-medium text-fg-muted hover:text-fg"
             onClick={stopEditing}
-          >{t("settings.text.77dfd2135f4d")}</button>
+          >{t("settings.cancel")}</button>
         </>
       ) : (
         <button
@@ -781,7 +783,7 @@ export function CredentialValueEditor({
               : "The dotenv source is read-only"
           }
           onClick={() => setEditing(true)}
-        >{t("settings.text.4bc799723453")}</button>
+        >{t("settings.setValue")}</button>
       )}
       {(stored || draftSet) && !draftDelete && (
         <IconButton
@@ -1121,14 +1123,15 @@ export function FieldSection({
   forceAdvanced?: string[];
   actions?: ReactNode;
 }) {
+  const { locale } = useI18n();
   const catalog = useConfigDraftStore((s) => s.catalog);
   const forced = new Set(forceAdvanced ?? []);
   const isAdvanced = (path: string) =>
-    forced.has(path) || matchField(catalog, path)?.importance === "advanced";
+    forced.has(path) || matchField(catalog, path, locale)?.importance === "advanced";
   const primary = paths.filter((path) => !isAdvanced(path));
   const advanced = paths.filter(isAdvanced);
   return (
-    <SectionCard title={rawText(title)} description={description === undefined ? undefined : rawText(description)} actions={actions}>
+    <SectionCard title={title} description={description === undefined ? undefined : description} actions={actions}>
       <div className="flex flex-col divide-y divide-line">
         {primary.map((path) => (
           <SettingsField key={path} path={path} override={overrides?.[path]} />
@@ -1210,7 +1213,7 @@ export function EmbeddingUseControl({ api }: { api: DraftFieldApi }) {
       >
         <option value="">未设置（使用 owner 默认值）</option>
         {!known && current !== undefined && (
-          <option value={current}>{current}{t("settings.text.d4bdf564e902")}</option>
+          <option value={current}>{current}{t("settings.unknown")}</option>
         )}
         {options.map((option) => (
           <option key={option.value} value={option.value}>
@@ -1218,12 +1221,12 @@ export function EmbeddingUseControl({ api }: { api: DraftFieldApi }) {
           </option>
         ))}
       </select>
-      <span className="max-w-72 text-right text-[10.5px] leading-4 text-fg-faint">{t("settings.text.7e11476de411")}{" "}
+      <span className="max-w-72 text-right text-[10.5px] leading-4 text-fg-faint">{t("settings.changingTheUseRebuildsTheOwnerAposSRebuildable")}{" "}
         <button
           type="button"
           className="text-accent hover:underline"
           onClick={() => navigateTo("dedicated-models")}
-        >{t("settings.text.44f4de24856e")}</button>
+        >{t("settings.modelsAmpServicesDedicatedModelsAmpUses")}</button>
         .
       </span>
     </span>

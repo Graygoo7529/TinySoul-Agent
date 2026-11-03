@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../../i18n";
 import { translatedField } from "../../../i18n";
 import type { JsonValue, PresetChange } from "../../../api/v2/types";
 import { isPlainRecord } from "../draft/model";
@@ -39,6 +40,7 @@ function ValueRow({ path, value, label }: { path: string; value: JsonValue; labe
 
 /** Actual declarations, shared by the plans page and the chat quick entry. */
 export function PresetContent({ definition }: { definition: PresetDefinitionView }) {
+  useI18n();
   const tasks = definition.values["llm.tasks"];
   const bindings = definition.values["action.models.bindings"];
   const budgets = budgetSummary(definition);
@@ -46,7 +48,7 @@ export function PresetContent({ definition }: { definition: PresetDefinitionView
     <section><div className="mb-1 text-[12px] font-semibold">任务链</div>
       {isPlainRecord(tasks) && Object.entries(tasks).map(([id, task]) => isPlainRecord(task) && <div key={id} className="mb-2 rounded border border-line p-2">
         <ValueRow path={`llm.tasks.${id}.models`} label={id} value={task.models ?? null} />
-        <details className="text-[11px] text-fg-muted"><summary className="cursor-pointer">调用参数</summary>
+        <details className="text-[11px] text-fg-muted"><summary className="cursor-pointer">{t("settings.callParams")}</summary>
           {Object.entries(task).filter(([key]) => key !== "models").map(([key, value]) => <ValueRow key={key} path={`llm.tasks.${id}.${key}`} value={value} />)}
           <p className="mt-1 text-fg-faint">未设置的参数使用默认值。</p>
         </details>

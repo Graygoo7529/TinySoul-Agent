@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 import { requestIdForTurn } from "../../store/turnStore";
 /**
  * One installed segment's detail (plan §8, API-09 segment body).
@@ -78,6 +79,7 @@ export function SegmentPanel({
   segment: SegmentView;
   context: SegmentContext;
 }): ReactElement {
+  useI18n();
   const [fetchClosed, setFetchClosed] = useState(context.closed);
   const activity = useTurnActivity(turnId);
   const closed = activity.closed || fetchClosed;
@@ -150,13 +152,13 @@ export function SegmentPanel({
           empty={
             closed ? (
               <EmptyState
-                title="此语境段在被读取前已关闭"
-                description="轮次在该正文被捕获前就已结束；已提交的记录保存在日历史中。"
+                title={t("context.closedSegmentRead")}
+                description={t("context.turnEndedBodyCapturedDayHistoryHolds")}
               />
             ) : (
               <EmptyState
-                title="空语境段"
-                description="该语境段没有安装正文内容。"
+                title={t("context.emptySegment")}
+                description={t("context.segmentInstalledBodyContent")}
               />
             )
           }
@@ -235,6 +237,7 @@ function HeapRefs({
   context: SegmentContext;
   closed: boolean;
 }): ReactElement {
+  useI18n();
   const partition = partitionHeapRefs(segment);
   const openRef = (ref: string): (() => void) | undefined => {
     if (closed) return undefined;
@@ -271,7 +274,7 @@ function HeapRefs({
             <RefRow
               key={ref}
               reference={ref}
-              badges={<Badge tone="accent">installed</Badge>}
+              badges={<Badge tone="accent">{t("context.installed")}</Badge>}
               onOpen={openRef(ref)}
               hint="Installed in this turn's context; opening reads the owner's current content."
             />
@@ -284,7 +287,7 @@ function HeapRefs({
             <RefRow
               key={ref}
               reference={ref}
-              badges={<Badge>available</Badge>}
+              badges={<Badge>{t("context.available")}</Badge>}
               onOpen={openRef(ref)}
               hint="Declared but not loaded into this turn's context; opening reads the owner's current content."
             />
@@ -351,8 +354,9 @@ function RootRefs({
 }
 
 function SegmentDetails({ segment }: { segment: SegmentView }): ReactElement {
+  useI18n();
   return (
-    <Collapsible title="详情" tone="sunken">
+    <Collapsible title={t("common.details")} tone="sunken">
       <DetailGrid
         facts={[
           ["segment id", segment.id],

@@ -1,0 +1,27 @@
+/** Fixed memory interface copy. */
+export const memoryMessages = {
+  "memory.scopeAll": "All knowledge",
+  "memory.scopeDaily": "Daily",
+  "memory.scopeEntity": "Entity",
+  "memory.scopeConcept": "Concept",
+  "memory.scopeFact": "Fact",
+  "memory.scopeNote": "Note",
+  "memory.active": "Active memory",
+  "memory.persistent": "Knowledge base",
+  "memory.activeHint": "What the Agent is recording today",
+  "memory.persistentHint": "Persistent knowledge organized from memory",
+  "memory.search": "Search knowledge",
+  "memory.organize": "Organize Memory",
+  "memory.searchTitle": "Search Memory",
+  "memory.searchPlaceholder": "Search persistent knowledge…",
+  "memory.archivedMemoryDay": "No archived memory for this day",
+  "memory.nothingRecordedYet": "Nothing recorded yet",
+  "memory.activeMemoryMdExistsButContentDay": "The active Memory.md exists but has no content for this day.",
+  "memory.documentMissing": "This document is missing",
+  "memory.memoryDay": "Memory day",
+  "memory.filterKnowledge": "Filter knowledge…",
+  "memory.filterKnowledge2": "Filter knowledge",
+  "memory.persistentKnowledgeYet": "No persistent knowledge yet",
+  "memory.knowledgeSettlesMemoryReflectionOrganizesDayAlso": "Knowledge settles when a Memory reflection organizes a day. You can also just keep talking — the active memory records as you go.",
+  "memory.matches": "No matches"
+} as const;

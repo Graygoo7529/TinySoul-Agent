@@ -1,3 +1,4 @@
+import { useI18n } from "../../i18n";
 import {
   useEffect,
   useId,
@@ -281,10 +282,11 @@ function PanelHeader({
   onToggleExpand?: () => void;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <header className="flex items-center gap-1.5 border-b border-line bg-bg-elev px-3 py-2.5">
       {onBack && (
-        <IconButton label="Back" onClick={onBack}>
+        <IconButton label={t("common.back")} onClick={onBack}>
           <ArrowLeft size={15} />
         </IconButton>
       )}
@@ -311,7 +313,7 @@ function PanelHeader({
           {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
         </IconButton>
       )}
-      <IconButton label="Close" onClick={onClose}>
+      <IconButton label={t("common.close")} onClick={onClose}>
         <X size={15} />
       </IconButton>
     </header>

@@ -1,0 +1,27 @@
+/** Fixed trace interface copy. */
+export const traceMessages = {
+  "trace.process": "过程",
+  "trace.title": "轮次记录",
+  "trace.actionDetail": "行动详情",
+  "trace.modelTask": "模型任务",
+  "trace.modelCall": "模型调用",
+  "trace.searchEvaluation": "检索评估",
+  "trace.turnJob": "本轮后台任务",
+  "trace.rawResultPayload": "原始结果负载",
+  "trace.showMoreOutput": "显示更多输出",
+  "trace.outputReadsBoundedShowMoreContinuesLast": "输出读取是有界的；「显示更多输出」从上次位置继续。",
+  "trace.downloadRetainedEventsViewJson": "将此视图保留的事件导出为 JSON",
+  "trace.workingContext": "工作语境",
+  "trace.capturedLastRecordedModelTask": "捕获于最后一次模型任务之前。",
+  "trace.steps": "条",
+  "trace.overview": "概览",
+  "trace.usageRetainedModelResponsesUnavailableResponsesExcluded": "已保留模型响应的用量；不可用的响应不计入",
+  "trace.observedPhasesElapsedTime": "已观察阶段的用时",
+  "trace.viewLlmMessageStack": "查看 LLM 消息栈",
+  "trace.producedResources": "产出资源",
+  "trace.outputResources": "输出资源",
+  "trace.resultResources": "结果资源",
+  "trace.toolResultContent": "工具结果内容",
+  "trace.sourceChannelScore": "来源通道分数",
+  "trace.modelEvaluationScore": "模型评估分数"
+} as const;

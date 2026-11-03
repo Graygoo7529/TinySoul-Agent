@@ -1,4 +1,5 @@
-import { rawText } from "../../../i18n";
+import { t, useI18n } from "../../../i18n";
+
 import { useEffect, useState } from "react";
 import type { Preset, PresetSummary } from "../../../api/v2/types";
 import { Button } from "../../../components/ui/Button";
@@ -27,6 +28,7 @@ export function usePresetApplyFlow({ onReview }: { onReview: () => void }) {
 function PresetApplyDialog({ preset, onReview, onClose }: {
   preset: PresetSummary; onReview: () => void; onClose: () => void;
 }) {
+  useI18n();
   const clients = useConnectionStore((state) => state.clients);
   const current = useConfigDraftStore((state) => state.saved);
   const draftCount = useConfigDraftStore(selectDraftCount);
@@ -59,10 +61,10 @@ function PresetApplyDialog({ preset, onReview, onClose }: {
       <PresetChanges changes={detail.changes} />
     </>}
     {draftCount > 0 && <p className="mt-4 text-[12px] text-warning">有 {draftCount} 项未应用修改，不包含在以上比较中。请先处理草稿，或丢弃后应用方案。</p>}
-    {blocker && <p className="mt-3 text-[12px] text-warning">{rawText(blocker)}</p>}
+    {blocker && <p className="mt-3 text-[12px] text-warning">{blocker}</p>}
     {failure && <p role="alert" className="mt-3 text-[12px] text-danger">{failure.message}</p>}
     <div className="mt-4 flex flex-wrap justify-end gap-2">
-      <Button variant="ghost" size="sm" disabled={applying} onClick={onClose}>取消</Button>
+      <Button variant="ghost" size="sm" disabled={applying} onClick={onClose}>{t("runtime.cancel")}</Button>
       {draftCount > 0 && <Button variant="outline" size="sm" disabled={applying} onClick={() => { onClose(); onReview(); }}>先处理草稿</Button>}
       <Button variant={draftCount > 0 ? "danger" : "primary"} size="sm" disabled={disabled} loading={applying} onClick={() => void apply()}>
         {draftCount > 0 ? "丢弃草稿并应用" : "应用方案"}

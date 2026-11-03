@@ -1,15 +1,18 @@
-export function formatTime(ts: number): string {
+import { effectiveLocale } from "../i18n/locale";
+import type { Locale } from "../i18n/types";
+
+export function formatTime(ts: number, locale: Locale = effectiveLocale()): string {
   const d = new Date(ts * 1000);
-  return d.toLocaleTimeString(undefined, {
+  return d.toLocaleTimeString(locale, {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
   });
 }
 
-export function formatDateTime(ts: number): string {
+export function formatDateTime(ts: number, locale: Locale = effectiveLocale()): string {
   const d = new Date(ts * 1000);
-  return d.toLocaleString(undefined, {
+  return d.toLocaleString(locale, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -35,8 +38,8 @@ export function formatDuration(from: number, to?: number): string {
   return `${hours}h ${minutes % 60}m`;
 }
 
-export function formatNumber(value: number): string {
-  return value.toLocaleString(undefined);
+export function formatNumber(value: number, locale: Locale = effectiveLocale()): string {
+  return value.toLocaleString(locale);
 }
 
 /** Compact token count, e.g. 12.4k. */

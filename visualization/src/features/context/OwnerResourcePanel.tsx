@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 import { directReferences, isReferenceItem } from "../resources/ChunkedMarkdown";
 /**
  * Owner-side reading of a Home/Memory resource opened from the Context
@@ -69,6 +70,7 @@ export function OwnerResourcePanel({
   day: string | null;
   resolved?: ResourceLocator;
 }): ReactElement {
+  useI18n();
   const [state, setState] = useState<ResolveState>({ kind: "resolving" });
   const seqRef = useRef(0);
 
@@ -115,20 +117,20 @@ export function OwnerResourcePanel({
     case "resolving":
       return (
         <div className="flex items-center gap-2 px-1 py-3 text-[12px] text-fg-faint">
-          正在解析 {reference}…
+          {t("context.resolving")}{reference}…
         </div>
       );
     case "error":
       return (
         <EmptyState
-          title="无法解析此引用"
+          title={t("context.resolveReference")}
           description={state.message}
         />
       );
     case "unresolved":
       return (
         <EmptyState
-          title="此引用需要其原始绑定"
+          title={t("context.referenceNeedsOriginalBinding")}
           description={`「${reference}」是动态引用，其原始日期/轮次绑定已不可用。不会用当前所有者内容替代它。`}
         />
       );
@@ -136,8 +138,8 @@ export function OwnerResourcePanel({
       return (
         <div className="space-y-2">
           <EmptyState
-            title="此引用在其所有者页面打开"
-            description="语境抽屉就地读取 Home 与 Memory 资源；其它所有者有各自页面。"
+            title={t("context.referenceOpensOwnerPage")}
+            description={t("context.contextDrawerReadsHomeMemoryResourcesPlace")}
           />
           <JsonTree value={state.locator} defaultExpanded={false} />
         </div>
@@ -165,6 +167,7 @@ function OwnerContentReader({
   day: string | null;
   target: ResolvedTarget;
 }): ReactElement {
+  useI18n();
   const [memoryMeta, setMemoryMeta] = useState<{
     kind: string;
     status: string;
@@ -249,8 +252,8 @@ function OwnerContentReader({
           closed={false}
           empty={
             <EmptyState
-              title="空文档"
-              description="所有者报告此资源没有内容。"
+              title={t("context.emptyDocument")}
+              description={t("context.ownerReportsContentResource")}
             />
           }
         />
@@ -273,7 +276,7 @@ function OwnerContentReader({
       )}
 
       {memoryMeta !== null && memoryMeta.resolutionChain.length > 1 && (
-        <Collapsible title="解析链" tone="sunken">
+        <Collapsible title={t("context.resolutionChain")} tone="sunken">
           <DetailGrid
             facts={memoryMeta.resolutionChain.map((ref, index) => [
               `step ${index + 1}`,

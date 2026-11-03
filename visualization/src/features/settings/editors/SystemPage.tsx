@@ -34,11 +34,11 @@ export function SystemPage() {
   return (
     <SettingsPageBody>
       <SectionCard
-        title={t("settings.text.f9e45e2faadc")}
-        description={t("settings.text.b593c6d3e714")}
+        title={t("settings.networkProxy2")}
+        description={t("settings.editTheRootPolicyAndInspectEffectiveRoutesOn")}
         actions={
           <button type="button" className="rounded-md bg-hover px-2 py-1 text-xs text-accent hover:bg-line-strong/60" onClick={() => navigateTo("network")}>
-            {t("settings.text.be306d24b463")}
+            {t("settings.openNetworkSettings")}
           </button>
         }
       >
@@ -47,8 +47,8 @@ export function SystemPage() {
       <ProcessShellCard />
       <SourcesCard />
       <SectionCard
-        title={t("settings.text.be3124bbce14")}
-        description={t("settings.text.180cb8915259")}
+        title={t("settings.processOwnedFields")}
+        description={t("settings.declaredByTheProcessItselfTheCliLaunchEnvironment")}
       >
         <div className="flex flex-col divide-y divide-line">
           {PROCESS_FIELDS.map((path) => (
@@ -76,8 +76,8 @@ function ProcessShellCard() {
   );
   return (
     <SectionCard
-      title={t("settings.text.1efee9ea71b1")}
-      description={t("settings.text.5cedcebb9d42")}
+      title={t("settings.endpointListener")}
+      description={t("settings.whereThisBackendListensTheListenerBelongsToThe")}
       actions={<Badge tone="gray">进程管理</Badge>}
     >
       <dl className="grid grid-cols-[140px_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[12px]">
@@ -104,8 +104,8 @@ function SourcesCard() {
   const sources = useConfigDraftStore((s) => s.saved?.sources ?? []);
   return (
     <SectionCard
-      title={t("settings.text.e084fefa1f60")}
-      description={t("settings.text.679970e7e5df")}
+      title={t("settings.configurationSources")}
+      description={t("settings.everySourceTheSavedViewWasProjectedFromIn")}
     >
       <div className="space-y-1">
         {sources.map((source) => (

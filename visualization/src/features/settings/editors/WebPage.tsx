@@ -19,12 +19,12 @@ export function WebPage() {
     <SettingsPageBody>
       <NetworkPolicyField path="capabilities.web.network" title="Web 默认代理" />
       <NetworkPolicyField path="capabilities.web.search_by_kimi.network" title="Kimi 联网检索代理" parentLabel="Web 默认代理" />
-      <div className="rounded-lg border border-line bg-bg-elev px-3.5 py-2.5 text-[12px] leading-5 text-fg-muted">{t("settings.text.8114a342015c")}{" "}
-        <span className="font-medium text-fg">{t("settings.text.377afd2a8b42")}</span>.
+      <div className="rounded-lg border border-line bg-bg-elev px-3.5 py-2.5 text-[12px] leading-5 text-fg-muted">{t("settings.thisPageConfiguresTheExternalWebSearchPageDiscovery")}{" "}
+        <span className="font-medium text-fg">{t("settings.behaviorSearchPolicies")}</span>.
       </div>
       <FieldSection
-        title={t("settings.text.13667b63d080")}
-        description={t("settings.text.747442203e25")}
+        title={t("settings.kimiWebSearch")}
+        description={t("settings.toolAssistedWebSearchThroughTheKimiProvider")}
         paths={[
           "capabilities.web.search_by_kimi.enabled",
           "capabilities.web.search_by_kimi.base_url",
@@ -45,8 +45,8 @@ export function WebPage() {
         }}
       />
       <FieldSection
-        title={t("settings.text.9966f9cc3552")}
-        description={t("settings.text.c5e684d9a670")}
+        title={t("settings.pageDiscovery")}
+        description={t("settings.boundedCrawlingThatDiscoversPagesFromSeedLinks")}
         paths={[
           "capabilities.web.discover_pages.enabled",
           "capabilities.web.discover_pages.max_visit_depth",
@@ -69,16 +69,16 @@ export function WebPage() {
         }}
       />
       <FieldSection
-        title={t("settings.text.ebb312419acc")}
-        description={t("settings.text.be6ff0fdf686")}
+        title={t("settings.fetchers")}
+        description={t("settings.readableContentExtractionImplementations")}
         paths={[
           "capabilities.web.fetch_with_trafilatura.enabled",
           "capabilities.web.fetch_with_defuddle.enabled",
         ]}
       />
       <FieldSection
-        title={t("settings.text.935aa248b828")}
-        description={t("settings.text.60e7aacb3877")}
+        title={t("settings.sharedWebLimits")}
+        description={t("settings.downloadStorageAndRequestBehaviorSharedByTheWeb")}
         paths={[
           "capabilities.web.request_timeout_seconds",
           "capabilities.web.max_source_bytes",
@@ -92,8 +92,8 @@ export function WebPage() {
         }}
       />
       <FieldSection
-        title={t("settings.text.cf6933851bdc")}
-        description={t("settings.text.bce10de6b1c7")}
+        title={t("settings.resourceConversion")}
+        description={t("settings.documentToMarkdownConversionMarkitdownPypdfAndItsBounds")}
         paths={[
           "capabilities.resource.render_pdf_pages",
           "capabilities.resource.convert_with_markitdown.enabled",

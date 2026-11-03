@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * One day's turns (plan §7): the committed Session summaries
  * (`/v2/session/turns?day=`), paged by continuation. On the active day the
@@ -23,6 +24,7 @@ import { historyClients, SequenceStatus } from "./panelShared";
 import { usePagedSequence } from "./usePagedSequence";
 
 export function DayTurnsPanel({ epoch, day }: { epoch: number; day: DayEntry }) {
+  useI18n();
   const status = useConnectionStore((s) => s.status);
   const seq = usePagedSequence<SessionTurnSummary, SessionTurnsPage>(
     (token, signal) =>
@@ -70,8 +72,7 @@ export function DayTurnsPanel({ epoch, day }: { epoch: number; day: DayEntry }) 
           onClick={() => openSessionMap(epoch, day.day)}
         >
           <Network size={12} />
-          Session map
-        </Button>
+          {t("history.sessionMap")}</Button>
       </div>
 
       {activeTurnId !== null && (

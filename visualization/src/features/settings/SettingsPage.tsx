@@ -1,4 +1,4 @@
-import { rawText, useI18n } from "../../i18n";
+import { useI18n } from "../../i18n";
 import "./layout.css";
 import { useEffect, type ComponentType } from "react";
 import { Loader2, RefreshCw, Settings2, Unplug } from "lucide-react";
@@ -208,9 +208,9 @@ function SettingsHeader({ connected }: { connected: boolean }) {
           {blocker !== null && (
             <span
               className="hidden max-w-[280px] truncate text-[10px] text-warning sm:block"
-              title={rawText(blocker)}
+              title={blocker}
             >
-              {rawText(blocker)}
+              {blocker}
             </span>
           )}
           <IconButton

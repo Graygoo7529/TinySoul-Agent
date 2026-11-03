@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 import { requestIdForTurn } from "../../store/turnStore";
 /**
  * The compact overview strip of the runtime page (plan §14): Agent
@@ -117,6 +118,7 @@ export function OverviewStrip({
 }: {
   read: ActiveTurnRead;
 }): ReactElement {
+  useI18n();
   const status = useConnectionStore((s) => s.status);
   const snapshot = read.snapshot;
   const queued = status?.runtime.queued_request_ids ?? [];
@@ -148,7 +150,7 @@ export function OverviewStrip({
             <span className="font-medium" title={read.turnId}>
               {shortTurnId(read.turnId)}
             </span>
-            <CopyButton text={() => read.turnId ?? ""} label="复制轮次 ID" />
+            <CopyButton text={() => read.turnId ?? ""} label={t("runtime.copyTurnId")} />
             {snapshot !== null && (
               <>
                 <Badge tone="accent">{snapshot.kind}</Badge>

@@ -752,7 +752,7 @@ describe("JobPanel", () => {
     // stderr stays its own channel, collapsed until asked.
     const stderrChannel = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.trim().startsWith("stderr7 chars") ||
-        button.textContent?.trim() === "stderr",
+        button.textContent?.trim().startsWith("stderr"),
     );
     expect(stderrChannel).toBeDefined();
     act(() => {

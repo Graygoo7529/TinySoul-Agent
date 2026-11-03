@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 import { findRequestIdForTurn } from "../../store/turnStore";
 /**
  * Whole-Turn process view (plan §9): Turn → Cycle → Phase → Action, with the
@@ -57,6 +58,7 @@ export function ProcessPanel({
   turnId: string;
   day: string | null;
 }): ReactElement {
+  useI18n();
   const activeTurnId = useConnectionStore(selectActiveTurnId);
   const cursor = useConnectionStore((state) => state.eventCursor);
   const revision = useThrottledValue(activeTurnId === turnId ? cursor : 0, 1200);
@@ -135,7 +137,7 @@ export function ProcessPanel({
       ) : tab === "overview" ? (
         <>
           <OverviewCard process={process} />
-          {(working.todos.length > 0 || working.milestones.length > 0) && <SectionCard title="工作语境" description="捕获于最后一次模型任务之前。">
+          {(working.todos.length > 0 || working.milestones.length > 0) && <SectionCard title={t("trace.workingContext")} description={t("trace.capturedLastRecordedModelTask")}>
             <WorkingZone working={working} />
           </SectionCard>}
           <ActivityTimeline events={window.events} turnId={turnId} epoch={epoch} day={day} />
@@ -148,7 +150,7 @@ export function ProcessPanel({
             day={day}
             process={process}
           />
-          {(snapshot?.jobs.length ?? 0) > 0 && <Collapsible title="后台任务" defaultOpen>
+          {(snapshot?.jobs.length ?? 0) > 0 && <Collapsible title={t("runtime.jobs")} defaultOpen>
             {snapshot?.jobs.map((job) => <button key={job.job_id} className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[12px] hover:bg-hover"
               onClick={() => makeTraceNavigation(epoch, turnId, day).openJob(job.job_id)}>
               <span className="flex-1 truncate">{job.summary || job.kind}</span><Badge>{job.state}</Badge>
@@ -185,6 +187,7 @@ export function ActivityTimeline({
   epoch: number;
   day: string | null;
 }): ReactElement | null {
+  useI18n();
   const [filter, setFilter] = useState<ActivityFilter>("All");
   const [full, setFull] = useState(false);
   if (events.length === 0) return null;
@@ -201,7 +204,7 @@ export function ActivityTimeline({
       description="与过程记录共用同一事件流"
       actions={
         <span className="flex items-center gap-2 text-[10px] text-fg-faint">
-          <span>{activity.trail.length} 条</span>
+          <span>{activity.trail.length} {t("trace.steps")}</span>
           <button
             type="button"
             onClick={() => setFull(!full)}
@@ -257,6 +260,7 @@ export function ActivityTimeline({
 }
 
 function OverviewCard({ process }: { process: TurnProcess }): ReactElement {
+  useI18n();
   const cyclesCount = process.cycles.length;
   const actionsCount = process.cycles.reduce(
     (sum, cycle) =>
@@ -319,7 +323,7 @@ function OverviewCard({ process }: { process: TurnProcess }): ReactElement {
   };
 
   return (
-    <SectionCard title="概览">
+    <SectionCard title={t("trace.overview")}>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[["循环", cyclesCount], ["模型调用", llmTasksCount], ["动作", actionsCount], ["检索", searchesCount]].map(([label, value]) => (
           <div key={label} className="rounded-lg bg-bg-sunken px-3 py-2">
@@ -347,7 +351,7 @@ function OverviewCard({ process }: { process: TurnProcess }): ReactElement {
             </span>
           )}
           {tokenTasks.length > 0 && (
-            <span title="已保留模型响应的用量；不可用的响应不计入">
+            <span title={t("trace.usageRetainedModelResponsesUnavailableResponsesExcluded")}>
               <span className="text-fg-faint">tokens </span>
               <span className="font-mono font-medium text-fg">{formatTokens(tokensTotal)}</span>
               <span className="text-fg-faint">（{tokenTasks.length} 次调用）</span>
@@ -390,6 +394,7 @@ function ProcessTree({
   day: string | null;
   process: TurnProcess;
 }): ReactElement {
+  useI18n();
   const nav = makeTraceNavigation(epoch, turnId, day);
   const orphanTasks = process.llmTasks.filter(
     (task) => task.invokeId === null && task.cycleId === null,
@@ -473,8 +478,7 @@ function ProcessTree({
                 {shortId(search.searchId)}
               </span>
               <span className="text-fg-faint">
-                {search.steps.length} 条
-                {search.invocations.length > 0
+                {search.steps.length} {t("trace.steps")}{search.invocations.length > 0
                   ? ` · ${search.invocations.length} model invocations`
                   : ""}
               </span>
@@ -615,6 +619,7 @@ function PhaseDot({
 }
 
 /** c479ca0 phase disclosure and direct model-context chip, fed by v2 task IDs. */function CycleMeta({ phases }: { phases: PhaseProcess[] }) {
+  useI18n();
   const running = phases.some((phase) => phase.status === "running");
   useNow(running, 1000);
   const starts = phases.flatMap((phase) => phase.startedAt === null ? [] : [phase.startedAt]);
@@ -622,7 +627,7 @@ function PhaseDot({
   const actions = phases.reduce((sum, phase) => sum + phase.actions.length, 0);
   return <span className="flex items-center gap-2 text-[10px] text-fg-faint">
     {running && <Loader2 size={11} className="animate-spin-slow text-accent" />}
-    {starts.length > 0 && (running || ends.length > 0) && <span className="font-mono" title="已观察阶段的用时">
+    {starts.length > 0 && (running || ends.length > 0) && <span className="font-mono" title={t("trace.observedPhasesElapsedTime")}>
       {formatDuration(Math.min(...starts), running ? Date.now() / 1000 : Math.max(...ends))}</span>}
     {actions > 0 && <span>{actions} {actions === 1 ? "action" : "actions"}</span>}
   </span>;
@@ -632,6 +637,7 @@ function PhaseCard({ phase, onOpenTask, onOpenAction, children }: {
   phase: PhaseProcess; onOpenTask: (taskId: string) => void;
   onOpenAction: (action: string, ordinal: number) => void; children: ReactNode;
 }) {
+  useI18n();
   const [open, setOpen] = useState(false);
   const [reasoningFull, setReasoningFull] = useState(false);
   const lastTask = phase.llmTasks[phase.llmTasks.length - 1]?.taskId;
@@ -664,7 +670,7 @@ function PhaseCard({ phase, onOpenTask, onOpenAction, children }: {
         {domains.map((domain) => <Badge key={domain}>{domain}</Badge>)}
         {phase.startedAt !== null && (phase.finishedAt !== null || running) && <span className="font-mono text-[10px] text-fg-faint">
           {formatDuration(phase.startedAt, phase.finishedAt ?? Date.now() / 1000)}</span>}
-        {lastTask && <button type="button" title="查看 LLM 消息栈"
+        {lastTask && <button type="button" title={t("trace.viewLlmMessageStack")}
           onClick={() => onOpenTask(lastTask)}
           className="inline-flex h-5.5 shrink-0 items-center gap-1 rounded-full border border-accent/30 bg-accent-soft px-2 text-[10px] font-medium text-accent transition-colors hover:bg-accent hover:text-white">
           <Brain size={10} /> context

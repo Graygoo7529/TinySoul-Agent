@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Home directory (left panel, plan §11): the paged catalog grouped by real
  * space/type — top content, general skills (expandable: SKILL.md and the
@@ -35,6 +36,7 @@ import {
 import { useHomePage } from "./store";
 
 export function HomeDirectory({ epoch }: { epoch: number }): ReactElement {
+  useI18n();
   const view = useHomePage((s) => s.view);
   const query = useHomePage((s) => s.query);
   const selectedLink = useHomePage((s) => s.ref);
@@ -92,8 +94,8 @@ export function HomeDirectory({ epoch }: { epoch: number }): ReactElement {
         <input
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
-          placeholder="筛选目录…"
-          aria-label="筛选 Home 目录"
+          placeholder={t("home.filterDirectory")}
+          aria-label={t("home.filterHomeDirectory")}
           className="h-7 w-full rounded-lg border border-line bg-bg-elev px-2.5 text-[12px] outline-none focus:border-accent"
         />
       </div>
@@ -112,8 +114,7 @@ export function HomeDirectory({ epoch }: { epoch: number }): ReactElement {
             action={
               <Button variant="outline" size="sm" onClick={catalog.reload}>
                 <RotateCcw size={13} />
-                Retry
-              </Button>
+                {t("common.retry")}</Button>
             }
           />
         ) : empty ? (
@@ -130,7 +131,7 @@ export function HomeDirectory({ epoch }: { epoch: number }): ReactElement {
         ) : (
           <div className="space-y-3">
             {groups.tops.length > 0 && (
-              <DirectorySection icon={<Layers size={12} />} title="顶层内容">
+              <DirectorySection icon={<Layers size={12} />} title={t("home.topContent")}>
                 {groups.tops.map((item) => (
                   <DirectoryRow
                     key={item.ref}
@@ -142,7 +143,7 @@ export function HomeDirectory({ epoch }: { epoch: number }): ReactElement {
               </DirectorySection>
             )}
             {groups.skills.length > 0 && (
-              <DirectorySection icon={<Boxes size={12} />} title="通用技能">
+              <DirectorySection icon={<Boxes size={12} />} title={t("home.generalSkills")}>
                 {groups.skills.map((group) => (
                   <SkillGroupRows
                     key={group.name}
@@ -154,7 +155,7 @@ export function HomeDirectory({ epoch }: { epoch: number }): ReactElement {
               </DirectorySection>
             )}
             {groups.resources.length > 0 && (
-              <DirectorySection icon={<FileText size={12} />} title="资源">
+              <DirectorySection icon={<FileText size={12} />} title={t("home.resources")}>
                 {groups.resources.map((item) => (
                   <DirectoryRow
                     key={item.ref}
@@ -166,7 +167,7 @@ export function HomeDirectory({ epoch }: { epoch: number }): ReactElement {
               </DirectorySection>
             )}
             {groups.guidance.length > 0 && (
-              <DirectorySection icon={<BookOpen size={12} />} title="指导">
+              <DirectorySection icon={<BookOpen size={12} />} title={t("home.guidance")}>
                 {groups.guidance.map((item) => (
                   <DirectoryRow
                     key={item.ref}
@@ -190,8 +191,7 @@ export function HomeDirectory({ epoch }: { epoch: number }): ReactElement {
                 loading={catalog.loadingMore}
                 onClick={catalog.loadMore}
               >
-                显示更多
-              </Button>
+                {t("common.showMore")}</Button>
             )}
           </div>
         )}

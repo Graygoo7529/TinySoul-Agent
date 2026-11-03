@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * c479ca0's compact action inset. Only the input/result boundary uses v2;
  * diff rows, terminal tails and bounded search hits retain the baseline layout.
@@ -26,6 +27,7 @@ export function ActivityGlimpse({ item, live, glimpseExpanded, onToggleGlimpse, 
   item: ActivityStep; live: boolean; glimpseExpanded: boolean; onToggleGlimpse: () => void;
   epoch: number; turnId: string; day: string | null;
 }) {
+  useI18n();
   const reduced = useReducedMotion();
   if (item.content.type !== "action_plan" && item.content.type !== "action_result") return <Step item={item} animate={live} />;
   const data = item.content.glimpse;
@@ -38,7 +40,7 @@ export function ActivityGlimpse({ item, live, glimpseExpanded, onToggleGlimpse, 
       <div className="grow-in"><Crossfade id={`${data.callId}:${data.stage}`} className="mt-1 rounded-lg border border-line/70 bg-bg-sunken/70 px-2.5 py-1.5">
         {body}
         {data.callId && <button type="button" className="mt-1 text-[10px] text-accent hover:underline"
-          onClick={() => pushActionDetail(epoch, turnId, day, { callId: data.callId!, action: data.actionId, ordinal: 0 })}>Details</button>}
+          onClick={() => pushActionDetail(epoch, turnId, day, { callId: data.callId!, action: data.actionId, ordinal: 0 })}>{t("common.details")}</button>}
       </Crossfade></div>
     </motion.div>}</AnimatePresence>} />;
 }
@@ -373,6 +375,7 @@ function ReasonResultGlimpse({ payload }: { payload: Record<string, unknown> }) 
 }
 
 function WriteResultGlimpse({ actionId, payload }: { actionId: string; payload: Record<string, unknown> }) {
+  useI18n();
   const link = asString(payload.ref) ?? asString(payload.path);
   const changed = typeof payload.changed === "boolean" ? payload.changed : null;
   const written = asNumber(payload.written);
@@ -388,7 +391,7 @@ function WriteResultGlimpse({ actionId, payload }: { actionId: string; payload: 
     <div className="flex min-w-0 items-center gap-2">
       <span className={changed === false ? "text-fg-muted" : "text-success"}>{operation ?? "completed"}</span>
       {written !== null && <span className="font-mono text-fg-faint">{written} written</span>}
-      {chars !== null && <span className="font-mono text-fg-faint">{chars} chars</span>}
+      {chars !== null && <span className="font-mono text-fg-faint">{chars} {t("resources.chars")}</span>}
       {bytes !== null && <span className="font-mono text-fg-faint">{bytes} bytes</span>}
       {link && <span className="truncate text-fg-muted" title={link}>{link}</span>}
     </div>

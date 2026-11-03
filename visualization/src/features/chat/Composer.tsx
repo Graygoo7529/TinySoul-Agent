@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Direct input to the current User Turn. The target is fixed at submission;
  * missing runtime state never silently changes an append into a new Turn.
@@ -12,6 +13,7 @@ import { useComposerDraft } from "./composerDraft";
 import { PresetEntry } from "./PresetEntry";
 
 export function Composer() {
+  useI18n();
   const epoch = useConnectionStore((s) => s.epoch);
   const phase = useConnectionStore((s) => s.phase);
   const status = useConnectionStore((s) => s.status);
@@ -47,20 +49,20 @@ export function Composer() {
     finally { setStopping(false); }
   };
 
-  const placeholder = readOnly ? "只读历史——不能回复或编辑"
-    : intent.kind === "append" ? "追加到当前轮次…"
-    : intent.kind === "new-turn" ? "向 TinySoul 发送消息…"
+  const placeholder = readOnly ? t("chat.composer.history")
+    : intent.kind === "append" ? t("chat.composer.append")
+    : intent.kind === "new-turn" ? t("chat.composer.newTurn")
     : {
-        "offline": "请先连接一个运行中的 TinySoul 后端",
-        "not-ready": "后端正在启动…",
-        "syncing": "正在连接当前轮次…",
-        "finishing": "当前轮次正在收尾…",
+        "offline": t("chat.composer.offline"),
+        "not-ready": t("chat.composer.starting"),
+        "syncing": t("chat.composer.syncing"),
+        "finishing": t("chat.composer.finishing"),
       }[intent.reason];
-  const hint = readOnly ? "回到今天才能发送消息"
-    : intent.kind === "unavailable" && intent.reason === "finishing" ? "草稿会保留到轮次结束"
-    : intent.kind === "unavailable" && intent.reason === "syncing" ? "草稿在轮次同步期间保留"
-    : intent.kind === "append" ? "Enter 发送 · Shift+Enter 换行 · 作为当前轮次的输入"
-    : "Enter 发送 · Shift+Enter 换行";
+  const hint = readOnly ? t("chat.composer.returnToday")
+    : intent.kind === "unavailable" && intent.reason === "finishing" ? t("chat.composer.keepDraft")
+    : intent.kind === "unavailable" && intent.reason === "syncing" ? t("chat.composer.syncDraft")
+    : intent.kind === "append" ? t("chat.composer.appendHint")
+    : t("chat.composer.sendHint");
 
   return (
     <div className="border-t border-line bg-bg px-4 pt-3 pb-4">
@@ -91,12 +93,12 @@ export function Composer() {
               {!readOnly && <PresetEntry />}
               {intent.kind === "append" && !text.trim() && !readOnly ? (
                 <button onClick={() => void stop()} disabled={stopping}
-                  title={stopping ? "正在停止…" : "停止当前轮次"}
+                  title={stopping ? t("chat.composer.stopping") : t("chat.composer.stop")}
                   className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-danger text-white shadow-sm transition-colors hover:bg-danger/90 disabled:opacity-60">
                   <Square size={13} />
                 </button>
               ) : (
-                <button onClick={() => void send()} disabled={!canSend} title="发送"
+                <button onClick={() => void send()} disabled={!canSend} title={t("chat.composer.send")}
                   className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-accent-grad text-white shadow-brand transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">
                   <Send size={14} className={sending ? "animate-pulse-dot" : ""} />
                 </button>

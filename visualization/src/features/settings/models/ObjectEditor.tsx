@@ -1,4 +1,4 @@
-import { t, rawText } from "../../../i18n";
+import { t } from "../../../i18n";
 /**
  * Shared object-editor chrome for the Models & Services pages (plan §16):
  * the left list / right editor layout retained from the original settings
@@ -87,10 +87,10 @@ export function ObjectEditorLayout({
   const visibleItems = items.filter((item) => `${item.id} ${item.group ?? ""}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return (
     <div className="settings-object-layout min-h-full min-w-0">
-      <SettingsPicker kind="objects" label={selected ?? `选择${rawText(title)}`}>{(close) => <aside className="min-h-0 overflow-y-auto border-r border-line bg-bg-sunken/25">
+      <SettingsPicker kind="objects" label={selected ?? `选择${title}`}>{(close) => <aside className="min-h-0 overflow-y-auto border-r border-line bg-bg-sunken/25">
         <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2.5">
           <div className="min-w-0">
-            <div className="text-[12px] font-semibold text-fg">{rawText(title)}</div>
+            <div className="text-[12px] font-semibold text-fg">{title}</div>
             <div className="text-[10px] text-fg-faint">
               已配置 {items.length} 项
             </div>
@@ -158,8 +158,8 @@ export function ObjectEditorLayout({
       <main ref={editor} className="settings-form min-w-0">
         {selected === null ? (
           <EmptyState
-            title={`请选择${rawText(title)}`}
-            description={rawText(description)}
+            title={`请选择${title}`}
+            description={description}
           />
         ) : (
           <>
@@ -171,7 +171,7 @@ export function ObjectEditorLayout({
                   </h2>
                   {headerBadges}
                 </div>
-                <p className="mt-0.5 text-[10px] text-fg-faint">{rawText(description)}</p>
+                <p className="mt-0.5 text-[10px] text-fg-faint">{description}</p>
               </div>
               {headerActions && (
                 <div className="flex shrink-0 items-center gap-1.5">
@@ -244,7 +244,7 @@ export function CreateObjectModal({
             {validation ?? idDescription}
           </span>
           {id !== "" && validation === null && existing.includes(id) && (
-            <span className="mt-1 block text-[10px] text-danger">{t("settings.text.3c7b65d9c8b0")}</span>
+            <span className="mt-1 block text-[10px] text-danger">{t("settings.anEntryWithThisIdAlreadyExists")}</span>
           )}
         </label>
         {children}
@@ -255,14 +255,14 @@ export function CreateObjectModal({
           </div>
         )}
         <div className="flex justify-end gap-2 border-t border-line pt-3">
-          <Button size="xs" variant="ghost" onClick={onClose}>{t("settings.text.77dfd2135f4d")}</Button>
+          <Button size="xs" variant="ghost" onClick={onClose}>{t("settings.cancel")}</Button>
           <Button
             size="xs"
             variant="primary"
             disabled={!available || !valid}
             onClick={() => onCreate(id)}
           >
-            <Plus size={13} />{t("settings.text.6e157c5da441")}</Button>
+            <Plus size={13} />{t("settings.create")}</Button>
         </div>
       </div>
     </Modal>
@@ -292,7 +292,7 @@ export function DeleteObjectModal({
   return (
     <Modal title={title} onClose={onClose}>
       <div className="space-y-4">
-        <p className="text-[12px] leading-5 text-fg-muted">{t("settings.text.f6fdbe48dc54")}<span className="font-mono text-fg">{objectId}</span>? The change
+        <p className="text-[12px] leading-5 text-fg-muted">{t("settings.delete")}<span className="font-mono text-fg">{objectId}</span>? The change
           joins the local draft and only takes effect when you apply the
           configuration.
         </p>
@@ -316,8 +316,8 @@ export function DeleteObjectModal({
           </div>
         )}
         <div className="flex justify-end gap-2 border-t border-line pt-3">
-          <Button size="xs" variant="ghost" onClick={onClose}>{t("settings.text.77dfd2135f4d")}</Button>
-          <Button size="xs" variant="danger" onClick={onDelete}>{t("settings.text.f6fdbe48dc54")}</Button>
+          <Button size="xs" variant="ghost" onClick={onClose}>{t("settings.cancel")}</Button>
+          <Button size="xs" variant="danger" onClick={onDelete}>{t("settings.delete")}</Button>
         </div>
       </div>
     </Modal>
@@ -382,7 +382,7 @@ export function RenameObjectModal({
             <span className="mt-1 block text-[10px] text-danger">{validation}</span>
           )}
           {id !== objectId && validation === null && existing.includes(id) && (
-            <span className="mt-1 block text-[10px] text-danger">{t("settings.text.3c7b65d9c8b0")}</span>
+            <span className="mt-1 block text-[10px] text-danger">{t("settings.anEntryWithThisIdAlreadyExists")}</span>
           )}
         </label>
         {references.length > 0 && (
@@ -406,17 +406,17 @@ export function RenameObjectModal({
                 checked={updateRefs}
                 onChange={(event) => setUpdateRefs(event.target.checked)}
                 className="accent-accent"
-              />{t("settings.text.ad2e18c00547")}</label>
+              />{t("settings.alsoUpdateTheseReferencesToTheNewIdIn")}</label>
           </div>
         )}
         <div className="flex justify-end gap-2 border-t border-line pt-3">
-          <Button size="xs" variant="ghost" onClick={onClose}>{t("settings.text.77dfd2135f4d")}</Button>
+          <Button size="xs" variant="ghost" onClick={onClose}>{t("settings.cancel")}</Button>
           <Button
             size="xs"
             variant="primary"
             disabled={!available}
             onClick={() => onRename(id, updateRefs)}
-          >{t("settings.text.d3f4cb898fbe")}</Button>
+          >{t("settings.rename")}</Button>
         </div>
       </div>
     </Modal>

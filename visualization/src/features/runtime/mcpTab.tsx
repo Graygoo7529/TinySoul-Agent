@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * MCP tab (plan §14 MCP, API-16).
  *
@@ -45,6 +46,7 @@ interface ToolPage {
 }
 
 export function McpTab({ epoch }: { epoch: number }): ReactElement {
+  useI18n();
   const [filter, setFilter] = useState("");
   const [selectedServer, setSelectedServer] = useState<string | null>(null);
   // One lazy active-configuration read per tab; tool details derive their
@@ -82,12 +84,11 @@ export function McpTab({ epoch }: { epoch: number }): ReactElement {
     return (
       <EmptyState
         icon={<Plug size={26} />}
-        title="没有已配置的 MCP 服务器"
-        description="服务器是配置事实——先在设置中配置，才能发现其目录。"
+        title={t("runtime.mcpServersConfigured")}
+        description={t("runtime.serversConfigurationFactsConfigureSettingsDirectoryDiscovered")}
         action={
           <Button variant="outline" size="sm" onClick={() => openMcpSettings()}>
-            配置服务器
-          </Button>
+            {t("runtime.configureServers")}</Button>
         }
       />
     );
@@ -98,7 +99,7 @@ export function McpTab({ epoch }: { epoch: number }): ReactElement {
         <input
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
-          placeholder="按名称或描述筛选…"
+          placeholder={t("runtime.filterNameDescription")}
           className="h-8 w-64 rounded-lg border border-line bg-bg-elev px-2.5 text-[13px] outline-none placeholder:text-fg-faint focus:border-line-strong"
         />
         <span className="text-[11px] text-fg-faint">
@@ -158,6 +159,7 @@ function ServerRow({
   onSelect: () => void;
   onRefreshed: () => void;
 }): ReactElement {
+  useI18n();
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNote, setRefreshNote] = useState<string | null>(null);
 
@@ -211,7 +213,7 @@ function ServerRow({
             ? `已发现 · ${server.tool_count} 个工具`
             : "未发现"}
         </Badge>
-        {server.stale && <Badge tone="yellow">stale</Badge>}
+        {server.stale && <Badge tone="yellow">{t("settings.stale")}</Badge>}
         {server.error !== null && (
           <Badge tone="red" title={server.error}>
             error
@@ -230,8 +232,7 @@ function ServerRow({
           onClick={() => void refresh()}
         >
           <RefreshCw size={12} />
-          刷新目录
-        </Button>
+          {t("runtime.refreshDirectory")}</Button>
       </div>
       {refreshNote !== null && (
         <div className="border-t border-line px-3 py-1.5 text-[11px] text-warning">
@@ -257,6 +258,7 @@ function ServerTools({
   serverId: string;
   activeConfig: () => Promise<Configuration>;
 }): ReactElement {
+  useI18n();
   const [selectedTool, setSelectedTool] = useState<string | null>(null);
   // Page-level `discovered` fact of the latest tools page (the hook surfaces
   // items only; the fetch closure records the base fact alongside).
@@ -322,8 +324,7 @@ function ServerTools({
                 <Badge tone="green">callable</Badge>
               ) : (
                 <Badge tone="red" title={tool.unavailable ?? "unavailable"}>
-                  unavailable
-                </Badge>
+                  {t("settings.unavailable")}</Badge>
               )}
             </button>
             {selectedTool === tool.name && (
@@ -363,6 +364,7 @@ function ToolDetail({
   tool: McpToolSummary;
   activeConfig: () => Promise<Configuration>;
 }): ReactElement {
+  useI18n();
   const read = useAsyncRead(async (signal) => {
     const clients = runtimeClients(epoch);
     const [page, config] = await Promise.all([
@@ -414,7 +416,7 @@ function ToolDetail({
             </Button>
           </div>
           {read.value.definition !== null && (
-            <Collapsible title="定义">
+            <Collapsible title={t("runtime.definition")}>
               <JsonTree value={read.value.definition} defaultExpanded={false} />
             </Collapsible>
           )}

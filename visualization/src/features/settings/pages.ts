@@ -1,4 +1,4 @@
-import { localizeCollection, localizeDocument, localizeField } from "../../i18n";
+import { effectiveLocale, localizeCollection, localizeDocument, localizeField, type Locale } from "../../i18n";
 /**
  * Settings page registry (implementation plan §15, P10): the six Agent
  * settings groups plus the interface entry, every page's ownership of config
@@ -405,6 +405,7 @@ export function searchConfig(
   catalog: SettingsCatalog | null,
   query: string,
   limit = 20,
+  locale: Locale = effectiveLocale(),
 ): SettingsSearchHit[] {
   const needle = query.trim().toLowerCase();
   if (needle === "" || catalog === null) return [];
@@ -413,7 +414,7 @@ export function searchConfig(
     parts.some((part) => part?.toLowerCase().includes(needle));
 
   for (const field of catalog.fields) {
-    const localized = localizeField(field);
+    const localized = localizeField(field, locale);
     if (!matches(field.path, field.title, field.description, localized.title, localized.description)) continue;
     const page = pageForPath(field.path) ?? pageForSurface(field.surface);
     if (page === null) continue;
@@ -427,7 +428,7 @@ export function searchConfig(
     });
   }
   for (const collection of catalog.collections) {
-    const localized = localizeCollection(collection);
+    const localized = localizeCollection(collection, locale);
     if (!matches(collection.id, collection.root, collection.title, collection.description, localized.title, localized.description)) {
       continue;
     }
@@ -443,7 +444,7 @@ export function searchConfig(
     });
   }
   for (const doc of catalog.documentFields) {
-    const localized = localizeDocument(doc);
+    const localized = localizeDocument(doc, locale);
     if (!matches(doc.path, doc.title, doc.description, localized.title, localized.description)) continue;
     const page = pageForSurface(doc.surface);
     if (page === null) continue;

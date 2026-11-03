@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * The v2 chat view (plan §5.1/§7).
  *
@@ -266,6 +267,7 @@ function interactionKey(item: Interaction, items: Interaction[]): string {
 }
 
 function HistoryBanner() {
+  useI18n();
   const epoch = useConnectionStore((s) => s.epoch);
   const day = useTurnStore((s) => s.day);
   const turnId = useTurnStore((s) => s.turnId ?? s.requestId);
@@ -291,8 +293,7 @@ function HistoryBanner() {
           onClick={() => openSessionMap(epoch, day)}
         >
           <Network size={11} />
-          Session map
-        </Button>
+          {t("history.sessionMap")}</Button>
       )}
       {turnId !== null && (
         <Button
@@ -301,7 +302,7 @@ function HistoryBanner() {
           onClick={() => openTurnProcess(epoch, turnId, day)}
         >
           <ListTree size={11} />
-          Process
+          {t("trace.process")}
         </Button>
       )}
       <BackToToday label={liveElsewhere ? "回到进行中的轮次" : undefined} />
@@ -328,6 +329,7 @@ function BackToToday({ label }: { label?: string }) {
 }
 
 function TakeoverNotice() {
+  useI18n();
   const epoch = useConnectionStore((s) => s.epoch);
   const takeoverPending = useTurnStore((s) => s.takeoverPending);
   const historyUnavailable = useTurnStore((s) => s.historyUnavailable);
@@ -341,8 +343,7 @@ function TakeoverNotice() {
       </span>
       <Button variant="ghost" size="xs" onClick={() => retryTakeover(epoch)}>
         <RotateCw size={11} />
-        Retry
-      </Button>
+        {t("common.retry")}</Button>
     </div>
   );
 }
@@ -395,6 +396,7 @@ export function EchoRow({ echo }: { echo: OutgoingEcho }) {
 }
 
 function EchoDelivery({ echo }: { echo: OutgoingEcho }) {
+  useI18n();
   const epoch = useConnectionStore((s) => s.epoch);
   const failed = echo.state === "failed";
   return (
@@ -405,19 +407,17 @@ function EchoDelivery({ echo }: { echo: OutgoingEcho }) {
               {echo.turnClosed && (
                 <button
                   className="font-medium text-accent hover:underline"
-                  title="目标轮次已关闭；相同内容将作为新一轮发送"
+                  title={t("chat.targetTurnClosedSendSameTextNew")}
                   onClick={() => void sendEchoAsNewTurn(epoch, echo.echoId)}
                 >
-                  作为新会话发送
-                </button>
+                  {t("chat.sendNewConversation")}</button>
               )}
               {echo.kind !== "reply" && (
                 <button
                   className="font-medium text-accent hover:underline"
                   onClick={() => void retryEcho(epoch, echo.echoId)}
                 >
-                  Retry
-                </button>
+                  {t("common.retry")}</button>
               )}
               <button
                 className="inline-flex items-center gap-0.5 hover:text-fg"

@@ -12,6 +12,7 @@ import { persist } from "zustand/middleware";
 
 import type { AppTab } from "../types";
 import { randomId } from "../utils/randomId";
+import type { UiText } from "../i18n/core";
 
 type RestorableAppTab = Exclude<AppTab, "settings">;
 
@@ -31,14 +32,14 @@ export function normalizePersistedActiveTab(value: unknown): RestorableAppTab {
 }
 
 export interface ToastAction {
-  label: string;
+  label: UiText;
   onClick: () => void;
 }
 
 export interface ToastItem {
   id: string;
   kind: "success" | "error" | "info";
-  text: string;
+  text: UiText;
   /** Optional action button rendered inside the toast; clicking it runs the
       callback and dismisses the toast. */
   action?: ToastAction;
@@ -51,7 +52,7 @@ export interface AppState {
   setActiveTab: (tab: AppTab) => void;
   pushToast: (
     kind: ToastItem["kind"],
-    text: string,
+    text: UiText,
     action?: ToastAction,
   ) => void;
   dismissToast: (id: string) => void;

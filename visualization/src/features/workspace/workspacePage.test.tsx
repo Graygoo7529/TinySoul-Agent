@@ -275,7 +275,7 @@ describe("WorkspacePage editing", () => {
     expect(editor?.value).toBe("full text here");
 
     await act(async () => {
-      buttonByText("Save").click();
+      buttonByText("保存").click();
     });
     const writes = endpoint.calls("/v2/workspace/resource", "PUT");
     expect(writes).toHaveLength(1);
@@ -421,7 +421,7 @@ describe("WorkspacePage trash", () => {
     expect(container.textContent).toContain("a.md");
 
     await act(async () => {
-      buttonByText("Restore").click();
+      buttonByText("恢复").click();
     });
     const restores = endpoint.calls("/v2/workspace/restore", "POST");
     expect(restores).toHaveLength(1);

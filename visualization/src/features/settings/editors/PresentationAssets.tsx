@@ -9,7 +9,7 @@ const PREVIEW_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/we
 export function PresentationAssets() {
   const [open, setOpen] = useState(false);
   return <details className="rounded-lg border border-line bg-bg-elev p-4" onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary className="cursor-pointer text-sm font-medium">{t("settings.text.7f79a2f20a7c")}</summary>
+    <summary className="cursor-pointer text-sm font-medium">{t("settings.projectSharedAssets")}</summary>
     {open && <AssetList />}
   </details>;
 }
@@ -44,13 +44,13 @@ function AssetList() {
 
   return <div className="mt-3 flex flex-col gap-3 text-xs">
     <div className="flex items-center gap-3 text-fg-muted">
-      <span>{t("settings.text.8ac77be18723")}</span>
-      <button type="button" className="text-accent disabled:opacity-40" disabled={!connected || loading} onClick={() => setAttempt((value) => value + 1)}>{t("settings.text.56e3badc4e6c")}</button>
+      <span>{t("settings.filesInThisProjectSPresentationAssetsDirectory")}</span>
+      <button type="button" className="text-accent disabled:opacity-40" disabled={!connected || loading} onClick={() => setAttempt((value) => value + 1)}>{t("settings.refresh")}</button>
     </div>
-    {!connected && <p>{t("settings.text.e8ffbcd04836")}</p>}
-    {loading && <p>{t("settings.text.9bad486d23b0")}</p>}
+    {!connected && <p>{t("settings.connectToReadProjectAssets")}</p>}
+    {loading && <p>{t("settings.loadingAssets")}</p>}
     {error && <p role="alert" className="text-danger">{error}</p>}
-    {connected && !loading && !error && items.length === 0 && <p className="text-fg-muted">{t("settings.text.af94e053b8d3")}</p>}
+    {connected && !loading && !error && items.length === 0 && <p className="text-fg-muted">{t("settings.noSharedAssetsPlaceFilesInPresentationAssetsAnd")}</p>}
     <ul className="flex flex-col gap-1">
       {items.map((asset) => <li key={asset.path}>
         <button type="button" className={`flex w-full items-center justify-between gap-3 rounded px-2 py-2 text-left hover:bg-hover ${selected?.path === asset.path ? "bg-active" : ""}`}
@@ -59,11 +59,11 @@ function AssetList() {
         </button>
       </li>)}
     </ul>
-    {blob.loading && <p>{t("settings.text.c30d1929edcc")}</p>}
+    {blob.loading && <p>{t("settings.loadingAsset")}</p>}
     {blob.error && <p role="alert" className="text-danger">{blob.error}</p>}
     {selected && blob.url && <div className="flex flex-col items-start gap-2 rounded border border-line p-3">
       {PREVIEW_TYPES.has(blob.mediaType ?? "") && <img className="max-h-64 max-w-full object-contain" src={blob.url} alt={selected.path} />}
-      <a className="text-accent" href={blob.url} download={selected.path.split("/").pop()}>{t("settings.text.a479c9c34e87")}</a>
+      <a className="text-accent" href={blob.url} download={selected.path.split("/").pop()}>{t("settings.download")}</a>
     </div>}
   </div>;
 }

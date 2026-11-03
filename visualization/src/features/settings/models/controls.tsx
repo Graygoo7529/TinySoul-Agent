@@ -1,4 +1,4 @@
-import { rawText } from "../../../i18n";
+
 /**
  * Shared form controls for the Models & Services settings pages (plan §16).
  * Every control is a thin local-state editor: changes commit into the shared
@@ -41,7 +41,7 @@ export function FieldRow({
     <div className="settings-field-row gap-2 px-5 py-3">
       <div className="min-w-0">
         <div className="flex items-center gap-1.5 text-[12px] font-medium text-fg">
-          {typeof title === "string" ? rawText(title) : title}
+          {typeof title === "string" ? title : title}
           {dirty && (
             <span
               className="inline-block h-1.5 w-1.5 rounded-full bg-accent"
@@ -50,7 +50,7 @@ export function FieldRow({
           )}
         </div>
         {description !== undefined && description !== "" && (
-          <div className="mt-0.5 text-[11px] leading-4 text-fg-faint">{typeof description === "string" ? rawText(description) : description}</div>
+          <div className="mt-0.5 text-[11px] leading-4 text-fg-faint">{typeof description === "string" ? description : description}</div>
         )}
       </div>
       <div className="settings-field-control flex min-w-0 items-center gap-1.5">
@@ -77,9 +77,9 @@ export function FieldSection({
     <section className="border-b border-line last:border-b-0">
       <div className="flex items-center justify-between gap-2 bg-bg-sunken/40 px-5 py-2.5">
         <div className="min-w-0">
-          <div className="text-[12px] font-semibold text-fg">{typeof title === "string" ? rawText(title) : title}</div>
+          <div className="text-[12px] font-semibold text-fg">{typeof title === "string" ? title : title}</div>
           {description !== undefined && description !== "" && (
-            <div className="text-[10px] text-fg-faint">{typeof description === "string" ? rawText(description) : description}</div>
+            <div className="text-[10px] text-fg-faint">{typeof description === "string" ? description : description}</div>
           )}
         </div>
         {meta}

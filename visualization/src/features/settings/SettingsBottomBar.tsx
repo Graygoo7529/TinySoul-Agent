@@ -1,4 +1,4 @@
-import { rawText, useI18n } from "../../i18n";
+import { useI18n } from "../../i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ChevronUp, Loader2, RotateCcw, Trash2, UploadCloud } from "lucide-react";
 
@@ -77,7 +77,7 @@ export function SettingsBottomBar() {
           </span>
         )}
         {blocker !== null && (draftCount > 0 || pendingReload) && (
-          <span className="text-fg-faint">{rawText(blocker)}</span>
+          <span className="text-fg-faint">{blocker}</span>
         )}
       </div>
 
@@ -115,7 +115,7 @@ export function SettingsBottomBar() {
             size="sm"
             disabled={!canApply}
             loading={applyPhase === "applying"}
-            title={rawText(blocker ?? t("settings.bottom.applyTitle"))}
+            title={blocker ?? t("settings.bottom.applyTitle")}
             onClick={() => clients !== null && void applyDrafts(clients)}
           >
             <UploadCloud size={13} /> {t("settings.bottom.apply")}
@@ -127,7 +127,7 @@ export function SettingsBottomBar() {
               size="sm"
               disabled={!canReload}
               loading={applyPhase === "reloading"}
-              title={rawText(blocker ?? t("settings.bottom.reload"))}
+              title={blocker ?? t("settings.bottom.reload")}
               onClick={() => clients !== null && void reloadSaved(clients)}
             >
               {applyPhase === "reloading" ? (

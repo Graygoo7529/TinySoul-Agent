@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 import { coverageDescription } from "../history/disclosure";
 import { Markdown } from "../../components/markdown/Markdown";
 import { requestIdForTurn } from "../../store/turnStore";
@@ -124,6 +125,7 @@ export function ContextInspectPanel({
   canQuery?: boolean;
   initialQuery?: string;
 }): ReactElement {
+  useI18n();
   const [fetchClosed, setFetchClosed] = useState(false);
   const [queryDraft, setQueryDraft] = useState("");
   const activity = useTurnActivity(turnId);
@@ -184,7 +186,7 @@ export function ContextInspectPanel({
 
       {initialQuery !== undefined && (
         <div className="px-1 text-[12px] text-fg-muted">
-          Locate <span className="font-medium">“{initialQuery}”</span> in this
+          {t("settings.overview.locate")}<span className="font-medium">“{initialQuery}”</span> in this
           scope
         </div>
       )}
@@ -209,8 +211,7 @@ export function ContextInspectPanel({
             className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-hover px-3 text-[12px] font-medium text-fg-muted transition-colors hover:text-fg disabled:opacity-40"
           >
             <Search size={12} />
-            Locate
-          </button>
+            {t("settings.overview.locate")}</button>
         </form>
       )}
 
@@ -261,8 +262,7 @@ export function ContextInspectPanel({
       {parsed.relations.length > 0 && (
         <section className="space-y-1.5">
           <h3 className="px-1 text-[11px] font-semibold tracking-wide text-fg-faint uppercase">
-            Relations
-          </h3>
+            {t("history.relations")}</h3>
           {parsed.relations.map((relation, index) => (
             <div
               key={index}
@@ -284,8 +284,7 @@ export function ContextInspectPanel({
       {parsed.sources.length > 0 && (
         <section className="space-y-1.5">
           <h3 className="px-1 text-[11px] font-semibold tracking-wide text-fg-faint uppercase">
-            Evidence
-          </h3>
+            {t("history.evidence")}</h3>
           {parsed.sources.map((ref) => (
             <RefRow key={ref} reference={ref} />
           ))}
@@ -297,8 +296,8 @@ export function ContextInspectPanel({
         closed={closed}
         empty={
           <EmptyState
-            title="这里没有可披露内容"
-            description="该引用当前展开后没有可读条目。"
+            title={t("context.nothingDisclosedHere")}
+            description={t("context.refCurrentlyExpandsReadableItems")}
           />
         }
       />

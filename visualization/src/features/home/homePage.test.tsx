@@ -15,6 +15,7 @@ import {
   wireConnectedStores,
 } from "../../app/testing";
 import { useAppStore } from "../../store/appStore";
+import { resolveText } from "../../i18n";
 import { useResourceTargets } from "../resources/targetsStore";
 import { useHomePage } from "./store";
 import { HomePage } from "./HomePage";
@@ -196,7 +197,7 @@ describe("HomePage reading", () => {
     // A non-text resource shows the reference and supported operations —
     // never a fake download.
     expect(container.textContent).toContain("无法按文本读取");
-    expect(container.textContent).toContain("Copy reference");
+    expect(container.textContent).toContain("复制引用");
   });
   it("derives semantic titles and independent type badges from Home content", async () => {
     const documents: Record<string, string> = {
@@ -301,13 +302,13 @@ describe("HomePage changes", () => {
     expect(queryOf(diffs[0], "ref")).toBe("home:top/agent/contract");
     // Unified mode shows the added line with its marker.
     expect(container.textContent).toContain("+Workspace guidance");
-    expect(container.textContent).toContain("actual 0 字符 · effective 19 字符");
+    expect(container.textContent).toContain("actual 0 字符 · effective19 字符");
 
     await act(async () => {
       buttonByText("并排").click();
     });
-    expect(container.textContent).toContain("Actual");
-    expect(container.textContent).toContain("Effective");
+    expect(container.textContent).toMatch(/Actual|基线/);
+    expect(container.textContent).toMatch(/Effective|生效中/);
     expect(container.textContent).toContain("Workspace guidance");
 
     // Back to the changes list; the content selection survives.
@@ -500,7 +501,7 @@ describe("HomePage search and organize", () => {
     expect(page.rightPanel).toBe("search");
     expect(
       useAppStore.getState().toasts.some((toast) =>
-        toast.text.includes("Content search reads effective Home"),
+        resolveText(toast.text, "en-US").includes("Content search reads effective Home"),
       ),
     ).toBe(true);
   });

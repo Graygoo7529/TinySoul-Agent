@@ -86,7 +86,7 @@ async function openOverview() {
   act(() => openContextDrawer(epoch));
   renderTop();
   await flush();
-  expect(container.textContent).toContain("Background");
+  expect(container.textContent).toMatch(/背景|Background/);
 }
 
 function clickText(text: string) {
@@ -145,9 +145,10 @@ describe("openContextDrawer", () => {
     await openOverview();
 
     expect(topEntry().key).toBe(`context:overview:${TURN_ID}`);
-    for (const label of ["Background", "Trace", "Working"]) {
+    for (const label of ["Trace", "Working"]) {
       expect(container.textContent).toContain(label);
     }
+    expect(container.textContent).toMatch(/背景|Background/);
     for (const id of [
       "identity",
       "session",
@@ -189,7 +190,7 @@ describe("openContextDrawer", () => {
     });
     expect(container.textContent).toContain("refresh to see the latest");
 
-    clickText("Refresh");
+    clickText("刷新");
     await flush();
     expect(endpoint.calls(`/v2/requests/${TURN_ID}/context`)).toHaveLength(2);
     expect(container.textContent).not.toContain("refresh to see the latest");
@@ -266,12 +267,12 @@ describe("ContextOverviewPanel direct", () => {
     });
     await flush();
     expect(container.textContent).toContain("test failure");
-    expect(container.textContent).toContain("Retry");
+    expect(container.textContent).toContain("重试");
 
     serveOverview();
-    clickText("Retry");
+    clickText("重试");
     await flush();
-    expect(container.textContent).toContain("Background");
+    expect(container.textContent).toMatch(/背景|Background/);
   });
 });
 

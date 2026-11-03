@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 import { useEffect, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { IconButton } from "./Button";
@@ -13,6 +14,7 @@ export function Modal({
   children: ReactNode;
   width?: string;
 }) {
+  useI18n();
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -33,7 +35,7 @@ export function Modal({
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <div className="text-sm font-semibold">{title}</div>
-          <IconButton label="Close" onClick={onClose}>
+          <IconButton label={t("common.close")} onClick={onClose}>
             <X size={15} />
           </IconButton>
         </div>

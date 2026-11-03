@@ -36,8 +36,8 @@ export function AcpPage() {
       limits={<>
         <NetworkPolicyField path="capabilities.subagent.network" title="默认代理" />
         <FieldSection
-          title={t("settings.text.75f00ee0fba1")}
-          description={t("settings.text.453d5b12c5ce")}
+          title={t("settings.delegationLimits")}
+          description={t("settings.connectionAndDelegationBoundsSharedByAllTargets")}
           paths={[
             "capabilities.subagent.max_connections",
             "capabilities.subagent.connect_timeout_seconds",
@@ -121,7 +121,7 @@ function AcpTargetFields({ ctx }: { ctx: ObjectEditContext }) {
             disabled={disabled}
             onChange={(next) => ctx.update({ auto_approve: next })}
           />
-          <span className="text-[11px] text-fg-faint">{t("settings.text.261118a7146e")}</span>
+          <span className="text-[11px] text-fg-faint">{t("settings.onTheAdapterApprovesItsOwnRequestsOffRequests")}</span>
         </div>
       </ObjRow>
       <ObjRow path={at("env")} label="env">
@@ -190,24 +190,24 @@ function AcpRuntimeSummary() {
 
   return (
     <SectionCard
-      title={t("settings.text.7f9e5198aa9f")}
+      title={t("settings.runtimeConnections")}
       description="Live connections of the running generation. Configuration changes activate on apply; they never start a connection by themselves."
       actions={
         <button
           type="button"
           className="flex items-center gap-1 text-[12px] font-medium text-accent hover:underline"
           onClick={() => setActiveTab("runtime")}
-        >{t("settings.text.d64ad07ea9d5")}<ArrowRight size={12} />
+        >{t("settings.runtimeObservation")}<ArrowRight size={12} />
         </button>
       }
     >
       {clients === null ? (
-        <div className="text-[12px] text-fg-faint">{t("settings.text.cfa14c0a5335")}</div>
+        <div className="text-[12px] text-fg-faint">{t("settings.noBackendConnectionRuntimeFactsAreUnavailable")}</div>
       ) : error !== null ? (
-        <div className="text-[12px] text-fg-faint">{t("settings.text.6cefd2a012ad")}{error}
+        <div className="text-[12px] text-fg-faint">{t("settings.theRuntimeDirectoryIsUnavailable")}{error}
         </div>
       ) : directory === null ? (
-        <div className="text-[12px] text-fg-faint">{t("settings.text.33ce417454bf")}</div>
+        <div className="text-[12px] text-fg-faint">{t("settings.loading")}</div>
       ) : (
         <div className="flex flex-col gap-1.5">
           <div className="text-[12px] text-fg-muted">

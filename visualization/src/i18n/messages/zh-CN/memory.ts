@@ -1,0 +1,27 @@
+/** Fixed memory interface copy. */
+export const memoryMessages = {
+  "memory.scopeAll": "全部知识",
+  "memory.scopeDaily": "日记",
+  "memory.scopeEntity": "实体",
+  "memory.scopeConcept": "概念",
+  "memory.scopeFact": "事实",
+  "memory.scopeNote": "便签",
+  "memory.active": "活动记忆",
+  "memory.persistent": "知识库",
+  "memory.activeHint": "Agent 当日正在记录的内容",
+  "memory.persistentHint": "从记忆整理出的持久知识",
+  "memory.search": "检索知识",
+  "memory.organize": "整理 Memory",
+  "memory.searchTitle": "检索 Memory",
+  "memory.searchPlaceholder": "检索持久知识…",
+  "memory.archivedMemoryDay": "这一天没有归档记忆",
+  "memory.nothingRecordedYet": "还没有记录内容",
+  "memory.activeMemoryMdExistsButContentDay": "活动 Memory.md 存在，但这一天还没有内容。",
+  "memory.documentMissing": "文档不存在",
+  "memory.memoryDay": "记忆日期",
+  "memory.filterKnowledge": "筛选知识…",
+  "memory.filterKnowledge2": "筛选知识",
+  "memory.persistentKnowledgeYet": "还没有持久知识",
+  "memory.knowledgeSettlesMemoryReflectionOrganizesDayAlso": "知识会在 Memory 整理某个日期后沉淀。也可以继续对话——活动记忆会随手记录。",
+  "memory.matches": "没有匹配项"
+} as const;

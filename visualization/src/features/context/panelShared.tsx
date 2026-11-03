@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Shared building blocks of the Context drawer panels: the connection-epoch
  * guard, refresh/closed notices and the paged-sequence status rows. Mirrors
@@ -34,6 +35,7 @@ export function RefreshNotice({
   onRefresh: () => void;
   refreshing?: boolean;
 }): ReactElement {
+  useI18n();
   return (
     <div className="flex items-center gap-2 rounded-lg border border-line bg-bg-sunken px-3 py-1.5 text-[12px] text-fg-muted">
       <span className="min-w-0 flex-1">
@@ -50,8 +52,7 @@ export function RefreshNotice({
         ) : (
           <RotateCw size={11} />
         )}
-        Refresh
-      </button>
+        {t("common.refresh")}</button>
     </div>
   );
 }
@@ -83,12 +84,12 @@ export function ContextSequenceStatus({
   /** Rendered when the exhausted sequence delivered nothing. */
   empty: ReactElement | null;
 }): ReactElement | null {
+  useI18n();
   if (seq.loading) {
     return (
       <div className="flex items-center gap-2 px-1 py-3 text-[12px] text-fg-faint">
         <Loader2 size={13} className="animate-spin-slow" />
-        Loading…
-      </div>
+        {t("common.loading")}</div>
     );
   }
   return (
@@ -106,8 +107,7 @@ export function ContextSequenceStatus({
             className="inline-flex shrink-0 items-center gap-1 font-medium hover:underline"
           >
             <RotateCw size={11} />
-            Retry
-          </button>
+            {t("common.retry")}</button>
         </div>
       )}
       {!closed && seq.next !== null && seq.error === null && (
@@ -118,8 +118,7 @@ export function ContextSequenceStatus({
           className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-fg-muted transition-colors hover:border-line-strong hover:text-fg disabled:opacity-50"
         >
           {seq.loadingMore && <Loader2 size={12} className="animate-spin-slow" />}
-          显示更多
-        </button>
+          {t("common.showMore")}</button>
       )}
     </>
   );

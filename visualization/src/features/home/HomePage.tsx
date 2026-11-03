@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Home page (plan §11/P07).
  *
@@ -34,12 +35,13 @@ import { HomeContentView } from "./HomeContentView";
 import { HomeDiffView } from "./HomeDiffView";
 
 const SEARCH_SCOPES: SearchScopeChoice[] = [
-  { id: "all", label: "整个 Home", value: "all" },
-  { id: "agent", label: "Agent 空间", value: "agent" },
-  { id: "skills", label: "技能", value: "skills" },
+  { id: "all", get label() { return t("home.scopeAll"); }, value: "all" },
+  { id: "agent", get label() { return t("home.scopeAgent"); }, value: "agent" },
+  { id: "skills", get label() { return t("home.scopeSkills"); }, value: "skills" },
 ];
 
 export function HomePage(): ReactElement {
+  useI18n();
   const epoch = useConnectionStore((s) => s.epoch);
   const view = useHomePage((s) => s.view);
   const ref = useHomePage((s) => s.ref);
@@ -114,8 +116,8 @@ export function HomePage(): ReactElement {
       <header className="flex flex-wrap items-center gap-2 border-b border-line bg-bg-elev/60 px-3 py-2">
         <Tabs
           items={[
-            { value: "effective", label: "生效中" },
-            { value: "actual", label: "基线" },
+            { value: "effective", label: t("home.effective") },
+            { value: "actual", label: t("home.actual") },
           ]}
           value={view}
           onChange={(value) => useHomePage.getState().setView(value)}
@@ -132,7 +134,7 @@ export function HomePage(): ReactElement {
           }
         >
           <ListChecks size={12} />
-          变更{changes !== null && <span className="font-mono text-[10px]">{changes.length}</span>}
+          {t("home.changes")}{changes !== null && <span className="font-mono text-[10px]">{changes.length}</span>}
         </Button>
         <Button
           variant={rightPanel === "search" ? "secondary" : "ghost"}
@@ -140,12 +142,10 @@ export function HomePage(): ReactElement {
           onClick={openSearch}
         >
           <Search size={12} />
-          检索内容
-        </Button>
+          {t("home.searchContent")}</Button>
         <Button variant="outline" size="xs" onClick={() => setOrganizeOpen(true)}>
           <Sparkles size={12} />
-          整理 Home
-        </Button>
+          {t("home.organize")}</Button>
       </header>
 
       <div className="flex min-h-0 flex-1">
@@ -156,7 +156,7 @@ export function HomePage(): ReactElement {
             <div className="flex h-full items-center justify-center p-6">
               <EmptyState
                 icon={<House size={26} />}
-                title="Home"
+                title={t("shell.home")}
                 description={
                   view === "effective"
                     ? "下一轮运行使用的身份、偏好、技能与指导。从目录选择一项查看。"
@@ -186,8 +186,8 @@ export function HomePage(): ReactElement {
           epoch={epoch}
           actionId="home.search"
           identityKey={`home|effective`}
-          title="检索 Home"
-          placeholder="检索生效中的 Home…"
+          title={t("home.search")}
+          placeholder={t("home.searchPlaceholder")}
           scopes={SEARCH_SCOPES}
           run={runSearch}
           onOpenRef={(ref) => void openSearchRef(ref)}

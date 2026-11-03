@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * LiveStatus — live activity disclosure for a running turn.
  *
@@ -67,6 +68,7 @@ export interface LiveStatusProps {
 }
 
 export function LiveStatus({ activity, mode = "live", status, epoch, turnId, day }: LiveStatusProps) {
+  useI18n();
   const live = mode === "live";
   const waiting = status === "waiting_question" || status === "waiting_budget";
   const holdFollow = useHoldChatFollow();
@@ -316,7 +318,7 @@ export function LiveStatus({ activity, mode = "live", status, epoch, turnId, day
           </div>
           {activity.timing.startedAt !== null && !activity.waitingToStart && <div className="shrink-0 space-y-0.5 text-right font-mono text-[11px] text-fg-faint tabular-nums">
             <div>{elapsedFormatted}</div>
-            {live && headline.startedAt && <div className="text-[10px] opacity-70" title="当前阶段用时">
+            {live && headline.startedAt && <div className="text-[10px] opacity-70" title={t("chat.currentPhaseElapsedTime")}>
               {headline.phase} {formatDuration(headline.startedAt / 1000, (headline.finishedAt ?? Date.now()) / 1000)}</div>}
           </div>}
           {!live && releasedNewestFirst.length > 0 && (

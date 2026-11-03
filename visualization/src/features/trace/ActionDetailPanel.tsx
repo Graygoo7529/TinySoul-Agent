@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * One action's detail (plan §9.1).
  *
@@ -105,6 +106,7 @@ function ActionDetail({
   trace: ActionTrace;
   truncated: boolean;
 }): ReactElement {
+  useI18n();
   const nav = makeTraceNavigation(epoch, turnId, day);
   const action = trace.call?.action ?? trace.result?.action ?? "action";
   const family = actionFamily(action);
@@ -197,7 +199,7 @@ function ActionDetail({
       )}
 
       {trace.call !== null && Object.keys(trace.call.params).length > 0 && (
-        <Collapsible title="调用参数">
+        <Collapsible title={t("settings.callParams")}>
           <JsonTree value={trace.call.params} defaultExpanded={false} />
         </Collapsible>
       )}
@@ -245,7 +247,7 @@ function ActionDetail({
       )}
 
       {trace.result !== null && (
-        <Collapsible title="原始结果负载">
+        <Collapsible title={t("trace.rawResultPayload")}>
           <JsonTree
             value={{
               status: trace.result.status,

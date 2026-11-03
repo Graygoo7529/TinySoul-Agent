@@ -1,4 +1,4 @@
-import { t, rawText } from "../../../i18n";
+import { t, useI18n } from "../../../i18n";
 import { SettingsDisclosure } from "../SettingsDisclosure";
 /**
  * Actions & Model Uses settings page (config-coverage §3.2): the real Action
@@ -51,9 +51,9 @@ import {
 import { useActionsView } from "./useActionsView";
 
 const SCENARIOS: SelectOption[] = [
-  { value: "user", label: t("settings.text.d2948d8ce80e") },
-  { value: "home_reflection", label: t("settings.text.9e37b4503ca3") },
-  { value: "memory_reflection", label: t("settings.text.cda3161e567d") },
+  { value: "user", label: t("settings.userTurns") },
+  { value: "home_reflection", label: t("settings.homeReflection") },
+  { value: "memory_reflection", label: t("settings.memoryReflection") },
 ];
 
 export function ActionsPage() {
@@ -115,14 +115,14 @@ export function ActionsPage() {
   }
   if (loading || view === null) {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-[12px] text-fg-faint">{t("settings.text.6410430ef6ac")}</div>
+      <div className="flex h-full items-center justify-center p-6 text-[12px] text-fg-faint">{t("settings.loadingTheActionCatalog")}</div>
     );
   }
 
   return (
     <ObjectEditorLayout
-      title={t("settings.text.c3cd636a585b")}
-      description={t("settings.text.c9a15debe49b")}
+      title={t("settings.actions")}
+      description={t("settings.everyActionRegisteredInTheRunningGenerationWithIts")}
       items={filtered.map((action) => ({
         id: action.id,
         group: action.domain,
@@ -142,7 +142,7 @@ export function ActionsPage() {
           <input
             aria-label="Search actions"
             className={inputClass}
-            placeholder={t("settings.text.845df9cfc75e")}
+            placeholder={t("settings.filterByNameOrDescription")}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
@@ -204,18 +204,18 @@ function BehaviorSection({
   return (
     <SettingsDisclosure title="执行策略与来源" className="m-3">
       <FieldRow
-        title={t("settings.text.681b5b5ae10b")}
-        description={t("settings.text.65ed769d863c")}
+        title={t("settings.availability")}
+        description={t("settings.codeGrantsExecutorSupportAndAvailabilityInTheSelected")}
       >
         <span className="flex flex-wrap items-center gap-1.5">
           <Badge tone={action.granted ? "green" : "gray"}>
-            {rawText(action.granted ? "granted" : "not granted")}
+            {action.granted ? "granted" : "not granted"}
           </Badge>
           <Badge tone={action.supported ? "green" : "gray"}>
-            {rawText(action.supported ? "supported" : "executor unavailable")}
+            {action.supported ? "supported" : "executor unavailable"}
           </Badge>
           <Badge tone={action.available ? "green" : "yellow"}>
-            {rawText(action.available ? "available" : "unavailable")}
+            {action.available ? "available" : "unavailable"}
           </Badge>
           {!action.available && action.unavailableReason !== null && (
             <span className="text-[11px] text-fg-faint">
@@ -225,12 +225,12 @@ function BehaviorSection({
         </span>
       </FieldRow>
       <FieldRow
-        title={t("settings.text.28eeecfcba5c")}
-        description={t("settings.text.bdfb7a3f31db")}
+        title={t("settings.modelSelection")}
+        description={t("settings.whetherPhase12MaySelectThisActionIn")}
       >
         <span className="flex items-center gap-1.5 text-[12px] text-fg">
           <Badge tone={action.selection.enabled ? "green" : "gray"}>
-            {rawText(action.selection.enabled ? "selectable" : "not selectable")}
+            {action.selection.enabled ? "selectable" : "not selectable"}
           </Badge>
           <span className="font-mono text-[11px] text-fg-faint">
             source: {action.selection.source}
@@ -238,8 +238,8 @@ function BehaviorSection({
         </span>
       </FieldRow>
       <FieldRow
-        title={t("settings.text.7d9ff4f0de39")}
-        description={t("settings.text.1f1b5c87792c")}
+        title={t("settings.visibility")}
+        description={t("settings.declaredDefaultAndPerScenarioOverridesFromTheCatalog")}
       >
         <span className="font-mono text-[11px] text-fg-muted">
           default:{" "}
@@ -255,8 +255,8 @@ function BehaviorSection({
         </span>
       </FieldRow>
       <FieldRow
-        title={t("settings.text.d4c45de0fe64")}
-        description={t("settings.text.4dbffc362f96")}
+        title={t("settings.timeout")}
+        description={t("settings.totalExecutionTimeBudgetAndWhereItIsDeclared")}
       >
         <span className="font-mono text-[11px] text-fg-muted">
           {action.runtime.timeoutSeconds !== null
@@ -264,31 +264,31 @@ function BehaviorSection({
             : "none"}
         </span>
       </FieldRow>
-      <FieldRow title={t("settings.text.d206855fcdb5")}>
+      <FieldRow title={t("settings.parallelPolicy")}>
         <span className="font-mono text-[11px] text-fg-muted">
           {action.runtime.parallelPolicy}
         </span>
       </FieldRow>
-      <FieldRow title={t("settings.text.4bd8f3f03a57")}>
+      <FieldRow title={t("settings.hooks")}>
         <span className="font-mono text-[11px] break-all text-fg-muted">
           normalize: {action.runtime.hooks.normalize.join(", ") || "—"} · execute:{" "}
           {action.runtime.hooks.execute.join(", ") || "—"}
         </span>
       </FieldRow>
-      <FieldRow title={t("settings.text.95168f04fba5")}>
+      <FieldRow title={t("settings.traceMode")}>
         <span className="font-mono text-[11px] text-fg-muted">
           {action.runtime.traceMode}
         </span>
       </FieldRow>
-      <FieldRow title={t("settings.text.6d525b71568c")}>
+      <FieldRow title={t("settings.execution")}>
         <span className="font-mono text-[11px] break-all text-fg-muted">
           {action.execution.executor}
         </span>
       </FieldRow>
       {action.source !== null && (
         <FieldRow
-          title={t("settings.text.f118dcbf4de5")}
-          description={t("settings.text.55e3b7ce4952")}
+          title={t("settings.catalogDocument")}
+          description={t("settings.theDocumentThisDefinitionIsLoadedFromEditingDocument")}
         >
           <span className="font-mono text-[11px] break-all text-fg-muted">
             {action.source.path}
@@ -304,8 +304,8 @@ function BehaviorSection({
 // ---------------------------------------------------------------------------
 
 function ModelUsesSection({ action }: { action: ActionEntryView }) {
-  if (action.modelUses.length === 0) return <p className="border-b border-line px-5 py-3 text-[12px] text-fg-muted">{t("settings.text.501e7139efb5")}</p>;
-  return <FieldSection title={t("settings.text.d118b055730d")} description="各用途的模型绑定由所有执行情景共享。">
+  if (action.modelUses.length === 0) return <p className="border-b border-line px-5 py-3 text-[12px] text-fg-muted">{t("settings.thisActionRunsDeterministicallyNoModelIsInvolved")}</p>;
+  return <FieldSection title={t("settings.modelUses")} description="各用途的模型绑定由所有执行情景共享。">
     {action.modelUses.map((modelUse) => <ModelUseEditor key={modelUse.consumer} modelUse={modelUse} />)}
   </FieldSection>;
 }
@@ -454,7 +454,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
           optionRules.max_output_tokens !== undefined && (
             <OptionalNumberRow
               label="Max output tokens"
-              description={t("settings.text.587533e4f5c0")}
+              description={t("settings.unsetInheritsTheTaskChainSOwnLimit")}
               value={maxOutputTokens}
               min={optionRules.max_output_tokens.minimum ?? 1}
               disabled={readOnly}
@@ -466,7 +466,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
         {implementation === "decision" &&
           optionRules.relevance_threshold !== undefined && (
             <>
-              <span className="text-[11px] text-fg-muted">{t("settings.text.ed9132d2f602")}</span>
+              <span className="text-[11px] text-fg-muted">{t("settings.relevanceThreshold")}</span>
               <NumberInput
                 ariaLabel={`${modelUse.consumer} relevance threshold`}
                 value={relevanceThreshold}
@@ -482,7 +482,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
 
       {implementation === "embedding_similarity" &&
         modelUse.operation === "rerank" && (
-          <div className="mt-2 text-[10.5px] text-fg-faint">{t("settings.text.bfba75db4ff6")}</div>
+          <div className="mt-2 text-[10.5px] text-fg-faint">{t("settings.similarityRerankingCannotReadTheCurrentContextTheResolved")}</div>
         )}
       {runningDiffers && modelUse.binding !== null && (
         <div className="mt-2 text-[10.5px] text-fg-faint">
@@ -491,10 +491,10 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
             modelUse.binding.implementation,
             modelUse.binding.taskProfile,
             modelUse.binding.use,
-          )}{" "}{t("settings.text.d5097077f630")}</div>
+          )}{" "}{t("settings.appliesAfterActivation")}</div>
       )}
       {readOnly && (
-        <div className="mt-2 text-[10.5px] text-warning">{t("settings.text.528f96e73244")}</div>
+        <div className="mt-2 text-[10.5px] text-warning">{t("settings.actionModelsBindingsIsOwnedByAReadOnly")}</div>
       )}
     </div>
   );
@@ -612,7 +612,7 @@ function StructuredDecisionTarget({
           size="xs"
           variant="ghost"
           onClick={() => navigateTo("dedicated-models")}
-        >{t("settings.text.62be4731dedf")}<ArrowRight size={11} />
+        >{t("settings.uses")}<ArrowRight size={11} />
         </Button>
       </span>
     </>
@@ -731,19 +731,20 @@ function OptionalNumberRow({
 // ---------------------------------------------------------------------------
 
 function RetrievalSection({ action }: { action: ActionEntryView }) {
+  useI18n();
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
   const retrieval = action.retrieval;
   if (retrieval === null) return null;
   return (
     <FieldSection
-      title={t("settings.text.ca9937052c5b")}
-      description={t("settings.text.ea2d896a4799")}
+      title={t("settings.retrievalPolicy")}
+      description={t("settings.theResolvedSourcesOperationsAndBudgetsThisSearchRuns")}
       meta={
         <Button
           size="xs"
           variant="ghost"
           onClick={() => navigateTo("search-policies", action.id)}
-        >{t("settings.text.495eac961b4c")}<ArrowRight size={11} />
+        >{t("settings.editInSearchPolicies")}<ArrowRight size={11} />
         </Button>
       }
     >
@@ -756,8 +757,7 @@ function RetrievalSection({ action }: { action: ActionEntryView }) {
         <div className="font-mono text-[10.5px] text-fg-faint">
           max steps {retrieval.maxSteps} · snapshot {retrieval.snapshotMaxChars}{" "}
           chars · page {retrieval.page.maxItems} items / {retrieval.page.maxChars}{" "}
-          chars
-        </div>
+          {t("home.chars")}</div>
       </div>
     </FieldSection>
   );
@@ -778,10 +778,10 @@ function ProtocolSection({ action }: { action: ActionEntryView }) {
             {action.tool.description}
           </p>
         </div>
-        <SemanticList title={t("settings.text.ee36fc3bb07a")} items={semantic.useWhen} />
-        <SemanticList title={t("settings.text.cb19f3e79796")} items={semantic.avoidWhen} />
-        <SemanticList title={t("settings.text.8f25a859269c")} items={semantic.effects} />
-        <SemanticList title={t("settings.text.eb01bf04c9a0")} items={semantic.examples} />
+        <SemanticList title={t("settings.useWhen")} items={semantic.useWhen} />
+        <SemanticList title={t("settings.avoidWhen")} items={semantic.avoidWhen} />
+        <SemanticList title={t("settings.effects")} items={semantic.effects} />
+        <SemanticList title={t("settings.examples")} items={semantic.examples} />
         <div>
           <div className="text-[11px] font-medium text-fg">参数结构</div>
           <pre className="mt-1 max-h-64 overflow-auto rounded-md bg-bg-sunken p-2.5 font-mono text-[10.5px] leading-4 text-fg-muted">

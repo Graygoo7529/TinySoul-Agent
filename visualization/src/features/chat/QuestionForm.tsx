@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 import { useId, useState, type ReactElement } from "react";
 import { Check, HelpCircle, MessageSquare } from "lucide-react";
 import { Button } from "../../components/ui/Button";
@@ -30,6 +31,7 @@ export function QuestionForm({
   groupName?: string;
   onSubmit?: (draft: QuestionDraft) => void;
 }): ReactElement {
+  useI18n();
   const autoName = useId();
   const name = groupName ?? `question-${autoName}`;
   const [selected, setSelected] = useState<string | null>(null);
@@ -110,7 +112,7 @@ export function QuestionForm({
                   setOtherText(event.target.value);
                   if (event.target.value.trim()) setSelected(null);
                 }}
-                placeholder="其它回答…"
+                placeholder={t("chat.question.otherAnswer")}
                 className="mt-3 h-8 w-full rounded-lg border border-line bg-bg-elev px-3 text-[13px] outline-none focus-ring focus:border-accent"
               />
             )}
@@ -118,20 +120,19 @@ export function QuestionForm({
               <input
                 value={comment}
                 onChange={(event) => setComment(event.target.value)}
-                placeholder="补充想法（可选）…"
+                placeholder={t("chat.question.additionalThoughts")}
                 className="mt-3 h-8 w-full rounded-lg border border-line bg-bg-elev px-3 text-[13px] outline-none focus-ring focus:border-accent"
               />
             )}
             {mode === "expired" && (otherText || comment) && (
               <div className="mt-2 space-y-1">
-                {otherText && <DraftLine label="其它" value={otherText} />}
-                {comment && <DraftLine label="补充" value={comment} />}
+                {otherText && <DraftLine label={t("chat.question.other")} value={otherText} />}
+                {comment && <DraftLine label={t("chat.question.comment")} value={comment} />}
               </div>
             )}
             {mode === "expired" && (
               <div className="mt-2 text-[12px] text-fg-faint">
-                此问题已不再等待回复。
-              </div>
+                {t("chat.question.expired")}</div>
             )}
             {/* Readonly: 自行输入的选项（带字母编号） */}
             {mode === "readonly" && reply?.text && (
@@ -166,8 +167,7 @@ export function QuestionForm({
                   disabled={!canSubmit}
                   loading={submitting}
                 >
-                  回复
-                </Button>
+                  {t("chat.question.reply")}</Button>
               </div>
             )}
           </div>
@@ -197,6 +197,7 @@ function OptionRow({
   chosen: boolean;
   onSelect: () => void;
 }): ReactElement {
+  useI18n();
   const chip = (
     <span
       className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border font-mono text-[11px] ${
@@ -262,6 +263,7 @@ function OptionRow({
 
 /** A preserved draft line on an expired card. */
 function DraftLine({ label, value }: { label: string; value: string }): ReactElement {
+  useI18n();
   return (
     <div className="flex items-baseline gap-2 text-[12px] text-fg-muted">
       <span className="shrink-0 text-[10px] tracking-wide text-fg-faint uppercase">

@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * The shared "organize" dialog (plan §11/§12, API-04).
  *
@@ -66,6 +67,7 @@ export function suggestedTargetDay(candidates: DayCandidate[]): string | null {
 }
 
 export function ReflectionDialog({ kind: initialKind, initialInstructions, onClose }: ReflectionDialogProps): ReactElement {
+  useI18n();
   const [kind, setKind] = useState<"home" | "memory">(initialKind ?? "home");
   const [availability, setAvailability] = useState<ReflectionAvailability | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -334,8 +336,7 @@ export function ReflectionDialog({ kind: initialKind, initialInstructions, onClo
 
           <div className="flex items-center justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={onClose}>
-              取消
-            </Button>
+              {t("runtime.cancel")}</Button>
             <Button
               variant="primary"
               size="sm"

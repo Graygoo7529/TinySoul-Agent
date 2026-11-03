@@ -10,16 +10,16 @@ export function MemoryPage() {
   return (
     <SettingsPageBody>
       <FieldSection
-        title={t("settings.text.f3d653acf7a3")}
-        description={t("settings.text.d19891b8e867")}
+        title={t("settings.locationActiveMemory")}
+        description={t("settings.thePersistentMemoryRootAndTheActiveMemoryMd")}
         paths={["memory.root", "memory.max_active_chars"]}
         overrides={{
           "memory.max_active_chars": { min: 1 },
         }}
       />
       <FieldSection
-        title={t("settings.text.66ee876e308e")}
-        description={t("settings.text.685b8bf13323")}
+        title={t("settings.persistentDocuments")}
+        description={t("settings.sizeLimitsOfTheFivePersistentMarkdownKindsAnd")}
         paths={[
           "memory.documents.max_daily_chars",
           "memory.documents.max_entity_chars",
@@ -38,8 +38,8 @@ export function MemoryPage() {
         }}
       />
       <FieldSection
-        title={t("settings.text.505acce570b4")}
-        description={t("settings.text.0cf440c10818")}
+        title={t("settings.inspectSearch")}
+        description={t("settings.singlePageInspectBoundsAndTheLogicalEmbeddingUse")}
         paths={[
           "memory.inspect.max_page_chars",
           "memory.search.max_embedding_cache_chars",

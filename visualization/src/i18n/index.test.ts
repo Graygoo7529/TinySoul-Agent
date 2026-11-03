@@ -1,13 +1,33 @@
 ﻿import { describe, expect, it } from "vitest";
 import { decodeCatalog } from "../features/settings/draft/catalog";
 import { searchConfig } from "../features/settings/pages";
-import { localizeCollection, localizeDocument, localizeField, protocolText, tActionState, tError, tStatus, translatedField } from ".";
+import { localizeCollection, localizeDocument, localizeField, message, protocolText, resolveText, t, tActionState, tError, tStatus, translatedField } from ".";
 import { commonMessages as zhCommon } from "./messages/zh-CN/common";
 import { commonMessages as enCommon } from "./messages/en-US/common";
 import { settingsMessages as zhSettings } from "./messages/zh-CN/settings";
 import { settingsMessages as enSettings } from "./messages/en-US/settings";
 import { protocolMessages as zhProtocol } from "./protocol/zh-CN";
 import { protocolMessages as enProtocol } from "./protocol/en-US";
+import { historyMessages as zhHistory } from "./messages/zh-CN/history";
+import { historyMessages as enHistory } from "./messages/en-US/history";
+import { contextMessages as zhContext } from "./messages/zh-CN/context";
+import { contextMessages as enContext } from "./messages/en-US/context";
+import { traceMessages as zhTrace } from "./messages/zh-CN/trace";
+import { traceMessages as enTrace } from "./messages/en-US/trace";
+import { presentationMessages as zhPresentation } from "./messages/zh-CN/presentation";
+import { presentationMessages as enPresentation } from "./messages/en-US/presentation";
+import { chatMessages as zhChat } from "./messages/zh-CN/chat";
+import { chatMessages as enChat } from "./messages/en-US/chat";
+import { homeMessages as zhHome } from "./messages/zh-CN/home";
+import { homeMessages as enHome } from "./messages/en-US/home";
+import { memoryMessages as zhMemory } from "./messages/zh-CN/memory";
+import { memoryMessages as enMemory } from "./messages/en-US/memory";
+import { workspaceMessages as zhWorkspace } from "./messages/zh-CN/workspace";
+import { workspaceMessages as enWorkspace } from "./messages/en-US/workspace";
+import { runtimeMessages as zhRuntime } from "./messages/zh-CN/runtime";
+import { runtimeMessages as enRuntime } from "./messages/en-US/runtime";
+import { resourcesMessages as zhResources } from "./messages/zh-CN/resources";
+import { resourcesMessages as enResources } from "./messages/en-US/resources";
 
 const catalog = decodeCatalog({ fields: [{
   path: "llm.models.*.reasoning_effort",
@@ -68,14 +88,19 @@ describe("settings presentation localization", () => {
   });
 
   it("keeps the two locale dictionaries aligned and maps protocol codes", () => {
-    const zh = { ...zhCommon, ...zhSettings, ...zhProtocol };
-    const en = { ...enCommon, ...enSettings, ...enProtocol };
+    const zh = { ...zhCommon, ...zhSettings, ...zhHistory, ...zhContext, ...zhTrace, ...zhPresentation, ...zhChat, ...zhHome, ...zhMemory, ...zhWorkspace, ...zhRuntime, ...zhResources, ...zhProtocol };
+    const en = { ...enCommon, ...enSettings, ...enHistory, ...enContext, ...enTrace, ...enPresentation, ...enChat, ...enHome, ...enMemory, ...enWorkspace, ...enRuntime, ...enResources, ...enProtocol };
     expect(Object.keys(zh).sort()).toEqual(Object.keys(en).sort());
     expect(protocolText("presentation.invalid_config", "zh-CN")).toBe("界面配置无效");
     expect(protocolText("presentation.invalid_config", "en-US")).toBe("Invalid interface configuration");
     expect(tError("future.error", "backend diagnostic", "en-US")).toBe("backend diagnostic");
     expect(tStatus("ready", "zh-CN")).toBe("就绪");
     expect(tActionState("available", "en-US")).toBe("Available");
+  });
+
+  it("resolves stable feature messages in either language and preserves interpolation", () => {
+    expect(t("history.locate", { query: "alpha" }, "en-US")).toBe("Locate: alpha");
+    expect(resolveText(message("history.locate", { query: "alpha" }), "zh-CN")).toBe("定位：alpha");
   });
 });
 

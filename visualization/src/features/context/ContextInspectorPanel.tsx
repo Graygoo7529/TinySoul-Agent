@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 import { useRef, useState, type ReactElement } from "react";
 import { BookOpen, Brain, Layers, Map } from "lucide-react";
 
@@ -19,6 +20,7 @@ export function ContextInspectorPanel({
   epoch: number;
   turnId: string | null;
 }): ReactElement {
+  useI18n();
   const [tab, setTab] = useState<ContextTab>(turnId === null ? "session" : "context");
   const [visited, setVisited] = useState(new Set<ContextTab>([turnId === null ? "session" : "context"]));
   const activeDay = useConnectionStore(selectActiveDay);
@@ -72,7 +74,7 @@ export function ContextInspectorPanel({
           <SessionMapPanel epoch={epoch} day={(mapDay ?? activeDay)!} /></div>
       )}
       {tab === "session" && activeDay === null && (
-        <EmptyState title="尚无活动日期" description="Agent 建立日历日后即可使用会话图。" />
+        <EmptyState title={t("context.activeDay")} description={t("context.sessionMapAvailableAgentEstablishesCalendarDay")} />
       )}
       {(visited.has("home") || visited.has("memory")) && <div hidden={tab !== "home" && tab !== "memory"}>
         {targetId && targetDay ? <BackgroundPanel key={targetId} epoch={epoch} turnId={targetId} day={targetDay} active={active} committed={committed} reflection={kind !== "user"} owner={tab === "memory" ? "memory" : "home"} />

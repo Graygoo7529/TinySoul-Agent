@@ -173,7 +173,7 @@ describe("history banner", () => {
     expect(container.textContent).toContain("回到进行中的轮次");
 
     await act(async () => {
-      buttonByText("Session map").click();
+      buttonByText("会话图").click();
     });
     const entries = useInspectorStore.getState().entries;
     expect(entries).toHaveLength(1);

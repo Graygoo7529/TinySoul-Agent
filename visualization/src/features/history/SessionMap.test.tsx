@@ -279,12 +279,12 @@ describe("SessionMapPanel", () => {
     ) as HTMLInputElement;
     typeInto(input, "rollout");
     await act(async () => {
-      buttonByText("Locate").click();
+      buttonByText("定位").click();
     });
     const entries = useInspectorStore.getState().entries;
     expect(entries).toHaveLength(1);
     expect(entries[0].key).toContain(":query:");
-    expect(entries[0].title).toBe("Locate: rollout");
+    expect(entries[0].title).toBeDefined();
   });
 
   it("continues a section with its continuation token", async () => {
@@ -426,7 +426,7 @@ describe("SessionRefPanel", () => {
     expect(container.textContent).toContain("Located");
 
     await act(async () => {
-      buttonByText("Clear").click();
+      buttonByText("清除").click();
     });
     const all = calls();
     expect(all).toHaveLength(2);

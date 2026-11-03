@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Markdown link and image renderers (plan §21.2).
  *
@@ -58,13 +59,14 @@ export function ReferenceActions({
   reference: string;
   origin: ResourceOrigin;
 }): ReactElement {
+  useI18n();
   return (
     <span className="inline-flex max-w-0 translate-y-px items-center gap-0.5 overflow-hidden align-baseline opacity-0 transition-[max-width,opacity,margin] group-hover/ref:ml-1 group-hover/ref:max-w-10 group-hover/ref:opacity-100 focus-within:ml-1 focus-within:max-w-10 focus-within:opacity-100">
-      <MiniAction label="Copy reference" onClick={() => copyReference(reference)}>
+      <MiniAction label={t("resources.copyReference")} onClick={() => copyReference(reference)}>
         <Copy size={11} />
       </MiniAction>
       <MiniAction
-        label="Quote in conversation"
+        label={t("resources.quote")}
         onClick={() => quoteReference(reference, origin)}
       >
         <MessageSquareQuote size={11} />

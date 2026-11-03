@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Workspace page sidebar (plan §10/P06): the day selector (active writable,
  * archived read-only), the manifest-driven directory tree with tags, filter
@@ -72,6 +73,7 @@ export function Sidebar({
   manifestLoading: boolean;
   mutations: WorkspaceMutations;
 }): ReactElement {
+  useI18n();
   const isActive = viewDay === null || viewDay === activeDay;
   const apiDay = isActive ? null : viewDay;
   const panel = useWorkspacePage((s) => s.panel);
@@ -143,10 +145,10 @@ export function Sidebar({
             onChange={(event) =>
               setDay(event.target.value === "" ? null : event.target.value)
             }
-            aria-label="工作区日期"
+            aria-label={t("workspace.workspaceDay")}
             className="h-7 min-w-0 flex-1 rounded-lg border border-line bg-bg-elev px-2 text-[12px] outline-none focus:border-accent"
           >
-            {days === null && <option value="">活动工作区</option>}
+            {days === null && <option value="">{t("workspace.activeWorkspace")}</option>}
             {days?.map((entry) => (
               <option key={entry.day} value={entry.active ? "" : entry.day}>
                 {entry.active ? `活动 · ${entry.day}` : `${entry.day}（已归档）`}
@@ -158,7 +160,7 @@ export function Sidebar({
                 <option value={viewDay}>{viewDay} (archived)</option>
               )}
           </select>
-          <IconButton label="检索工作区" onClick={openSearch}>
+          <IconButton label={t("workspace.search")} onClick={openSearch}>
             <Search size={15} />
           </IconButton>
         </div>
@@ -178,28 +180,28 @@ export function Sidebar({
             <input
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
-              placeholder="筛选…"
-              aria-label="筛选文件"
+              placeholder={t("workspace.filter")}
+              aria-label={t("workspace.filterFiles")}
               className="h-6.5 min-w-0 flex-1 rounded-md border border-line bg-bg-elev px-2 text-[12px] outline-none focus:border-accent"
             />
             {isActive && (
               <>
                 <IconButton
-                  label="新建文件"
+                  label={t("workspace.newFile")}
                   className="h-6.5 w-6.5"
                   onClick={() => setCreateModal("file")}
                 >
                   <FilePlus2 size={13} />
                 </IconButton>
                 <IconButton
-                  label="新建文件夹"
+                  label={t("workspace.newFolder")}
                   className="h-6.5 w-6.5"
                   onClick={() => setCreateModal("folder")}
                 >
                   <FolderPlus size={13} />
                 </IconButton>
                 <IconButton
-                  label="上传文件"
+                  label={t("workspace.upload")}
                   className="h-6.5 w-6.5"
                   onClick={() => uploadInputRef.current?.click()}
                 >
@@ -249,8 +251,7 @@ export function Sidebar({
           {isActive && (
             <div className="border-t border-line px-3 py-1.5 text-[10.5px] text-fg-faint">
               <Upload size={10} className="mr-1 inline" />
-              拖入文件即可上传（同名文件会被拒绝）
-            </div>
+              {t("workspace.dropFilesUploadExistingNamesRefused")}</div>
           )}
         </>
       ) : (
@@ -259,8 +260,8 @@ export function Sidebar({
 
       {createModal === "file" && (
         <PathInputModal
-          title="新建文件"
-          label="路径（如 notes/todo.md）"
+          title={t("workspace.newFile")}
+          label={t("workspace.pathEGNotesTodoMd")}
           submitLabel="创建文件"
           busy={mutations.busy}
           onSubmit={(path) => {
@@ -276,8 +277,8 @@ export function Sidebar({
       )}
       {createModal === "folder" && (
         <PathInputModal
-          title="新建文件夹"
-          label="路径（如 notes/assets）"
+          title={t("workspace.newFolder")}
+          label={t("workspace.pathEGNotesAssets")}
           submitLabel="创建文件夹"
           busy={mutations.busy}
           onSubmit={(path) => {
@@ -338,6 +339,7 @@ function TreeNodeRow({
   onDrop: (event: DragEvent, targetDir: string) => void;
   onDragOver: (event: DragEvent) => void;
 }): ReactElement {
+  useI18n();
   const [collapsed, setCollapsed] = useState(false);
   const selectedLink = useWorkspacePage((s) => s.ref);
   const select = useWorkspacePage((s) => s.select);
@@ -414,7 +416,7 @@ function TreeNodeRow({
       {dirtyLinks.has(ref) && (
         <span
           className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
-          title="未保存的修改"
+          title={t("workspace.unsavedEdits")}
         />
       )}
       {tags.map((tag) => (
@@ -451,6 +453,7 @@ function TrashPanel({
   isActive: boolean;
   mutations: WorkspaceMutations;
 }): ReactElement {
+  useI18n();
   const trash = usePagedSequence<WorkspaceTrashItem, WorkspaceTrashPage>(
     (token, signal) => {
       const clients = useConnectionStore.getState().clients;
@@ -482,7 +485,7 @@ function TrashPanel({
     return (
       <EmptyState
         icon={<Trash2 size={22} />}
-        title="回收站为空"
+        title={t("workspace.trashEmpty")}
         description={
           trash.error !== null ? trash.error : "回收的资源保留在这里，可以恢复。"
         }
@@ -490,8 +493,7 @@ function TrashPanel({
           trash.error !== null ? (
             <Button variant="outline" size="xs" onClick={trash.reload}>
               <RotateCcw size={12} />
-              重试
-            </Button>
+              {t("common.retry")}</Button>
           ) : undefined
         }
       />
@@ -540,8 +542,7 @@ function TrashPanel({
                 }}
               >
                 <RotateCcw size={11} />
-                Restore
-              </Button>
+                {t("settings.restore")}</Button>
             </div>
           )}
         </div>
@@ -554,8 +555,7 @@ function TrashPanel({
           loading={trash.loadingMore}
           onClick={trash.loadMore}
         >
-          显示更多
-        </Button>
+          {t("common.showMore")}</Button>
       )}
       {trash.error !== null && (
         <div className="px-2 py-1.5 text-[11px] text-danger">{trash.error}</div>

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { CheckCircle2, Info, X, XCircle } from "lucide-react";
 import { useAppStore, type ToastItem } from "../../store/appStore";
+import { useI18n } from "../../i18n";
 
 const kindStyle = {
   success: { icon: CheckCircle2, className: "text-success" },
@@ -9,6 +10,7 @@ const kindStyle = {
 } as const;
 
 function Toast({ toast }: { toast: ToastItem }) {
+  const { text, t } = useI18n();
   const dismissToast = useAppStore((s) => s.dismissToast);
   useEffect(() => {
     const timer = setTimeout(() => dismissToast(toast.id), 4500);
@@ -20,7 +22,7 @@ function Toast({ toast }: { toast: ToastItem }) {
   return (
     <div className="animate-fade-in pointer-events-auto flex items-start gap-2.5 rounded-lg border border-line bg-bg-elev px-3.5 py-2.5 shadow-pop">
       <Icon size={16} className={`mt-0.5 shrink-0 ${className}`} />
-      <div className="min-w-0 flex-1 text-[13px] leading-5 break-words">{toast.text}</div>
+      <div className="min-w-0 flex-1 text-[13px] leading-5 break-words">{text(toast.text)}</div>
       {action && (
         <button
           onClick={() => {
@@ -29,10 +31,11 @@ function Toast({ toast }: { toast: ToastItem }) {
           }}
           className="shrink-0 rounded px-1.5 py-0.5 text-[12px] font-medium text-accent transition-colors hover:bg-hover"
         >
-          {action.label}
+          {text(action.label)}
         </button>
       )}
       <button
+        aria-label={t("common.close")}
         onClick={() => dismissToast(toast.id)}
         className="shrink-0 rounded p-0.5 text-fg-faint hover:bg-hover hover:text-fg"
       >

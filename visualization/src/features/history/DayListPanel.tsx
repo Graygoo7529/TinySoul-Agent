@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * The day directory (API-08 `/v2/days`, plan §7): active and archived days,
  * newest first, continued with `before`. Picking a day pushes its turn list;
@@ -14,6 +15,7 @@ import { historyClients, SequenceStatus } from "./panelShared";
 import { usePagedSequence } from "./usePagedSequence";
 
 export function DayListPanel({ epoch }: { epoch: number }) {
+  useI18n();
   const seq = usePagedSequence<DayEntry, DaysPage>(
     (token, signal) =>
       historyClients(epoch).session.days(
@@ -31,8 +33,8 @@ export function DayListPanel({ epoch }: { epoch: number }) {
     return (
       <EmptyState
         icon={<MessageSquareText size={26} />}
-        title="还没有已记录的日期"
-        description="完成的对话会提交到当日的会话记录。"
+        title={t("history.recordedDaysYet")}
+        description={t("history.finishedConversationsCommittedSessionRecordTheirDay")}
       />
     );
   }
@@ -47,6 +49,7 @@ export function DayListPanel({ epoch }: { epoch: number }) {
 }
 
 function DayRow({ epoch, entry }: { epoch: number; entry: DayEntry }) {
+  useI18n();
   return (
     <div className="flex items-center gap-1">
       <button
@@ -67,7 +70,7 @@ function DayRow({ epoch, entry }: { epoch: number; entry: DayEntry }) {
         </span>
       </button>
       <IconButton
-        label="当日的会话图"
+        label={t("history.sessionMapDay")}
         onClick={() => openSessionMap(epoch, entry.day)}
       >
         <Network size={14} />

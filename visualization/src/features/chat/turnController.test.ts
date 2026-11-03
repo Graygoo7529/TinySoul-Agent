@@ -8,6 +8,7 @@ import {
 } from "../../store/turnStore";
 import { useConnectionStore } from "../../store/connectionStore";
 import { useAppStore } from "../../store/appStore";
+import { resolveText } from "../../i18n";
 import {
   FakeEndpoint,
   bodyJson,
@@ -592,7 +593,7 @@ describe("budget and cancel", () => {
     expect(granted).toBe(false);
     const toasts = useAppStore.getState().toasts;
     expect(toasts.some((toast) => toast.kind === "error")).toBe(false);
-    expect(toasts.some((toast) => toast.text.includes("no longer open"))).toBe(
+    expect(toasts.some((toast) => resolveText(toast.text, "en-US").includes("no longer open"))).toBe(
       true,
     );
   });

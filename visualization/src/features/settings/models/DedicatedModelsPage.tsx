@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { t, useI18n } from "../../../i18n";
 /**
  * Dedicated Models & Uses settings page (plan §16.5): the
  * `infra.model_services.models` and `infra.model_services.uses` object_list
@@ -66,8 +66,8 @@ export function DedicatedModelsPage() {
         aria-label="Dedicated models and uses"
         className="flex shrink-0 gap-1 border-b border-line bg-bg-sunken/30 px-4 py-2"
       >
-        <TabButton active={tab === "models"} onSelect={() => setTab("models")}>{t("settings.text.f3798f81c7b6")}</TabButton>
-        <TabButton active={tab === "uses"} onSelect={() => setTab("uses")}>{t("settings.text.62be4731dedf")}</TabButton>
+        <TabButton active={tab === "models"} onSelect={() => setTab("models")}>{t("settings.models")}</TabButton>
+        <TabButton active={tab === "uses"} onSelect={() => setTab("uses")}>{t("settings.uses")}</TabButton>
       </div>
       <div className="min-h-0 flex-1">
         {tab === "models" ? <ServiceModelsTab /> : <ServiceUsesTab />}
@@ -121,10 +121,11 @@ function useAtom(path: string) {
 }
 
 function MissingSourceNotice({ path }: { path: string }) {
+  useI18n();
   return (
     <div className="flex h-full items-center justify-center p-6">
       <EmptyState
-        title="此列表没有可写来源"
+        title={t("settings.writableSourceList")}
         description={`The ${path} list is owned by a read-only source or no model-services include exists yet. Add configs/infra/model_services.toml to the project includes to manage it here.`}
       />
     </div>
@@ -157,8 +158,8 @@ function ServiceModelsTab() {
   return (
     <>
       <ObjectEditorLayout
-        title={t("settings.text.3e11bb6c8422")}
-        description={t("settings.text.c6ae9d1dcd06")}
+        title={t("settings.dedicatedModels")}
+        description={t("settings.logicalSpecializedModelsAndTheirOrderedProviderBindings")}
         items={[
           ...effective.map((entry) => ({
             id: entry.id,
@@ -190,7 +191,7 @@ function ServiceModelsTab() {
         headerActions={
           current !== null && (
             <Button size="xs" variant="danger" onClick={() => setDeleting(current.id)}>
-              <Trash2 size={13} />{t("settings.text.f6fdbe48dc54")}</Button>
+              <Trash2 size={13} />{t("settings.delete")}</Button>
           )
         }
       >
@@ -217,7 +218,7 @@ function ServiceModelsTab() {
 
       <CreateObjectModal
         title="新建专用模型"
-        idTitle={t("settings.text.c7eb22a300df")}
+        idTitle={t("settings.modelId")}
         idDescription="Stable identifier referenced by uses; dots, outer whitespace and numeric-only ids are not allowed."
         existing={effective.map((entry) => entry.id)}
         open={creating}
@@ -296,12 +297,12 @@ function ServiceModelEditor({
   return (
     <div>
       <FieldSection
-        title={t("settings.text.7e5a975b6add")}
-        description={t("settings.text.8ed3d9285798")}
+        title={t("settings.identity")}
+        description={t("settings.theCapabilityKindDecidesWhichProviderAdaptersThisModel")}
       >
         <FieldRow
-          title={t("settings.text.e00ac23f2ac2")}
-          description={t("settings.text.c4dae99bd3de")}
+          title={t("settings.kind")}
+          description={t("settings.embeddingModelsBindOpenaiCompatibleEmbeddingProvidersDecisionModels")}
         >
           <SelectInput
             ariaLabel="Kind"
@@ -316,8 +317,8 @@ function ServiceModelEditor({
         </FieldRow>
         {kind === "embedding" ? (
           <FieldRow
-            title={t("settings.text.9f4ca9ec0871")}
-            description={t("settings.text.72c5161cfdc3")}
+            title={t("settings.dimensions")}
+            description={t("settings.vectorDimensionsProducedByThisEmbeddingModelRequired")}
           >
             <NumberInput
               ariaLabel="Dimensions"
@@ -328,7 +329,7 @@ function ServiceModelEditor({
             />
           </FieldRow>
         ) : null}
-        <FieldRow title={t("settings.text.59e5bbb3967b")} description={t("settings.text.8b5e1fd6aeaf")}>
+        <FieldRow title={t("settings.batchSize")} description={t("settings.itemsPerProviderCall1256")}>
           <NumberInput
             ariaLabel="Batch size"
             integer
@@ -341,14 +342,14 @@ function ServiceModelEditor({
       </FieldSection>
 
       <FieldSection
-        title={t("settings.text.febaa5e81dfa")}
-        description={t("settings.text.0702f78bc565")}
+        title={t("settings.providerBindings")}
+        description={t("settings.providersTriedInOrderOnlyProvidersWhoseAdapterMatches")}
         meta={<Badge>{bindings.length}</Badge>}
       >
         <div className="space-y-1.5 px-5 py-3">
           {bindings.length === 0 && (
             <div className="flex items-center gap-1.5 text-[11px] text-warning">
-              <AlertTriangle size={13} />{t("settings.text.c65b4842396f")}</div>
+              <AlertTriangle size={13} />{t("settings.addAtLeastOneProviderBindingBeforeApplying")}</div>
           )}
           {bindings.map((binding, index) => {
             const provider = providers.find(
@@ -461,7 +462,7 @@ function ServiceModelEditor({
                 });
               }}
             >
-              <Plus size={13} />{t("settings.text.f269cea0b82a")}</Button>
+              <Plus size={13} />{t("settings.addBinding")}</Button>
             {eligibleProviders.length === 0 && (
               <span className="text-[10px] text-fg-faint">
                 No {expectedAdapter} provider configured yet.
@@ -518,8 +519,8 @@ function ServiceUsesTab() {
   return (
     <>
       <ObjectEditorLayout
-        title={t("settings.text.62be4731dedf")}
-        description={t("settings.text.c5dc4e8dca62")}
+        title={t("settings.uses")}
+        description={t("settings.namedCapabilitiesSelectedByBusinessConsumersHomeMemorySearch")}
         items={[
           ...effective.map((entry) => ({
             id: entry.id,
@@ -551,7 +552,7 @@ function ServiceUsesTab() {
         headerActions={
           current !== null && (
             <Button size="xs" variant="danger" onClick={() => setDeleting(current.id)}>
-              <Trash2 size={13} />{t("settings.text.f6fdbe48dc54")}</Button>
+              <Trash2 size={13} />{t("settings.delete")}</Button>
           )
         }
       >
@@ -579,7 +580,7 @@ function ServiceUsesTab() {
 
       <CreateObjectModal
         title="新建用途"
-        idTitle={t("settings.text.4016bb4754fa")}
+        idTitle={t("settings.useId")}
         idDescription="Stable capability identifier selected by consumers; dots, outer whitespace and numeric-only ids are not allowed."
         existing={effective.map((entry) => entry.id)}
         open={creating}
@@ -659,10 +660,10 @@ function ServiceUseEditor({
   return (
     <div>
       <FieldSection
-        title={t("settings.text.7f0043e684cc")}
-        description={t("settings.text.db78e1743d66")}
+        title={t("settings.binding")}
+        description={t("settings.theUseNamesACapabilityKindAndTheLogical")}
       >
-        <FieldRow title={t("settings.text.e00ac23f2ac2")}>
+        <FieldRow title={t("settings.kind")}>
           <SelectInput
             ariaLabel="Kind"
             value={kind}
@@ -682,7 +683,7 @@ function ServiceUseEditor({
           />
         </FieldRow>
         <FieldRow
-          title={t("settings.text.68c2cc7f0cea")}
+          title={t("settings.model")}
           description={`Only ${kindLabel(kind).toLowerCase()} models are offered.`}
         >
           <SelectInput
@@ -703,17 +704,17 @@ function ServiceUseEditor({
         </FieldRow>
         {modelId === "" && (
           <div className="flex items-center gap-1.5 px-5 py-2.5 text-[11px] text-warning">
-            <AlertTriangle size={13} />{t("settings.text.0b616fd0bc60")}</div>
+            <AlertTriangle size={13} />{t("settings.noModelSelectedApplyWillBeRejected")}</div>
         )}
       </FieldSection>
 
       <FieldSection
-        title={t("settings.text.ba38ef712b4b")}
-        description={t("settings.text.3cedcd0b6534")}
+        title={t("settings.consumers")}
+        description={t("settings.whoSelectsThisUseTodayTheseLocationsAreEdited")}
       >
         <div className="space-y-1.5 px-5 py-3">
           {consumers.ownerRefs.length === 0 && consumers.consumers.length === 0 && (
-            <div className="text-[11px] text-fg-faint">{t("settings.text.f1fdfd15c717")}</div>
+            <div className="text-[11px] text-fg-faint">{t("settings.notReferencedByAnyOwnerConfigurationOrActionModel")}</div>
           )}
           {consumers.ownerRefs.map((reference) => (
             <div
@@ -741,7 +742,7 @@ function ServiceUseEditor({
           {consumers.consumers.map((consumer) => (
             <div key={consumer} className="flex items-center justify-between gap-2">
               <span className="font-mono text-[11px] text-fg">{consumer}</span>
-              <Button size="xs" variant="ghost" onClick={() => navigateTo("actions")}>{t("settings.text.741cbf1f30d8")}</Button>
+              <Button size="xs" variant="ghost" onClick={() => navigateTo("actions")}>{t("settings.openActions")}</Button>
             </div>
           ))}
         </div>
@@ -766,7 +767,7 @@ function PendingDeletions({
           className="flex items-center justify-between gap-2 rounded-md border border-line bg-bg px-3 py-2"
         >
           <span className="font-mono text-[11px] text-fg">{entry.id}</span>
-          <Button size="xs" variant="outline" onClick={() => onRestore(entry)}>{t("settings.text.3cbe6d6b9a8d")}</Button>
+          <Button size="xs" variant="outline" onClick={() => onRestore(entry)}>{t("settings.restore")}</Button>
         </div>
       ))}
     </div>

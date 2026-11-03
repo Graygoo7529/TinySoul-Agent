@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 import type { DirectReference } from "../../api/v2/common";
 /**
  * The shared reference detail panel for owner pages (plan §11/§12).
@@ -71,6 +72,7 @@ export interface ReferencesPanelProps {
 }
 
 export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
+  useI18n();
   const { actionId, anchor, anchorTitle, directRefs, origin, run, onOpenRef, onClose } = props;
   const [caps, setCaps] = useState<SearchCapabilities | null | "loading" | "error">(
     "loading",
@@ -259,14 +261,14 @@ export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
                       </span>
                     </button>
                     <IconButton
-                      label="复制引用"
+                      label={t("resources.copyReference")}
                       className="h-6 w-6"
                       onClick={() => copyReference(ref)}
                     >
                       <Copy size={12} />
                     </IconButton>
                     <IconButton
-                      label="引用到对话"
+                      label={t("resources.quote")}
                       className="h-6 w-6"
                       onClick={() => quoteReference(ref, origin)}
                     >
@@ -363,8 +365,7 @@ export function ReferencesPanel(props: ReferencesPanelProps): ReactElement {
                     runBacklinks({ continuation })
                   }
                 >
-                  显示更多
-                </Button>
+                  {t("common.showMore")}</Button>
               )}
             </div>
           )}

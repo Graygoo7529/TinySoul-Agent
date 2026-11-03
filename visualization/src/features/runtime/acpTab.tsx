@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * ACP tab (plan §14 ACP, API-15).
  *
@@ -40,6 +41,7 @@ const CONNECTION_TONES: Record<string, "green" | "blue" | "red" | "gray"> = {
 };
 
 export function AcpTab({ epoch }: { epoch: number }): ReactElement {
+  useI18n();
   const [nonce, setNonce] = useState(0);
   const read = useAsyncRead(
     (signal) => runtimeClients(epoch).capabilities.subagent({ signal }),
@@ -71,8 +73,7 @@ export function AcpTab({ epoch }: { epoch: number }): ReactElement {
           onClick={() => setNonce((n) => n + 1)}
         >
           <RefreshCw size={12} />
-          重新读取
-        </Button>
+          {t("runtime.reRead")}</Button>
       </div>
       <TargetsSection targets={targets} />
       <ConnectionsSection
@@ -89,16 +90,16 @@ function TargetsSection({
 }: {
   targets: AcpTarget[];
 }): ReactElement {
+  useI18n();
   if (targets.length === 0) {
     return (
       <EmptyState
         icon={<Unplug size={26} />}
-        title="没有已配置的子代理目标"
-        description="目标是配置事实——先在设置中添加，委派才能使用。"
+        title={t("runtime.subagentTargetsConfigured")}
+        description={t("runtime.targetsConfigurationFactsAddSettingsDelegationUse")}
         action={
           <Button variant="outline" size="sm" onClick={openAcpSettings}>
-            打开 ACP 设置
-          </Button>
+            {t("runtime.openAcpSettings")}</Button>
         }
       />
     );
@@ -145,15 +146,14 @@ function ConnectionsSection({
   day: string | null;
   connections: AcpConnection[];
 }): ReactElement {
+  useI18n();
   const openJob = useRuntimeUi((s) => s.openJob);
   if (connections.length === 0) {
     return (
       <section className="space-y-1.5">
         <h3 className="text-[12px] font-medium text-fg-faint">Connections</h3>
         <div className="rounded-lg border border-line bg-bg-elev px-4 py-3 text-[12px] text-fg-faint">
-          当前没有活动连接。委派开始时会出现连接
-          and an idle one can be reused across turns.
-        </div>
+          {t("runtime.liveConnectionsConnectionAppearsDelegationStartsIdle")}</div>
       </section>
     );
   }

@@ -24,8 +24,8 @@ export function ExecutionPage() {
       </details>
       <RunningStrip />
       <FieldSection
-        title={t("settings.text.8d3c148819e9")}
-        description={t("settings.text.4c61fc29ec76")}
+        title={t("settings.interpreters")}
+        description={t("settings.whichShellScriptInterpretersTheExecutionDomainMayUse")}
         paths={[
           "execution.enabled",
           ...INTERPRETERS.map((id) => `execution.interpreters.${id}.enabled`),
@@ -36,8 +36,8 @@ export function ExecutionPage() {
         )}
       />
       <FieldSection
-        title={t("settings.text.61a0ae3b849d")}
-        description={t("settings.text.e0ac00adbeef")}
+        title={t("settings.limits")}
+        description={t("settings.boundsOfASingleExecutionTheRuntimeEnforcesOne")}
         paths={[
           "execution.max_runtime_seconds",
           "execution.max_output_bytes",
@@ -59,8 +59,8 @@ export function ExecutionPage() {
         ]}
       />
       <FieldSection
-        title={t("settings.text.437736fdb5bb")}
-        description={t("settings.text.4bf86d664941")}
+        title={t("settings.jobs")}
+        description={t("settings.backgroundWorkSupervisedInsideATurnLiveJobsNever")}
         paths={["jobs.retained_capacity", "jobs.per_turn_live_capacity"]}
         overrides={{
           "jobs.retained_capacity": { min: 1 },
@@ -81,8 +81,8 @@ function RunningStrip() {
   );
   return (
     <SectionCard
-      title={t("settings.text.eb560f49da05")}
-      description={t("settings.text.939d704eac5b")}
+      title={t("settings.currentlyInEffect")}
+      description={t("settings.valuesOfTheRunningGenerationChangesBelowActivateOn")}
       actions={
         enabled ? <Badge tone="green">启用</Badge> : <Badge tone="gray">禁用</Badge>
       }

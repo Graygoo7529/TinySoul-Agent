@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Active Memory.md reader (center, plan §12).
  *
@@ -68,6 +69,7 @@ function decodeActiveMetadata(page: ActiveMemoryPageView): ActiveMemoryMetadata 
 }
 
 export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
+  useI18n();
   const activeDay = useMemoryPage((s) => s.activeDay);
   const fragment = useMemoryPage((s) => s.activeFragment);
   const page = useOwnerPage<
@@ -117,8 +119,7 @@ export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-[13px] font-medium">
             <CalendarDays size={13} className="shrink-0 text-fg-faint" />
-            Active memory
-            <Badge tone={activeDay === null ? "accent" : "yellow"}>
+            {t("memory.active")}<Badge tone={activeDay === null ? "accent" : "yellow"}>
               {activeDay === null
                 ? boundDay !== null
                   ? `active · ${boundDay}`
@@ -132,13 +133,13 @@ export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           <IconButton
-            label="Copy reference"
+            label={t("resources.copyReference")}
             onClick={() => copyReference("memory:current")}
           >
             <Copy size={15} />
           </IconButton>
           <IconButton
-            label="引用到对话"
+            label={t("resources.quote")}
             onClick={() =>
               quoteReference("memory:current", {
                 ref: "memory:current",
@@ -160,7 +161,7 @@ export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
             icon={<FileWarning size={24} />}
-            title="这一天没有归档记忆"
+            title={t("memory.archivedMemoryDay")}
             description={
               activeDay !== null
                 ? `${activeDay} has no archived Memory.md. Days without one are simply not archived — pick another day.`
@@ -181,8 +182,7 @@ export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
             action={
               <Button variant="outline" size="sm" onClick={page.reload}>
                 <RotateCcw size={13} />
-                Retry
-              </Button>
+                {t("common.retry")}</Button>
             }
           />
         </div>
@@ -190,8 +190,8 @@ export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
         // Empty is a fact of the document, distinct from missing above.
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
-            title="还没有记录内容"
-            description="活动 Memory.md 存在，但这一天还没有内容。"
+            title={t("memory.nothingRecordedYet")}
+            description={t("memory.activeMemoryMdExistsButContentDay")}
           />
         </div>
       ) : (
@@ -212,8 +212,7 @@ export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
           <span className="min-w-0 flex-1">{errorMessage}</span>
           <Button variant="ghost" size="xs" onClick={page.reload}>
             <RotateCcw size={12} />
-            Retry
-          </Button>
+            {t("common.retry")}</Button>
         </div>
       )}
 
@@ -225,8 +224,7 @@ export function ActiveMemoryView({ epoch }: { epoch: number }): ReactElement {
             loading={page.loadingMore}
             onClick={page.loadMore}
           >
-            显示更多
-          </Button>
+            {t("common.showMore")}</Button>
         </div>
       )}
     </div>

@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Workspace page modals (plan §10/P06): path entry (new file/folder, move),
  * tag replacement, append and find-and-replace. Each modal is a thin form —
@@ -30,6 +31,7 @@ export function PathInputModal({
   onSubmit: (path: string) => void;
   onClose: () => void;
 }): ReactElement {
+  useI18n();
   const [value, setValue] = useState(initial);
   return (
     <Modal title={title} onClose={onClose} width="max-w-md">
@@ -53,8 +55,7 @@ export function PathInputModal({
         </label>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>
-            取消
-          </Button>
+            {t("runtime.cancel")}</Button>
           <Button
             type="submit"
             variant="primary"
@@ -87,6 +88,7 @@ export function TagsModal({
   onSubmit: (tags: WorkspaceTag[]) => void;
   onClose: () => void;
 }): ReactElement {
+  useI18n();
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set(tags));
   const preserved = tags.filter(
     (tag) => !KNOWN_TAGS.some((known) => known.tag === tag),
@@ -100,7 +102,7 @@ export function TagsModal({
     });
   };
   return (
-    <Modal title="标签" onClose={onClose} width="max-w-sm">
+    <Modal title={t("workspace.tags")} onClose={onClose} width="max-w-sm">
       <div className="space-y-3">
         <div className="space-y-1.5">
           {KNOWN_TAGS.map(({ tag, label }) => (
@@ -120,13 +122,12 @@ export function TagsModal({
         </div>
         {preserved.length > 0 && (
           <div className="text-[11px] text-fg-faint">
-            保持原样：{preserved.join("，")}
+            {t("workspace.kept")}{preserved.join("，")}
           </div>
         )}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>
-            取消
-          </Button>
+            {t("runtime.cancel")}</Button>
           <Button
             variant="primary"
             loading={busy}
@@ -139,8 +140,7 @@ export function TagsModal({
               ])
             }
           >
-            保存标签
-          </Button>
+            {t("workspace.saveTags")}</Button>
         </div>
       </div>
     </Modal>
@@ -157,9 +157,10 @@ export function AppendModal({
   onSubmit: (text: string) => void;
   onClose: () => void;
 }): ReactElement {
+  useI18n();
   const [text, setText] = useState("");
   return (
-    <Modal title="追加文本" onClose={onClose}>
+    <Modal title={t("workspace.appendText")} onClose={onClose}>
       <div className="space-y-3">
         <textarea
           // eslint-disable-next-line jsx-a11y/no-autofocus -- modal form focus
@@ -167,21 +168,19 @@ export function AppendModal({
           value={text}
           onChange={(event) => setText(event.target.value)}
           rows={6}
-          placeholder="追加到文件末尾的文本…"
+          placeholder={t("workspace.textAppendedEndFile")}
           className="w-full resize-y rounded-lg border border-line bg-bg px-3 py-2 font-mono text-[12.5px] leading-5 outline-none focus:border-accent"
         />
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>
-            取消
-          </Button>
+            {t("runtime.cancel")}</Button>
           <Button
             variant="primary"
             loading={busy}
             disabled={text === ""}
             onClick={() => onSubmit(text)}
           >
-            追加
-          </Button>
+            {t("workspace.append")}</Button>
         </div>
       </div>
     </Modal>
@@ -198,15 +197,15 @@ export function ReplaceModal({
   onSubmit: (oldText: string, newText: string) => void;
   onClose: () => void;
 }): ReactElement {
+  useI18n();
   const [oldText, setOldText] = useState("");
   const [newText, setNewText] = useState("");
   return (
-    <Modal title="查找替换" onClose={onClose}>
+    <Modal title={t("workspace.findReplace")} onClose={onClose}>
       <div className="space-y-3">
         <label className="block space-y-1">
           <span className="text-[12px] text-fg-muted">
-            查找（必须恰好匹配一次）
-          </span>
+            {t("workspace.findMustMatchExactlyOnce")}</span>
           <textarea
             // eslint-disable-next-line jsx-a11y/no-autofocus -- modal form focus
             autoFocus
@@ -217,7 +216,7 @@ export function ReplaceModal({
           />
         </label>
         <label className="block space-y-1">
-          <span className="text-[12px] text-fg-muted">替换为</span>
+          <span className="text-[12px] text-fg-muted">{t("workspace.replace")}</span>
           <textarea
             value={newText}
             onChange={(event) => setNewText(event.target.value)}
@@ -227,16 +226,14 @@ export function ReplaceModal({
         </label>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>
-            取消
-          </Button>
+            {t("runtime.cancel")}</Button>
           <Button
             variant="primary"
             loading={busy}
             disabled={oldText === ""}
             onClick={() => onSubmit(oldText, newText)}
           >
-            替换
-          </Button>
+            {t("workspace.replace2")}</Button>
         </div>
       </div>
     </Modal>

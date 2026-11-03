@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Workspace page (plan §10/P06).
  *
@@ -51,6 +52,7 @@ interface ManifestView {
 }
 
 export function WorkspacePage(): ReactElement {
+  useI18n();
   const epoch = useConnectionStore((s) => s.epoch);
   const activeDay = useConnectionStore(selectActiveDay);
   const viewDay = useWorkspacePage((s) => s.day);
@@ -240,8 +242,8 @@ export function WorkspacePage(): ReactElement {
         {manifestStatus === "error" && manifest === null ? (
           <div className="flex flex-1 items-center justify-center p-6">
             <EmptyState
-              title="无法读取工作区索引"
-              description="工作区索引当前不可用。"
+              title={t("workspace.manifestUnread")}
+              description={t("workspace.manifestUnavailable")}
               action={
                 <Button
                   variant="outline"
@@ -249,8 +251,7 @@ export function WorkspacePage(): ReactElement {
                   onClick={() => void loadManifest(true)}
                 >
                   <RotateCcw size={13} />
-                  Retry
-                </Button>
+                  {t("common.retry")}</Button>
               }
             />
           </div>
@@ -266,7 +267,7 @@ export function WorkspacePage(): ReactElement {
         ) : ref !== null && manifestStatus === "ready" ? (
           <div className="flex flex-1 items-center justify-center p-6">
             <EmptyState
-              title="不在索引中"
+              title={t("workspace.notInManifest")}
               description={
                 <>
                   <span className="font-mono text-[11px]">{ref}</span> is not
@@ -275,8 +276,7 @@ export function WorkspacePage(): ReactElement {
               }
               action={
                 <Button variant="outline" size="sm" onClick={() => select(null)}>
-                  返回目录树
-                </Button>
+                  {t("workspace.backToTree")}</Button>
               }
             />
           </div>
@@ -288,7 +288,7 @@ export function WorkspacePage(): ReactElement {
           <div className="flex flex-1 items-center justify-center p-6">
             <EmptyState
               icon={<FolderOpen size={26} />}
-              title="Workspace"
+              title={t("shell.workspace")}
               description={
                 isActive
                   ? "从目录树选择文件，或新建、拖入文件上传。"
@@ -304,8 +304,8 @@ export function WorkspacePage(): ReactElement {
           epoch={epoch}
           actionId="workspace.search"
           identityKey={`workspace|${manifest?.day ?? activeDay ?? ""}`}
-          title="检索工作区"
-          placeholder="检索工作区…"
+          title={t("workspace.search")}
+          placeholder={t("workspace.searchPlaceholder")}
           scopes={scopes}
           run={runSearch}
           onOpenRef={(ref) => void openSearchRef(ref)}

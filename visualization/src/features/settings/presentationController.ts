@@ -1,5 +1,4 @@
-import { t, tError } from "../../i18n";
-import { isTinySoulApiError } from "../../api/v2/errors";
+import { message } from "../../i18n";
 /** One project-scoped read/save flow shared by the shell and settings page. */
 import { useAppStore } from "../../store/appStore";
 import { useConnectionStore } from "../../store/connectionStore";
@@ -19,7 +18,6 @@ function current(epoch: number, request: AbortController): boolean {
 }
 
 function errorMessage(error: unknown): string {
-  if (isTinySoulApiError(error)) return tError(error.code, error.message);
   return error instanceof Error ? error.message : String(error);
 }
 
@@ -101,10 +99,10 @@ async function savePendingInterface(): Promise<void> {
     }
   } catch (error) {
     if (!current(epoch, request)) return;
-    const message = errorMessage(error);
-    useUiPrefsStore.setState({ saveError: message });
-    useAppStore.getState().pushToast("error", `${t("settings.text.6dfc76c8b8cc")} ${message}`, {
-      label: t("settings.text.71e1aa94f815"),
+    const detail = errorMessage(error);
+    useUiPrefsStore.setState({ saveError: detail });
+    useAppStore.getState().pushToast("error", message("presentation.saveFailed", { detail }), {
+      label: message("settings.retrySaving"),
       onClick: () => {
         if (useConnectionStore.getState().epoch === epoch) void retryInterfaceSave();
       },

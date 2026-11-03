@@ -1,4 +1,4 @@
-import { t, rawText, translatedField as matchField } from "../../../i18n";
+import { t, translatedField as matchField, useI18n } from "../../../i18n";
 import { ModelSelectionList } from "./ModelPicker";
 import { SettingsDisclosure } from "../SettingsDisclosure";
 import { useConnectionStore } from "../../../store/connectionStore";
@@ -144,7 +144,7 @@ export function LlmModelsPage() {
   return (
     <>
       <ObjectEditorLayout
-        title={t("settings.text.f3798f81c7b6")}
+        title={t("settings.models")}
         description={
           collection?.description ??
           "Provider models with capabilities and request options."
@@ -180,31 +180,31 @@ export function LlmModelsPage() {
                 disabled={!currentDeletable}
                 title={
                   currentDeletable
-                    ? "Rename this model"
+                    ? t("settings.rename")
                     : "This model cannot be renamed from its current source"
                 }
                 onClick={() => setRenaming(current)}
               >
-                <Pencil size={13} />{t("settings.text.d3f4cb898fbe")}</Button>
+                <Pencil size={13} />{t("settings.rename")}</Button>
               <Button
                 size="xs"
                 variant="danger"
                 disabled={!currentDeletable}
                 title={
                   currentDeletable
-                    ? "Delete this model"
+                    ? t("settings.delete")
                     : "This model cannot be deleted from its current source"
                 }
                 onClick={() => setDeleting(current)}
               >
-                <Trash2 size={13} />{t("settings.text.f6fdbe48dc54")}</Button>
+                <Trash2 size={13} />{t("settings.delete")}</Button>
             </>
           )
         }
       >
         {current !== null && (
           <fieldset disabled={writeSource === null}>
-            {writeSource === null && <p className="p-3 text-xs text-fg-muted">{t("settings.text.d713d9d0123b")}</p>}
+            {writeSource === null && <p className="p-3 text-xs text-fg-muted">{t("settings.noWritableProjectSourceHoldsThisModel")}</p>}
             <ModelEditor object={current} providers={providers} writeSource={writeSource} />
           </fieldset>
         )}
@@ -231,7 +231,7 @@ export function LlmModelsPage() {
       />
 
       <RenameObjectModal validateId={llmObjectIdError}
-        title="Rename model"
+        title={t("settings.rename")}
         objectId={renaming?.id ?? ""}
         existing={objects.map((item) => item.id)}
         references={renaming !== null ? modelReferences(tasks, renaming.id) : []}
@@ -257,7 +257,7 @@ export function LlmModelsPage() {
         }}
       />
       <DeleteObjectModal
-        title="Delete model"
+        title={t("settings.delete")}
         objectId={deleting?.id ?? ""}
         references={deleting !== null ? modelReferences(tasks, deleting.id) : []}
         open={deleting !== null}
@@ -292,6 +292,7 @@ function NewModelModal({
   catalog: SettingsCatalog | null;
   onCreate: (id: string, value: Record<string, JsonValue>, target: Extract<FamilySourceTarget, { kind: "ready" }>) => void;
 }) {
+  useI18n();
   const state = useConfigDraftStore();
   const [id, setId] = useState("");
   const [family, setFamily] = useState("");
@@ -329,17 +330,17 @@ function NewModelModal({
       <div className="space-y-3">
         <TextInput ariaLabel="Model ID" value={id} onCommit={setId} placeholder="gpt-latest" mono />
         {idError !== null && <div className="text-[10px] text-danger">{idError}</div>}
-        <SelectInput ariaLabel="Family" value={family} options={[{ value: "", label: t("settings.text.0fe3b8a9c6a2") }, ...families.map((item) => ({ value: item, label: item })), { value: "__new__", label: t("settings.text.a6c00876825b") }]} onChange={(value) => { setFamily(value); setNewFamilyFile(""); }} />
+        <SelectInput ariaLabel="Family" value={family} options={[{ value: "", label: t("settings.chooseExistingFamily") }, ...families.map((item) => ({ value: item, label: item })), { value: "__new__", label: t("settings.newFamily") }]} onChange={(value) => { setFamily(value); setNewFamilyFile(""); }} />
         {family === "__new__" && <TextInput ariaLabel="New family" value={newFamily} onCommit={setNewFamily} placeholder="Qwen" />}
         {target.usesFileName && <TextInput ariaLabel="Family TOML file" value={newFamilyFile} onCommit={setNewFamilyFile} placeholder={familyFileName(chosenFamily) || "qwen"} mono />}
-        {target.kind === "invalid" && <div className="text-[10px] text-danger">{rawText(target.message)}</div>}
-        <SelectInput ariaLabel="Adapter" value={adapter} options={[{ value: "", label: t("settings.text.f322ba4e158f") }, ...adapterChoices]} onChange={setAdapter} />
-        <SelectInput ariaLabel="Provider" value={providerId} options={[{ value: "", label: t("settings.text.135a38f77646") }, ...matchingProviders.map((item) => ({ value: item.id, label: item.id }))]} onChange={(value) => { setProviderId(value); setProviderModel(""); }} />
-        {adapter !== "" && matchingProviders.length === 0 && <div className="text-[10px] text-fg-muted">{t("settings.text.dd50eda219a3")}</div>}
+        {target.kind === "invalid" && <div className="text-[10px] text-danger">{target.message}</div>}
+        <SelectInput ariaLabel="Adapter" value={adapter} options={[{ value: "", label: t("settings.chooseAdapter") }, ...adapterChoices]} onChange={setAdapter} />
+        <SelectInput ariaLabel="Provider" value={providerId} options={[{ value: "", label: t("settings.chooseProvider") }, ...matchingProviders.map((item) => ({ value: item.id, label: item.id }))]} onChange={(value) => { setProviderId(value); setProviderModel(""); }} />
+        {adapter !== "" && matchingProviders.length === 0 && <div className="text-[10px] text-fg-muted">{t("settings.addACompatibleProviderOnTheProvidersPage")}</div>}
         <TextInput ariaLabel="Provider model" value={providerModel} onCommit={setProviderModel} placeholder="Remote model name" mono />
         {target.kind === "ready" && <div className="text-[11px] text-fg-faint">配置文件：{target.sourceId.replace(/^project:/, "")}</div>}
         <div className="flex justify-end gap-2 border-t border-line pt-3">
-          <Button size="xs" variant="ghost" onClick={onClose}>{t("settings.text.77dfd2135f4d")}</Button>
+          <Button size="xs" variant="ghost" onClick={onClose}>{t("settings.cancel")}</Button>
           <Button size="xs" variant="primary" disabled={!valid} onClick={() => {
             if (target.kind !== "ready") return;
             const value = blankModelValue(adapter, providerId, template, catalog);
@@ -347,7 +348,7 @@ function NewModelModal({
             value.adapter = adapter;
             value.providers = [{ provider: providerId, provider_model: providerModel.trim() }];
             onCreate(id, value, target);
-          }}>Create</Button>
+          }}>{t("settings.create")}</Button>
         </div>
       </div>
     </Modal>
@@ -430,8 +431,8 @@ function ModelEditor({
   return (
     <div>
       <FieldSection
-        title={t("settings.text.7e5a975b6add")}
-        description={t("settings.text.9fd28be0ef27")}
+        title={t("settings.identity")}
+        description={t("settings.howThisModelIsReachedAndWhereItAppears")}
       >
         <FieldRow
           title={adapterField.meta?.title ?? "Adapter"}
@@ -476,8 +477,8 @@ function ModelEditor({
       />
 
       <FieldSection
-        title={t("settings.text.ca09c54bff74")}
-        description={t("settings.text.c940c4b62970")}
+        title={t("settings.capabilities")}
+        description={t("settings.whatTinysoulMayRelyOnWhenRoutingTasksTo")}
       >
         <FieldRow
           title={field("context_window_tokens").meta?.title ?? "Context Window"}
@@ -507,10 +508,10 @@ function ModelEditor({
           />
         </FieldRow>
         <Button variant="ghost" size="sm" onClick={() => navigateTo("context")}>
-          {t("settings.text.b17eda836406")}
+          {t("settings.configureTheGlobalWindowLimit")}
         </Button>
         <FieldRow
-          title={t("settings.text.b7141c4a25c0")}
+          title={t("settings.featureCapabilities")}
           description={field("capabilities").meta?.description}
           dirty={field("capabilities").dirty}
         >
@@ -682,7 +683,7 @@ function ProviderChainSection({
   return (
     <FieldSection
       title={meta?.title ?? "Provider Chain"}
-      description={t("settings.text.71aaa0036e64")}
+      description={t("settings.tryProvidersInOrderForThisModelASuccessful")}
       meta={<Badge>{rows.length}</Badge>}
     >
       <div className="space-y-1.5 px-5 py-3">
@@ -746,7 +747,7 @@ function ProviderChainSection({
           </OrderableRow>
         ))}
         {rows.length === 0 && (
-          <div className="text-[11px] text-danger">{t("settings.text.986e941a64fe")}</div>
+          <div className="text-[11px] text-danger">{t("settings.theChainIsEmptyThisModelCannotBeCalled")}</div>
         )}
         {available.length === 0 && (
           <div className="flex items-center gap-1.5 text-[11px] text-danger">
@@ -761,7 +762,7 @@ function ProviderChainSection({
               lock !== null || available.length <= rows.length || available.length === 0
             }
             onClick={addRow}
-          >{t("settings.text.519221629b8c")}</Button>
+          >{t("settings.addProvider")}</Button>
         </OrderableListFooter>
       </div>
     </FieldSection>
@@ -826,8 +827,8 @@ function AdapterOptionsSection({
 
   return (
     <FieldSection
-      title={t("settings.text.5bd1d1d5b687")}
-      description={t("settings.text.581ab50dbcbc")}
+      title={t("settings.adapterOptions")}
+      description={t("settings.adapterSpecificRequestBehaviorOnlyOptionsTheSelectedAdapter")}
     >
       {rule === null ? (
         <div className="px-5 py-3 text-[11px] text-fg-faint">
@@ -955,7 +956,7 @@ function AdapterOptionsSection({
                 }}
                 className={`${selectClass} max-w-56`}
               >
-                <option value="">{t("settings.text.e1935f1e0c47")}</option>
+                <option value="">{t("settings.selectOption")}</option>
                 {addable.map((key) => (
                   <option key={key} value={key}>
                     {optionMeta(key)?.title ?? key}
@@ -1032,7 +1033,7 @@ function AdapterOptionRow({
           {meta?.title ?? optionKey}
           {rule && <Badge tone="gray">{rule.source === "api-mode" ? "API" : rule.source === "variant" ? "变体" : "专属"}</Badge>}
           {unknown && (
-            <Badge tone="yellow" title="Not used by the current adapter/variant">{t("settings.text.ce7501007f04")}</Badge>
+            <Badge tone="yellow" title="Not used by the current adapter/variant">{t("settings.unused")}</Badge>
           )}
         </span>
       }
@@ -1220,14 +1221,14 @@ function RequestOverridesSection({
               />
             ) : (
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] text-fg-faint">{t("settings.text.dc89ba8d40b0")}</span>
+                <span className="text-[11px] text-fg-faint">{t("settings.inheritsTheTaskChain")}</span>
                 <Button
                   size="xs"
                   variant="outline"
                   onClick={() =>
                     setObjectField(ROOT, object, subpath, fallback, writeSource)
                   }
-                >{t("settings.text.6986f84deb75")}</Button>
+                >{t("settings.setOverride")}</Button>
               </div>
             )}
           </FieldRow>
@@ -1283,7 +1284,7 @@ function AdapterChangeModal({
           兼容的提供方绑定会保留；没有可保留的绑定时，使用下方选择的提供方。
         </p>
         <label className="block">
-          <span className="mb-1.5 block text-[11px] font-medium text-fg-muted">{t("settings.text.7ceee3f3615a")}</span>
+          <span className="mb-1.5 block text-[11px] font-medium text-fg-muted">{t("settings.provider")}</span>
           <select
             aria-label="Provider for target adapter"
             value={providerId}
@@ -1298,7 +1299,7 @@ function AdapterChangeModal({
           </select>
         </label>
         <div className="flex justify-end gap-2 border-t border-line pt-3">
-          <Button size="xs" variant="ghost" onClick={onClose}>{t("settings.text.77dfd2135f4d")}</Button>
+          <Button size="xs" variant="ghost" onClick={onClose}>{t("settings.cancel")}</Button>
           <Button
             size="xs"
             variant="primary"

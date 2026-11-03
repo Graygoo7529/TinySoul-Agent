@@ -12,8 +12,8 @@ export function WorkspacePage() {
   return (
     <SettingsPageBody>
       <FieldSection
-        title={t("settings.text.1ca9120d10bf")}
-        description={t("settings.text.8329728b9c7c")}
+        title={t("settings.locationCapacity")}
+        description={t("settings.theDailyWorkspaceRootAndHowManyResourcesIt")}
         paths={[
           "workspace.root",
           "workspace.max_files",
@@ -34,8 +34,8 @@ export function WorkspacePage() {
         <Badge tone="gray">important</Badge> 用于标记固定、临时和重要的 Workspace 资源。
       </div>
       <FieldSection
-        title={t("settings.text.7d5c8fd1a000")}
-        description={t("settings.text.ca00bc925dcf")}
+        title={t("settings.watchingSearch")}
+        description={t("settings.externalChangeHintsAndLexicalSearchBoundsFormalWrites")}
         paths={[
           "workspace.watch.enabled",
           "workspace.watch.debounce_ms",
@@ -49,8 +49,8 @@ export function WorkspacePage() {
         }}
       />
       <FieldSection
-        title={t("settings.text.62c7fcf46e27")}
-        description={t("settings.text.9f42926b7f87")}
+        title={t("settings.analysis")}
+        description={t("settings.boundsOfTheWorkspaceAnalyzeAction")}
         paths={[
           "workspace.analysis.max_intent_chars",
           "workspace.analysis.max_reference_refs",

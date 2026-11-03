@@ -576,7 +576,7 @@ describe("LlmModelsPage", () => {
     if (isNew) await fill("New family", family);
     await choose("Adapter", "kimi");
     await fill("Provider model", `remote-${id}`);
-    await confirm("Create");
+    await confirm("创建");
   }
 
   it("creates a family, renames its first draft model, and shares the file until its last model is removed", async () => {

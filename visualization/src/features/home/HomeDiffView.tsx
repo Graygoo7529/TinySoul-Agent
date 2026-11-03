@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Home overlay-change diff (center cover, plan §11).
  *
@@ -51,6 +52,7 @@ export function HomeDiffView({
   epoch: number;
   ref: string;
 }): ReactElement {
+  useI18n();
   const diffKind = useHomePage((s) => s.diffKind);
   const [mode, setMode] = useState<DiffMode>("unified");
   const [organizeOpen, setOrganizeOpen] = useState(false);
@@ -88,12 +90,11 @@ export function HomeDiffView({
         <Button
           variant="ghost"
           size="xs"
-          aria-label="返回变更列表"
+          aria-label={t("home.backChanges")}
           onClick={() => useHomePage.getState().closeDiff()}
         >
           <ArrowLeft size={12} />
-          Changes
-        </Button>
+          {t("home.changes")}</Button>
         <GitCompareArrows size={13} className="shrink-0 text-fg-faint" />
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium" title={ref}>
           {ref.replace(/^home:/, "")}
@@ -125,34 +126,29 @@ export function HomeDiffView({
         <div className="flex items-start gap-2 border-b border-line bg-warning-soft px-4 py-2 text-[12px] text-warning">
           <AlertTriangle size={12} className="mt-0.5 shrink-0" />
           <span className="min-w-0 flex-1">
-            记录此 overlay 变更后，已接受基线又发生了变化——当前差异是相对
-            旧基线计算的。可重新读取生效内容，或发起一次 Home 整理来收敛。
-          </span>
+            {t("home.acceptedBaselineChangedOverlayChangeRecordedSo")}</span>
         </div>
       )}
 
       {metadata !== null && (
         <div className="border-b border-line px-4 py-1.5 text-[11px] text-fg-faint">
-          actual {metadata.actual_chars} 字符 · effective {metadata.effective_chars} 字符
-        </div>
+          actual {metadata.actual_chars} {t("home.charsEffective")}{metadata.effective_chars} {t("home.chars")}</div>
       )}
 
       {page.loading ? (
         <div className="flex flex-1 items-center justify-center gap-2 text-[12px] text-fg-faint">
           <Loader2 size={15} className="animate-spin-slow" />
-          正在读取差异…
-        </div>
+          {t("home.readingDiff")}</div>
       ) : page.error !== null && page.items.length === 0 ? (
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
             icon={<AlertTriangle size={24} />}
-            title="差异读取失败"
+            title={t("home.diffRead")}
             description={errorMessage}
             action={
               <Button variant="outline" size="sm" onClick={page.reload}>
                 <RotateCcw size={13} />
-                重试
-              </Button>
+                {t("common.retry")}</Button>
             }
           />
         </div>
@@ -160,8 +156,8 @@ export function HomeDiffView({
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyState
             icon={<GitCompareArrows size={24} />}
-            title="无差异"
-            description="该条目的生效内容与已接受基线一致。"
+            title={t("home.difference")}
+            description={t("home.effectiveContentMatchesAcceptedBaselineEntry")}
           />
         </div>
       ) : mode === "unified" ? (
@@ -180,8 +176,7 @@ export function HomeDiffView({
           <span className="min-w-0 flex-1">{errorMessage}</span>
           <Button variant="ghost" size="xs" onClick={page.reload}>
             <RotateCcw size={12} />
-            重试
-          </Button>
+            {t("common.retry")}</Button>
         </div>
       )}
 
@@ -193,8 +188,7 @@ export function HomeDiffView({
             loading={page.loadingMore}
             onClick={page.loadMore}
           >
-            显示更多
-          </Button>
+            {t("common.showMore")}</Button>
         </div>
       )}
 
@@ -239,17 +233,16 @@ const SIDE_CELL_CLASSES: Record<"context" | "add" | "del", string> = {
 };
 
 function SideBySideRows({ rows }: { rows: SideRow[] }): ReactElement {
+  useI18n();
   return (
     <div className="font-mono text-[12px] leading-5">
       <div className="grid grid-cols-2 gap-2 px-2 pb-1 text-[10.5px] font-semibold uppercase tracking-wide text-fg-faint">
         <span className="flex items-center gap-1">
           <Rows3 size={11} />
-          Actual
-        </span>
+          {t("home.actualLabel")}</span>
         <span className="flex items-center gap-1">
           <Columns2 size={11} />
-          Effective
-        </span>
+          {t("home.effectiveLabel")}</span>
       </div>
       {rows.map((row, index) =>
         row.hunk !== null ? (

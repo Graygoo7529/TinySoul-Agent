@@ -1,4 +1,4 @@
-import { t, rawText } from "../../../i18n";
+import { t, useI18n } from "../../../i18n";
 import { useCallback, useEffect, useState } from "react";
 import { RotateCw } from "lucide-react";
 import type { ContextOverview } from "../../../api/v2/context";
@@ -43,8 +43,8 @@ export function ContextPage() {
       </div>
 
       <FieldSection
-        title={t("settings.text.64dd60fe1a04")}
-        description={t("settings.text.30a9fcd26e72")}
+        title={t("settings.background")}
+        description={t("settings.theStableIdentitySessionHistoryProjectionHomeCatalogAnd")}
         paths={["session.max_background_chars", "home.max_skill_catalog_chars"]}
         overrides={{
           "session.max_background_chars": { min: 512, slider: { min: 1024, max: 128 * 1024, step: 1024 } },
@@ -53,8 +53,8 @@ export function ContextPage() {
       />
 
       <FieldSection
-        title={t("settings.text.00a756164637")}
-        description={t("settings.text.fac18bd51979")}
+        title={t("settings.contextBudget")}
+        description={t("settings.theEffectiveWindowIncludesInputToolsReplayAndReserved")}
         paths={["context.max_window_tokens", "context.max_image_bytes"]}
         overrides={{
           "context.max_window_tokens": { min: 1 },
@@ -63,8 +63,8 @@ export function ContextPage() {
       />
 
       <FieldSection
-        title={t("settings.text.2f38169a712e")}
-        description={t("settings.text.308aa1f3e0ef")}
+        title={t("settings.trace")}
+        description={t("settings.turntraceChunkingIsACompressionTargetCompleteEntriesRemain")}
         paths={["context.trace_chunk_chars", "context.trace_branch_factor", "context.trace_min_hot_entries", "context.max_trace_inspect_chars"]}
         overrides={{
           "context.trace_chunk_chars": { min: 1, slider: { min: 1024, max: 64 * 1024, step: 1024 } },
@@ -75,16 +75,16 @@ export function ContextPage() {
       />
 
       <FieldSection
-        title={t("settings.text.ca5e00120498")}
-        description={t("settings.text.8a5eaaa33bb2")}
+        title={t("settings.composition")}
+        description={t("settings.optionalFixedSystemIdentityAndJournalTextUsedWhen")}
         paths={["context.system_text", "context.journal"]}
         forceAdvanced={["context.journal"]}
       />
 
-      <SettingsDisclosure title={t("settings.text.664683d7bef6")} paths={["context.compression_trigger_ratio", "context.compression_target_ratio"]}>
+      <SettingsDisclosure title={t("settings.pressureAndRelatedLimits")} paths={["context.compression_trigger_ratio", "context.compression_target_ratio"]}>
         <FieldSection
-          title={t("settings.text.46ead4045fba")}
-          description={t("settings.text.7142fb4a6f70")}
+          title={t("settings.compression")}
+          description={t("settings.compressionStartsAboveTheTriggerRatioOfTheEffective")}
           paths={["context.compression_trigger_ratio", "context.compression_target_ratio"]}
           overrides={{
             "context.compression_trigger_ratio": { min: 0, max: 1, slider: { min: 0, max: 1, step: 0.01 } },
@@ -107,12 +107,12 @@ function RelatedContextLinks() {
     ["Model windows", "Nominal model windows and provider bindings.", "llm-models" as const],
   ];
   return (
-    <SectionCard title={t("settings.text.264f18c03584")} description={t("settings.text.78a734d31aac")}>
+    <SectionCard title={t("settings.relatedOwnerLimits")} description={t("settings.theseLimitsAffectContextInputsOrResultsButRemain")}>
       <div className="grid gap-1.5 sm:grid-cols-2">
         {links.map(([title, detail, page]) => (
           <button key={title} type="button" className="group rounded-md border border-line bg-bg-sunken px-3 py-2 text-left hover:border-line-strong" onClick={() => navigateTo(page)}>
-            <div className="flex items-center justify-between gap-2 text-[12px] font-medium text-fg"><span>{rawText(title)}</span><span className="text-accent">→</span></div>
-            <div className="mt-0.5 text-[11px] leading-4 text-fg-muted">{rawText(detail)}</div>
+            <div className="flex items-center justify-between gap-2 text-[12px] font-medium text-fg"><span>{title}</span><span className="text-accent">→</span></div>
+            <div className="mt-0.5 text-[11px] leading-4 text-fg-muted">{detail}</div>
           </button>
         ))}
       </div>
@@ -121,6 +121,7 @@ function RelatedContextLinks() {
 }
 
 function ContextUsageCard() {
+  useI18n();
   const clients = useConnectionStore((s) => s.clients);
   const epoch = useConnectionStore((s) => s.epoch);
   const liveTurnId = useConnectionStore(
@@ -181,8 +182,8 @@ function ContextUsageCard() {
         <RefreshNotice onRefresh={refresh} refreshing={loading} />
       )}
       <SectionCard
-        title={t("settings.text.1413a406b588")}
-        description={t("settings.text.89f51ad5a493")}
+        title={t("settings.currentContextUsage")}
+        description={t("settings.readOnlyInstalledSegmentSizesFromTheBoundTurn")}
         actions={
           boundTurnId !== null && !closed ? (
             <button
@@ -192,7 +193,7 @@ function ContextUsageCard() {
               disabled={loading}
             >
               <RotateCw size={12} />
-              {t("settings.text.56e3badc4e6c")}
+              {t("settings.refresh")}
             </button>
           ) : undefined
         }
@@ -209,7 +210,7 @@ function ContextUsageCard() {
                 <div key={row.slot} className="flex items-center gap-3 px-3 py-2 text-[11px]">
                   <span className="w-20 shrink-0 font-semibold uppercase tracking-wide text-fg-muted">{row.slot}</span>
                   <span className="min-w-0 flex-1 text-fg-faint">{row.count} segments</span>
-                  <span className="font-mono text-fg-muted">{row.chars.toLocaleString()} chars</span>
+                  <span className="font-mono text-fg-muted">{row.chars.toLocaleString()} {t("home.chars")}</span>
                   {row.imageBytes > 0 && <span className="font-mono text-fg-faint">{(row.imageBytes / (1024 * 1024)).toFixed(2)} MiB</span>}
                 </div>
               ))}
@@ -219,8 +220,8 @@ function ContextUsageCard() {
           <div className="text-[12px] text-fg-faint">
             {error ??
               (boundTurnId === null
-                ? t("settings.text.c86e100853fe")
-                : t("settings.text.bd39d9390e0e"))}
+                ? t("settings.noActiveTurnTheRailBelowShowsTheInstalled")
+                : t("settings.readingTheActiveContext"))}
           </div>
         )}
       </SectionCard>

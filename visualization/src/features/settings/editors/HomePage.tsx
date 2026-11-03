@@ -15,11 +15,11 @@ import { FieldSection, SettingsPageBody, EmbeddingUseControl, valuePreview } fro
 export function HomePage() {
   return (
     <SettingsPageBody>
-      <div className="rounded-lg border border-line bg-bg-elev px-3.5 py-2.5 text-[12px] leading-5 text-fg-muted">{t("settings.text.6e14438775f9")}</div>
+      <div className="rounded-lg border border-line bg-bg-elev px-3.5 py-2.5 text-[12px] leading-5 text-fg-muted">{t("settings.homeHoldsTheIdentityRulesPreferencesAndGuidanceRegular")}</div>
       <SkillCatalogRow />
       <FieldSection
-        title={t("settings.text.2e06127d045a")}
-        description={t("settings.text.36f489d6f75e")}
+        title={t("settings.locationLimits")}
+        description={t("settings.theActualHomeRootAndTheCrossDayRuntime")}
         paths={[
           "home.root",
           "home.runtime_root",
@@ -32,8 +32,8 @@ export function HomePage() {
         }}
       />
       <FieldSection
-        title={t("settings.text.bce06414177f")}
-        description={t("settings.text.a3f34ae5d0ae")}
+        title={t("settings.search")}
+        description={t("settings.discoveryBoundsAndTheLogicalEmbeddingUseSharedBy")}
         paths={[
           "home.search.scan_limit",
           "home.search.max_resource_chars",
@@ -58,14 +58,14 @@ function SkillCatalogRow() {
   const active = useConfigDraftStore((s) => s.active);
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
   return (
-    <SectionCard title={t("settings.text.1652da7b1999")} description={t("settings.text.780960a0facd")}>
+    <SectionCard title={t("settings.skillCatalogBudget")} description={t("settings.theContextPageOwnsTheCatalogProjectionBudgetHome")}>
       <div className="flex items-center gap-3">
         <span className="font-mono text-[12px] text-fg">home.max_skill_catalog_chars</span>
         <Badge tone="gray">由 Context 管理</Badge>
         <span className="ml-auto flex items-center gap-3">
           <span className="font-mono text-[12px] text-fg-muted">saved {valuePreview(savedValue(saved, "home.max_skill_catalog_chars"))}{" · "}running {valuePreview(activeValue(active, "home.max_skill_catalog_chars"))}</span>
           <button type="button" className="flex items-center gap-1 text-[12px] font-medium text-accent hover:underline" onClick={() => navigateTo("context", "home.max_skill_catalog_chars")}>
-            {t("settings.text.7bc633796227")}<ArrowRight size={12} />
+            {t("settings.editInContext")}<ArrowRight size={12} />
           </button>
         </span>
       </div>

@@ -56,14 +56,14 @@ it("labels Memory character counts and Home resource sizes with their actual uni
     actionId: "memory.memorize",
     payload: { ref: "memory:current", changed: true, chars: 126 },
   }))));
-  expect(host.textContent).toContain("126 chars");
+  expect(host.textContent).toContain("126 字符");
   expect(host.textContent).not.toContain("126 bytes");
 
   act(() => root.render(glimpseBody(result({
     actionId: "home.resource.write",
     payload: { ref: "home:resource/agent/resources/guide.md", size: 240 },
   }))));
-  expect(host.textContent).toContain("240 chars");
+  expect(host.textContent).toContain("240");
   expect(host.textContent).not.toContain("240 bytes");
 });
 

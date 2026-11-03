@@ -44,17 +44,17 @@ export function NetworkPage() {
       <NetworkPolicyField
         path="infra.network"
         root
-        title={t("settings.text.38902473947e")}
-        parentLabel={t("settings.text.471aeb6f4cf3")}
+        title={t("settings.rootNetworkProxy")}
+        parentLabel={t("settings.processEnvironmentThenProjectEnvHttpProxyHttpsProxy")}
       />
       <SectionCard
-        title={t("settings.text.97e06f781b42")}
-        description={t("settings.text.f04566a884a3")}
+        title={t("settings.savedNetworkRoutes")}
+        description={t("settings.routesResolvedFromSavedSettingsIncludingDisabledEntriesEdit")}
       >
         {status === null && error === null && (
-          <p className="text-xs text-fg-faint">{t("settings.text.5cecef9d307f")}</p>
+          <p className="text-xs text-fg-faint">{t("settings.loadingNetworkStatus")}</p>
         )}
-        {error !== null && <p className="text-xs text-danger">{t("settings.text.56338cc669ab")} {error}</p>}
+        {error !== null && <p className="text-xs text-danger">{t("settings.networkStatusCouldNotBeLoaded")} {error}</p>}
         {status !== null && (
           <div className="space-y-3">
             <NetworkRouteRow route={status.root} root />
@@ -64,7 +64,7 @@ export function NetworkPage() {
               </div>
             )}
             {status.consumers.length === 0 && (
-              <p className="text-xs text-fg-faint">{t("settings.text.14538c3cee70")}</p>
+              <p className="text-xs text-fg-faint">{t("settings.noNetworkConsumersAreConfigured")}</p>
             )}
           </div>
         )}
@@ -89,10 +89,10 @@ function NetworkRouteRow({ route, root = false }: { route: NetworkRouteStatus; r
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-fg-muted">
         <span>HTTP: {proxyAddress(route.effective.http_proxy)}</span>
         <span>HTTPS: {proxyAddress(route.effective.https_proxy)}</span>
-        {route.effective.no_proxy.length > 0 && <span>{t("settings.text.497852e2576f")}: {route.effective.no_proxy.join(", ")}</span>}
+        {route.effective.no_proxy.length > 0 && <span>{t("settings.bypass")}: {route.effective.no_proxy.join(", ")}</span>}
       </div>
       {!root && route.parent_path !== null && (
-        <div className="break-all text-[10px] text-fg-faint">{t("settings.text.23d692f07a3f")}: {route.parent_path}</div>
+        <div className="break-all text-[10px] text-fg-faint">{t("settings.parent")}: {route.parent_path}</div>
       )}
       {!root && page !== null && (
         <button
@@ -100,7 +100,7 @@ function NetworkRouteRow({ route, root = false }: { route: NetworkRouteStatus; r
           className="text-left text-[11px] text-accent hover:underline"
           onClick={() => navigateTo(page.id, route.path)}
         >
-          {t("settings.text.ae02af55a250")}
+          {t("settings.openConsumerSettings")}
         </button>
       )}
     </div>
@@ -108,7 +108,7 @@ function NetworkRouteRow({ route, root = false }: { route: NetworkRouteStatus; r
 }
 
 function proxyAddress(value: NetworkProxyAddress | null): string {
-  if (value === null) return t("settings.text.24a1733ca8bb");
+  if (value === null) return t("settings.direct");
   const host = value.host.includes(":") ? `[${value.host}]` : value.host;
   return `${value.scheme}://${host}${value.port === null ? "" : `:${value.port}`}`;
 }

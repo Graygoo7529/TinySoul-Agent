@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Non-text workspace resources (plan §10/P06).
  *
@@ -34,6 +35,7 @@ export function BlobView({
   day: string | null;
   record: WorkspaceResourceRecord;
 }): ReactElement {
+  useI18n();
   if (record.media_type.startsWith("image/")) {
     return <ImageBlob ref={ref} day={day} record={record} />;
   }
@@ -63,8 +65,7 @@ export function BlobView({
           onClick={() => void downloadWorkspaceBlob(ref, day, fileName(record))}
         >
           <Download size={13} />
-          Download
-        </Button>
+          {t("settings.download")}</Button>
       </div>
     </div>
   );
@@ -79,6 +80,7 @@ function ImageBlob({
   day: string | null;
   record: WorkspaceResourceRecord;
 }): ReactElement {
+  useI18n();
   const blob = useWorkspaceBlobUrl(ref, day);
   const [viewerOpen, setViewerOpen] = useState(false);
   if (blob.error !== null) {
@@ -111,8 +113,7 @@ function ImageBlob({
           onClick={() => void downloadWorkspaceBlob(ref, day, fileName(record))}
         >
           <Download size={12} />
-          Download
-        </Button>
+          {t("settings.download")}</Button>
       </div>
       <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
         <img
@@ -162,6 +163,7 @@ export function ImageLightbox({
   onDownload: () => void;
   onClose: () => void;
 }): ReactElement {
+  useI18n();
   // zoom and pan live in one state so batched wheel events compose.
   const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
@@ -219,7 +221,7 @@ export function ImageLightbox({
         <IconButton label="复位到 100%" className="h-7 w-7 text-white/70 hover:bg-white/10 hover:text-white" onClick={reset}>
           <RotateCcw size={13} />
         </IconButton>
-        <IconButton label="下载" className="h-7 w-7 text-white/70 hover:bg-white/10 hover:text-white" onClick={onDownload}>
+        <IconButton label={t("settings.download")} className="h-7 w-7 text-white/70 hover:bg-white/10 hover:text-white" onClick={onDownload}>
           <Download size={13} />
         </IconButton>
         <IconButton label="关闭" className="h-7 w-7 text-white/70 hover:bg-white/10 hover:text-white" onClick={onClose}>

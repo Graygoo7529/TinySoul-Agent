@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Selected-resource panel of the Workspace page (plan §10/P06).
  *
@@ -66,6 +67,7 @@ export function FilePanel({
   /** Direct-child stats for a directory record; null for files. */
   directoryStats?: DirectoryStats | null;
 }): ReactElement {
+  useI18n();
   const isActive = viewDay === null || viewDay === activeDay;
   const apiDay = isActive ? null : viewDay;
   const select = useWorkspacePage((s) => s.select);
@@ -197,13 +199,13 @@ export function FilePanel({
           {isActive && isText && (
             <>
               <IconButton
-                label="追加文本"
+                label={t("workspace.appendText")}
                 onClick={() => setModal("append")}
               >
                 <FilePlus2 size={15} />
               </IconButton>
               <IconButton
-                label="查找替换"
+                label={t("workspace.findReplace")}
                 onClick={() => setModal("replace")}
               >
                 <Replace size={15} />
@@ -212,17 +214,17 @@ export function FilePanel({
           )}
           {isActive && (
             <>
-              <IconButton label="移动或重命名" onClick={() => setModal("move")}>
+              <IconButton label={t("workspace.moveRename")} onClick={() => setModal("move")}>
                 <FolderInput size={15} />
               </IconButton>
-              <IconButton label="标签" onClick={() => setModal("tags")}>
+              <IconButton label={t("workspace.tags")} onClick={() => setModal("tags")}>
                 <TagsIcon size={15} />
               </IconButton>
             </>
           )}
           {record.kind !== "directory" && (
             <IconButton
-              label="下载"
+              label={t("settings.download")}
               onClick={() =>
                 void downloadWorkspaceBlob(record.ref, apiDay, fileName)
               }
@@ -231,13 +233,13 @@ export function FilePanel({
             </IconButton>
           )}
           <IconButton
-            label="复制引用"
+            label={t("resources.copyReference")}
             onClick={() => copyReference(record.ref)}
           >
             <Copy size={15} />
           </IconButton>
           <IconButton
-            label="引用到对话"
+            label={t("resources.quote")}
             onClick={() =>
               quoteReference(record.ref, {
                 ref: record.ref,
@@ -248,7 +250,7 @@ export function FilePanel({
             <MessageSquareQuote size={15} />
           </IconButton>
           {isActive && (
-            <IconButton label="移入回收站" onClick={() => setModal("trash")}>
+            <IconButton label={t("workspace.moveTrash")} onClick={() => setModal("trash")}>
               <Trash2 size={15} />
             </IconButton>
           )}
@@ -341,8 +343,8 @@ export function FilePanel({
 
       {modal === "move" && (
         <PathInputModal
-          title="移动或重命名"
-          label="目标路径"
+          title={t("workspace.moveRename")}
+          label={t("workspace.targetPath")}
           initial={record.relative_path}
           submitLabel="移动"
           busy={mutations.busy}
@@ -373,26 +375,23 @@ export function FilePanel({
         />
       )}
       {modal === "trash" && (
-        <Modal title="移入回收站" onClose={closeModal} width="max-w-sm">
+        <Modal title={t("workspace.moveTrash")} onClose={closeModal} width="max-w-sm">
           <div className="space-y-3">
             <p className="text-[13px] text-fg-muted">
-              将{" "}
+              {t("workspace.move")}{" "}
               <span className="font-mono text-[12px] text-fg">
                 {record.relative_path}
               </span>{" "}
-              移入回收站？回收的资源可以在「回收站」页签恢复——这里没有永久删除。
-            </p>
+              {t("workspace.trashItStaysRestorableTrashTabThere")}</p>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={closeModal}>
-                取消
-              </Button>
+                {t("runtime.cancel")}</Button>
               <Button
                 variant="danger"
                 loading={mutations.busy}
                 onClick={() => void runTrash()}
               >
-                移入回收站
-              </Button>
+                {t("workspace.moveTrash")}</Button>
             </div>
           </div>
         </Modal>

@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Shared building blocks of the history panels: the connection guard, the
  * sequence status rows (loading / error / load-more) and the disclosure hint
@@ -39,12 +40,12 @@ export function SequenceStatus({
   /** Rendered when the exhausted sequence delivered nothing. */
   empty: ReactElement | null;
 }): ReactElement | null {
+  useI18n();
   if (seq.loading) {
     return (
       <div className="flex items-center gap-2 px-1 py-3 text-[12px] text-fg-faint">
         <Loader2 size={13} className="animate-spin-slow" />
-        Loading…
-      </div>
+        {t("common.loading")}</div>
     );
   }
   return (
@@ -62,8 +63,7 @@ export function SequenceStatus({
             className="inline-flex shrink-0 items-center gap-1 font-medium hover:underline"
           >
             <RotateCw size={11} />
-            Retry
-          </button>
+            {t("common.retry")}</button>
         </div>
       )}
       {seq.next !== null && seq.error === null && (
@@ -74,8 +74,7 @@ export function SequenceStatus({
           className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-fg-muted transition-colors hover:border-line-strong hover:text-fg disabled:opacity-50"
         >
           {seq.loadingMore && <Loader2 size={12} className="animate-spin-slow" />}
-          显示更多
-        </button>
+          {t("common.showMore")}</button>
       )}
     </>
   );
@@ -98,6 +97,7 @@ export function HintRow({
   /** Open the conversation of a turn ref; absent turns fall back to detail. */
   onOpenTurn?: (turnId: string) => void;
 }): ReactElement {
+  useI18n();
   const turnId = sessionTurnId(child.ref);
   const clue = splitAnnotationClue(child.clue);
   const retracted = clue.status === "retracted";
@@ -133,7 +133,7 @@ export function HintRow({
         )}
       </button>
       {turnId !== null && onOpenTurn !== undefined && (
-        <IconButton label="查看已记录的事实" onClick={openDetail}>
+        <IconButton label={t("history.inspectRecordedFacts")} onClick={openDetail}>
           <PanelRightOpen size={14} />
         </IconButton>
       )}

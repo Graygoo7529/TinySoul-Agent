@@ -94,7 +94,7 @@ export function CredentialsPage() {
           disabled={dotenv !== undefined && !dotenv.writable}
           onClick={() => setAdding((open) => !open)}
         >
-          <Plus size={13} />{t("settings.text.69cfb687ff69")}</Button>
+          <Plus size={13} />{t("settings.addCredential")}</Button>
       </div>
 
       {adding && (
@@ -126,12 +126,12 @@ export function CredentialsPage() {
                 setNewValue("");
                 setAdding(false);
               }}
-            >{t("settings.text.eb5864a44e8b")}</Button>
+            >{t("settings.stageValue")}</Button>
           </div>
           {nameError !== null && (
             <div className="text-[10px] text-danger">{nameError}</div>
           )}
-          <div className="text-[10px] text-fg-faint">{t("settings.text.5bc45b3e2a88")}</div>
+          <div className="text-[10px] text-fg-faint">{t("settings.preferNamesReferencedByAProviderOrMcpServer")}</div>
         </div>
       )}
 
@@ -155,7 +155,7 @@ export function CredentialsPage() {
         ))
       )}
       {visible.length === 0 && credentials.length > 0 && (
-        <div className="px-1 py-3 text-[11px] text-fg-faint">{t("settings.text.d5681de05fa0")}</div>
+        <div className="px-1 py-3 text-[11px] text-fg-faint">{t("settings.noCredentialMatchesTheFilter")}</div>
       )}
     </div>
   );

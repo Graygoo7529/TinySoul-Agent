@@ -1,4 +1,4 @@
-import { rawText } from "../../i18n";
+
 /**
  * The Composer run-plan quick entry (implementation plan §5.2).
  *
@@ -138,7 +138,7 @@ function PresetPopover({
 
       {blocker !== null && (
         <div className="border-b border-line px-3.5 py-2 text-[11px] leading-4 text-fg-faint">
-          暂时无法应用方案：{rawText(blocker)}
+          暂时无法应用方案：{blocker}
         </div>
       )}
       {loadError !== null && (

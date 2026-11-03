@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 import { requestIdForTurn } from "../../store/turnStore";
 /**
  * Turn-owned Job detail (plan §9.1 job-control family).
@@ -52,6 +53,7 @@ export function JobPanel({
   day: string | null;
   jobId: string;
 }): ReactElement {
+  useI18n();
   const nav = makeTraceNavigation(epoch, turnId, day);
   const [extra, setExtra] = useState<JobOutputItem[]>([]);
   const [continuation, setContinuation] = useState<string | null>(null);
@@ -124,8 +126,7 @@ export function JobPanel({
             className="ml-auto inline-flex items-center gap-1 text-[12px] text-accent hover:underline"
           >
             <RotateCw size={11} />
-            Refresh
-          </button>
+            {t("common.refresh")}</button>
         )}
       </div>
 
@@ -147,8 +148,7 @@ export function JobPanel({
       {detail.result_refs.length > 0 && (
         <div className="space-y-1">
           <div className="text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-            Result resources
-          </div>
+            {t("trace.resultResources")}</div>
           {detail.result_refs.map((link) => (
             <ReferenceButton
               key={link}
@@ -169,8 +169,7 @@ export function JobPanel({
           className="inline-flex items-center gap-1 text-[12px] text-accent hover:underline disabled:opacity-50"
         >
           {loadingMore && <Loader2 size={11} className="animate-spin-slow" />}
-          显示更多输出
-        </button>
+          {t("trace.showMoreOutput")}</button>
         {moreError !== null && (
           <span className="text-[12px] text-danger">
             read failed ({moreError})
@@ -225,6 +224,7 @@ function JobChannels({
   items: JobOutputItem[];
   truncated: boolean;
 }): ReactElement {
+  useI18n();
   const channels = new Map<string, string>();
   for (const item of items) {
     const name = asString(item.channel) ?? "output";
@@ -243,7 +243,7 @@ function JobChannels({
         <Collapsible
           key={name}
           title={name}
-          meta={<span className="text-[11px] text-fg-faint">{text.length} chars</span>}
+          meta={<span className="text-[11px] text-fg-faint">{text.length} {t("home.chars")}</span>}
           defaultOpen={name === "stdout"}
           tone="sunken"
         >
@@ -254,8 +254,7 @@ function JobChannels({
       ))}
       {truncated && (
         <div className="text-[11px] text-fg-faint">
-          输出读取是有界的；「显示更多输出」从上次位置继续。
-        </div>
+          {t("trace.outputReadsBoundedShowMoreContinuesLast")}</div>
       )}
     </div>
   );

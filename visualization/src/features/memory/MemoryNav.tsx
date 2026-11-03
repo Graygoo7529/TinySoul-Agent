@@ -1,3 +1,4 @@
+import { t, useI18n } from "../../i18n";
 /**
  * Memory page navigation (left panel, plan §12).
  *
@@ -63,6 +64,7 @@ export function MemoryNav({
 }
 
 function ActiveNav({ days }: { days: DayEntry[] | null }): ReactElement {
+  useI18n();
   const activeDay = useMemoryPage((s) => s.activeDay);
   return (
     <>
@@ -76,10 +78,10 @@ function ActiveNav({ days }: { days: DayEntry[] | null }): ReactElement {
                 .getState()
                 .setActiveDay(event.target.value === "" ? null : event.target.value)
             }
-            aria-label="记忆日期"
+            aria-label={t("memory.memoryDay")}
             className="h-7 w-full rounded-lg border border-line bg-bg-elev px-2 text-[12px] outline-none focus:border-accent"
           >
-            {days === null && <option value="">Active day</option>}
+            {days === null && <option value="">{t("history.activeDay")}</option>}
             {days?.map((entry) => (
               <option key={entry.day} value={entry.active ? "" : entry.day}>
                 {entry.active ? `Active · ${entry.day}` : `${entry.day} (archived)`}
@@ -108,6 +110,7 @@ function KnowledgeNav({
   epoch: number;
   onOrganize: () => void;
 }): ReactElement {
+  useI18n();
   const kind = useMemoryPage((s) => s.kind);
   const query = useMemoryPage((s) => s.query);
   const selectedLink = useMemoryPage((s) => s.ref);
@@ -166,8 +169,8 @@ function KnowledgeNav({
         <input
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
-          placeholder="筛选知识…"
-          aria-label="筛选知识"
+          placeholder={t("memory.filterKnowledge")}
+          aria-label={t("memory.filterKnowledge2")}
           className="h-7 w-full rounded-lg border border-line bg-bg-elev px-2.5 text-[12px] outline-none focus:border-accent"
         />
       </div>
@@ -184,16 +187,15 @@ function KnowledgeNav({
             action={
               <Button variant="outline" size="sm" onClick={catalog.reload}>
                 <RotateCcw size={13} />
-                Retry
-              </Button>
+                {t("common.retry")}</Button>
             }
           />
         ) : items.length === 0 ? (
           unfiltered ? (
             <EmptyState
               icon={<BookOpen size={22} />}
-              title="还没有持久知识"
-              description="知识会在 Memory 整理某个日期后沉淀。也可以继续对话——活动记忆会随手记录。"
+              title={t("memory.persistentKnowledgeYet")}
+              description={t("memory.knowledgeSettlesMemoryReflectionOrganizesDayAlso")}
               action={
                 <div className="flex flex-col items-center gap-2">
                   <Button
@@ -206,14 +208,13 @@ function KnowledgeNav({
                   </Button>
                   <Button variant="outline" size="sm" onClick={onOrganize}>
                     <Sparkles size={13} />
-                    Organize Memory
-                  </Button>
+                    {t("memory.organize")}</Button>
                 </div>
               }
             />
           ) : (
             <EmptyState
-              title="没有匹配项"
+              title={t("memory.matches")}
               description={`No knowledge documents match this filter.`}
             />
           )
@@ -255,8 +256,7 @@ function KnowledgeNav({
                 loading={catalog.loadingMore}
                 onClick={catalog.loadMore}
               >
-                显示更多
-              </Button>
+                {t("common.showMore")}</Button>
             )}
           </div>
         )}

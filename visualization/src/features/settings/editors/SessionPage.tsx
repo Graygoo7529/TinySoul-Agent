@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { t, useI18n } from "../../../i18n";
 /**
  * Session settings (config-coverage §5.2): the daily session root and inspect
  * limits. The background budget is owned by Data & Knowledge → Context; this
@@ -14,12 +14,13 @@ import { useSettingsUiStore } from "../uiStore";
 import { FieldSection, SettingsPageBody, valuePreview } from "./controls";
 
 export function SessionPage() {
+  useI18n();
   return (
     <SettingsPageBody>
       <BackgroundBudgetRow />
       <FieldSection
-        title="Session"
-        description={t("settings.text.518280d91783")}
+        title={t("settings.page.session.title")}
+        description={t("settings.dailySessionFactsAndTheSemanticMap")}
         paths={["session.root", "session.max_inspect_chars"]}
         overrides={{
           "session.max_inspect_chars": { min: 1 },
@@ -34,14 +35,14 @@ function BackgroundBudgetRow() {
   const active = useConfigDraftStore((s) => s.active);
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
   return (
-    <SectionCard title={t("settings.text.56b8d2c86025")} description={t("settings.text.138cadb51397")}>
+    <SectionCard title={t("settings.backgroundBudget")} description={t("settings.theContextPageOwnsTheSharedSessionBackgroundProjection")}>
       <div className="flex items-center gap-3">
         <span className="text-[13px] font-medium text-fg">session.max_background_chars</span>
         <Badge tone="gray">由 Context 管理</Badge>
         <span className="ml-auto flex items-center gap-3">
           <span className="font-mono text-[12px] text-fg-muted">saved {valuePreview(savedValue(saved, "session.max_background_chars"))}{" · "}running {valuePreview(activeValue(active, "session.max_background_chars"))}</span>
           <button type="button" className="flex items-center gap-1 text-[12px] font-medium text-accent hover:underline" onClick={() => navigateTo("context", "session.max_background_chars")}>
-            {t("settings.text.7bc633796227")}<ArrowRight size={12} />
+            {t("settings.editInContext")}<ArrowRight size={12} />
           </button>
         </span>
       </div>

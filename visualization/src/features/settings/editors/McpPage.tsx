@@ -38,8 +38,8 @@ export function McpPage() {
       limits={<>
         <NetworkPolicyField path="capabilities.expand.network" title="默认代理" />
         <FieldSection
-          title={t("settings.text.2a3d0b314dde")}
-          description={t("settings.text.4e7fb393ad84")}
+          title={t("settings.sharedMcpLimits")}
+          description={t("settings.directoryAndCallBoundsSharedByAllServers")}
           paths={[
             "capabilities.expand.timeout_seconds",
             "capabilities.expand.max_tools",
@@ -214,7 +214,7 @@ function McpServerFields({ ctx }: { ctx: ObjectEditContext }) {
           }
           tone="sunken"
         >
-          <div className="mb-1.5 text-[10.5px] leading-4 text-fg-faint">{t("settings.text.49807a49cb90")}</div>
+          <div className="mb-1.5 text-[10.5px] leading-4 text-fg-faint">{t("settings.exactRemoteToolNamesDotsIncludedMapToBooleans")}</div>
           <ObjMap
             value={map("tools")}
             disabled={disabled}
@@ -255,26 +255,26 @@ function McpRuntimeSummary() {
 
   return (
     <SectionCard
-      title={t("settings.text.5878d0d17107")}
+      title={t("settings.runtimeDirectory")}
       description="Live connection facts of the running generation. Applying configuration does not connect servers by itself; refresh happens on activation or from Runtime Observation."
       actions={
         <button
           type="button"
           className="flex items-center gap-1 text-[12px] font-medium text-accent hover:underline"
           onClick={() => setActiveTab("runtime")}
-        >{t("settings.text.d64ad07ea9d5")}<ArrowRight size={12} />
+        >{t("settings.runtimeObservation")}<ArrowRight size={12} />
         </button>
       }
     >
       {clients === null ? (
-        <div className="text-[12px] text-fg-faint">{t("settings.text.cfa14c0a5335")}</div>
+        <div className="text-[12px] text-fg-faint">{t("settings.noBackendConnectionRuntimeFactsAreUnavailable")}</div>
       ) : error !== null ? (
-        <div className="text-[12px] text-fg-faint">{t("settings.text.6cefd2a012ad")}{error}
+        <div className="text-[12px] text-fg-faint">{t("settings.theRuntimeDirectoryIsUnavailable")}{error}
         </div>
       ) : page === null ? (
-        <div className="text-[12px] text-fg-faint">{t("settings.text.33ce417454bf")}</div>
+        <div className="text-[12px] text-fg-faint">{t("settings.loading")}</div>
       ) : page.items.length === 0 ? (
-        <div className="text-[12px] text-fg-faint">{t("settings.text.ce911d77afb3")}</div>
+        <div className="text-[12px] text-fg-faint">{t("settings.noServersAreVisibleToTheRunningGenerationYet")}</div>
       ) : (
         <div className="flex flex-wrap gap-1.5">
           {page.items.map((item) => (
