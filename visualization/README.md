@@ -91,7 +91,9 @@ pnpm build   # tsc + vite build
 
 ### Interface language
 
-The Settings → Interface page stores the project-shared `locale` in the backend Presentation configuration. `zh-CN` is the fixed default; `en-US` can be selected and takes effect immediately in the current client. Other clients use the new language after they reconnect or refresh the project presentation settings. Fixed frontend copy lives under `src/i18n/` and uses stable message IDs. ConfigCatalog translations are keyed by backend identities and unknown entries fall back to source text; user, Agent, model, provider, Action, and diagnostic content remains unchanged.
+The Settings → Interface page stores the project-shared `locale` in the backend Presentation configuration. `zh-CN` is the fixed default; `en-US` updates the connected client's localized controls immediately. Current coverage includes the shell, connection screen, and parts of Settings; other feature pages and remaining Settings controls still contain fixed Chinese or English copy. The remaining work is tracked in the [bilingual interface completion plan](../docs/analysis/20261103-前端双语界面收尾执行计划.md).
+
+Other clients use the new language after they reconnect or refresh the project presentation settings. Localized frontend copy lives under `src/i18n/` and uses stable message IDs. ConfigCatalog translations are keyed by backend identities and unknown entries fall back to source text; user, Agent, model, provider, Action, and diagnostic content remains unchanged.
 
 ## Notes
 
