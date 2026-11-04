@@ -32,12 +32,12 @@ export function PhaseBindingsPage() {
         overrides={{
           [PHASE1_PATH]: {
             render: (api) => (
-              <TaskChainRefControl api={api} ownerDefault="frame-stage1" />
+              <TaskChainRefControl api={api} />
             ),
           },
           [PHASE2_PATH]: {
             render: (api) => (
-              <TaskChainRefControl api={api} ownerDefault="frame-stage2" />
+              <TaskChainRefControl api={api} />
             ),
           },
         }}
@@ -49,14 +49,12 @@ export function PhaseBindingsPage() {
 /**
  * Reference control for one phase binding: options are the projected task
  * chains (draft-aware). The empty choice withdraws the override, restoring
- * the code-owned default chain.
+ * the lower-priority configuration or code-owned default chain.
  */
 function TaskChainRefControl({
   api,
-  ownerDefault,
 }: {
   api: DraftFieldApi;
-  ownerDefault: string;
 }) {
   const { t } = useI18n();
   const state = useConfigDraftStore();
@@ -81,7 +79,7 @@ function TaskChainRefControl({
           }
         }}
       >
-        <option value="">{ownerDefault}{t("settings.default")}</option>
+        <option value="">{t("settings.phaseBindings.useDefault")}</option>
         {current !== "" && !known && (
           <option value={current}>{current}{t("settings.unknown")}</option>
         )}

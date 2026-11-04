@@ -18,7 +18,7 @@ TinySoul 的运行层级从外到内分为 Agent、Turn、Cycle、Phase 和 Modu
 
 Agent 是程序顶层，由 Agent SDK 拥有 typed request queue 和 Agent frame。它把 `UserTurnRequest` 分派给 User Turn，把 `ReflectionRequest` 分派给 ReflectionEngine，把 `ExitRequest` 交给 Agent trap。每项新日 work 前的确定性 Archive preflight 是 Agent 边界前置条件，日期决策归 AgentDayCoordinator，目录事实归 Archive 与各 owner 所有；它只恢复 journal、归档旧日 Session/Workspace/Trash 并打开新日 Session/Workspace，不触发 LLM、不移动跨日 Home overlay，也不读写顶层 Memory。Agent 不直接介入 Phase 或具体模块细节。
 
-Turn 是 Agent work 中需要 3-stage 推理的一次顶层任务。User Turn 由用户输入形成；Home/Memory task 由 ReflectionEngine 在 eligible 时启动独立 Reflection Turn。二者使用相同 Turn/Cycle/Phase 层级，但 preparation、Context 实例、Action view、completion 和输出语义不同。User Turn 可以接收用户追加输入；明确的新根请求在 Agent queue 排队；定向追加和回复可进入当前 Reflection Inbox。Runtime 不保存 Reflection 业务状态：Home 重试重新读取 runtime overlay 与 actual Home，Memory 重试重新读取指定日期 Archive projection 与同日期 MEMORY。
+Turn 是 Agent work 中的一次顶层任务，可包含多次 Cycle；每个 Cycle 由更新语境、生成行动和执行行动三个 Phase 组成。User Turn 由用户输入形成；Home/Memory task 由 ReflectionEngine 在 eligible 时启动独立 Reflection Turn。二者使用相同 Turn/Cycle/Phase 层级，但 preparation、Context 实例、Action view、completion 和输出语义不同。User Turn 可以接收用户追加输入；明确的新根请求在 Agent queue 排队；定向追加和回复可进入当前 Reflection Inbox。Runtime 不保存 Reflection 业务状态：Home 重试重新读取 runtime overlay 与 actual Home，Memory 重试重新读取指定日期 Archive projection 与同日期 MEMORY。
 
 Cycle 是任一 User/Reflection Turn 内的一次执行轮。一个 Turn 可以包含多个 Cycle，每个 Cycle 按顺序组织 Phase。
 

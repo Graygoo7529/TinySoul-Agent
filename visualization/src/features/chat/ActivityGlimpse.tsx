@@ -34,10 +34,10 @@ export function ActivityGlimpse({ item, live, glimpseExpanded, onToggleGlimpse, 
   const body = glimpseBody(data);
   if (!body) return <Step item={item} animate={live} />;
   return <Step item={item} animate={live} onToggleGlimpse={onToggleGlimpse} glimpseExpanded={glimpseExpanded}
-    glimpse={<AnimatePresence initial={false}>{glimpseExpanded && <motion.div key={item.id} data-activity-gist={data.stage}
+    glimpse={<AnimatePresence initial={false}>{glimpseExpanded && <motion.div key={item.id} data-activity-gist={data.kind}
       style={{ overflow: "hidden" }} initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
       transition={{ duration: reduced ? 0 : 0.35, ease: EASE_CALM }}>
-      <div className="grow-in"><Crossfade id={`${data.callId}:${data.stage}`} className="mt-1 rounded-lg border border-line/70 bg-bg-sunken/70 px-2.5 py-1.5">
+      <div className="grow-in"><Crossfade id={`${data.callId}:${data.kind}`} className="mt-1 rounded-lg border border-line/70 bg-bg-sunken/70 px-2.5 py-1.5">
         {body}
         {data.callId && <button type="button" className="mt-1 text-[10px] text-accent hover:underline"
           onClick={() => pushActionDetail(epoch, turnId, day, { callId: data.callId!, action: data.actionId, ordinal: 0 })}>{t("common.details")}</button>}
@@ -53,7 +53,7 @@ export function glimpseBody(data: ActionGlimpseData) {
   const patches = data.actionId === "workspace.edit" && Array.isArray(params.edits)
     ? params.edits.map(asObject).filter((entry) => entry !== null)
     : asString(params.old_text) !== null ? [params] : [];
-  if (data.stage === "plan") {
+  if (data.kind === "plan") {
     if (patches.length) return <div className="space-y-1">{patches.map((patch, i) =>
       <DiffGlimpse key={i} oldText={asString(patch.old_text) ?? ""} newText={asString(patch.new_text) ?? ""} />)}</div>;
     if (family === "execution") {

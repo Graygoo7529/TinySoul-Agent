@@ -18,13 +18,13 @@ the actual bound port, so no fixed port can conflict.
 
 Scripted model behavior (message-driven, with one resource read per ask Turn):
 
-- frame_stage1: select `core`; ask Turns also select `workspace` and load a review Skill.
-- frame_stage2 with a normal input: `core.answer` echoing the `e2e-plain` user
+- frame_phase1: select `core`; ask Turns also select `workspace` and load a review Skill.
+- frame_phase2 with a normal input: `core.answer` echoing the `e2e-plain` user
   input verbatim ("You said: <text>").
-- frame_stage2 with the ask trigger (`e2e-ask`): first read the seeded Workspace
+- frame_phase2 with the ask trigger (`e2e-ask`): first read the seeded Workspace
   resource, then `core.ask`
   with two options (opt_a/opt_b) and allow_other=true.
-- frame_stage2 with the ask trigger and an accepted reply (the reply carries
+- frame_phase2 with the ask trigger and an accepted reply (the reply carries
   the `e2e-reply-comment` marker): `core.answer` naming the selected option
   and the comment.
 - `core.answer.generate` (the answer action's own task): returns the prepared
@@ -198,7 +198,7 @@ class ScriptedLLM:
             if isinstance(call.profile, TaskProfile)
             else str(call.profile)
         )
-        if profile == TaskProfile.FRAME_STAGE1.value:
+        if profile == TaskProfile.FRAME_PHASE1.value:
             if REFLECTION_TRIGGER in text:
                 return _tool_result("select_action_domains", {"domains": ["core"], "intent": "Review the source and ask before concluding this reflection."}, ToolKind.CONTROL)
             if ASK_TRIGGER in text:
@@ -217,14 +217,14 @@ class ScriptedLLM:
                 to_json_object({"domains": ["core"]}),
                 ToolKind.CONTROL,
             )
-        if profile == TaskProfile.FRAME_STAGE2.value:
+        if profile == TaskProfile.FRAME_PHASE2.value:
             turn = call.scope.nearest(RunLevel.TURN)
-            return self._stage2(text, turn.name if turn is not None else "")
+            return self._phase2(text, turn.name if turn is not None else "")
         # Unknown consumer (retrieval rerank and similar auxiliaries): a
         # minimal well-formed JSON answer keeps the owner path functional.
         return _json_result(to_json_object({"text": "Finished response"}))
 
-    def _stage2(self, text: str, turn_id: str) -> TaskResult:
+    def _phase2(self, text: str, turn_id: str) -> TaskResult:
         if REFLECTION_TRIGGER in text:
             if turn_id not in self._reflection_questions:
                 self._reflection_questions.add(turn_id)
@@ -279,7 +279,11 @@ async def _serve(args: argparse.Namespace) -> int:
         ProjectInitializer().initialize(
             root, config_profile=ProjectConfigProfile.STANDARD
         )
-    settings = EndpointSettings(host="127.0.0.1", port=args.port, token=args.token)
+    # Short event waits let disconnected browser streams finish promptly at teardown.
+    settings = EndpointSettings(
+        host="127.0.0.1", port=args.port, token=args.token,
+        websocket_heartbeat_seconds=1.0,
+    )
     events = EndpointEventBuffer(
         capacity=settings.event_capacity,
         max_bytes=settings.event_bytes,
@@ -337,7 +341,8 @@ async def _serve(args: argparse.Namespace) -> int:
                 json.dumps(ready), encoding="utf-8"
             )
         print(f"TINYSOUL_E2E_READY port={server.port}", flush=True)
-        await asyncio.Event().wait()
+        # The browser harness owns stdin; EOF requests normal server/Agent close.
+        await asyncio.to_thread(sys.stdin.readline)
     finally:
         await server.stop()
         await agent.shutdown()

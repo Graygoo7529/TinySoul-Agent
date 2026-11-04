@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { t } from "../../i18n";
+import { protocolText, t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -162,7 +162,7 @@ describe("ActivityTimeline", () => {
     // Phase group headers show in the unfiltered view…
     expect(container.textContent).toContain(t("trace.phase1"));
     expect(container.textContent).toContain(t("trace.phase2"));
-    clickButton("思考");
+    clickButton(t("trace.thinking"));
     // …and disappear under a single-kind filter.
     expect(container.textContent).not.toContain(t("trace.phase1"));
     expect(container.textContent).toContain("First intent");
@@ -210,7 +210,7 @@ describe("ProcessPanel", () => {
       call_id: "c1",
       action: "workspace.read",
       status: "success",
-      stage: "execution",
+      stage: "execute",
       sequence: 1,
       domain: "workspace",
       invoke_id: "invoke_c1",
@@ -260,8 +260,8 @@ describe("ProcessPanel", () => {
       event("llm.model.response", 30, { task_id: "t1", usage: { input_tokens: 100, output_tokens: 5 } }, [TURN, CYCLE, PHASE1]),
       event("action.result", 40, {
         result_id: "r1", call_id: "c1", action: "workspace.read", status: "failed",
-        stage: "execution", sequence: 1, domain: "workspace", invoke_id: "invoke_c1",
-        batch_id: "b1", failure: { reason: "execution_failed", feedback: "boom" }, payload: null,
+        stage: "execute", sequence: 1, domain: "workspace", invoke_id: "invoke_c1",
+        batch_id: "b1", failure: { reason: "execution_failed", scope: "action", disposition: "change_request", feedback: "boom" }, payload: null,
       }, [TURN, CYCLE, PHASE3]),
       event("loop.phase.completed", 60, { phase: "phase1" }, [TURN, CYCLE, PHASE1]),
     ]);
@@ -273,7 +273,7 @@ describe("ProcessPanel", () => {
     // Tokens summed over retained usages (100 + 5).
     expect(container.textContent).toContain("105");
     const failButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("1 个失败"),
+      (button) => button.textContent?.includes(`1 ${t("trace.failuresUnit")}`),
     );
     expect(failButton).toBeDefined();
     act(() => {
@@ -318,9 +318,9 @@ describe("ActionDetailPanel", () => {
       }, [TURN, CYCLE, PHASE2]),
       event("action.result", 30, {
         result_id: "r2", call_id: "c2", action: "workspace.write",
-        status: "failed", stage: "execution", sequence: 2, domain: "workspace",
+        status: "failed", stage: "hook", sequence: 2, domain: "workspace",
         invoke_id: "invoke_c2", batch_id: "b1",
-        failure: { reason: "hook_rejected", stage: "execution", feedback: "write rejected by hook" },
+        failure: { reason: "hook_rejected", scope: "action", disposition: "change_request", feedback: "write rejected by hook" },
         payload: null,
       }, [TURN, CYCLE, PHASE3]),
     ]);
@@ -337,10 +337,19 @@ describe("ActionDetailPanel", () => {
     expect(text).toContain(t("trace.status.failed"));
     expect(text).toContain("hook_rejected");
     expect(text).toContain("write rejected by hook");
+    expect(text).toContain(t("trace.processingStep"));
+    expect(text).toContain(protocolText("action.stage.hook"));
     // The second call's params are the ones shown.
     clickButton(t("settings.call"));
     await flush();
     expect(container.textContent).toContain("workspace:b.md");
+    const reads = endpoint.calls("/v2/events").length;
+    act(() => useUiPrefsStore.setState({ pending: { locale: "en-US" } }));
+    await flush();
+    expect(container.textContent).toContain(protocolText("action.stage.hook"));
+    expect(container.textContent).toContain("write rejected by hook");
+    expect(container.textContent).toContain("workspace:b.md");
+    expect(endpoint.calls("/v2/events")).toHaveLength(reads);
   });
 
   it("states a missing result without inventing one", async () => {
@@ -374,7 +383,7 @@ describe("ActionDetailPanel", () => {
       }, [TURN, CYCLE, PHASE2]),
       event("action.result", 20, {
         result_id: "r1", call_id: "c1", action: "memory.search",
-        status: "success", stage: "execution", sequence: 1, domain: "memory",
+        status: "success", stage: "execute", sequence: 1, domain: "memory",
         invoke_id: "invoke_c1", batch_id: "b1", failure: null,
         payload: { items: [], coverage: {}, page: { offset: 0, count: 0, total: 0, continuation: null } },
       }, [TURN, CYCLE, PHASE3]),
@@ -405,7 +414,7 @@ describe("ActionDetailPanel", () => {
       }, [TURN, CYCLE, PHASE2]),
       event("action.result", 20, {
         result_id: "r1", call_id: "c1", action: "workspace.analyze",
-        status: "success", stage: "execution", sequence: 1, domain: "workspace",
+        status: "success", stage: "execute", sequence: 1, domain: "workspace",
         invoke_id: "invoke_c1", batch_id: "b1", failure: null,
         payload: {
           intent: "核对容量恢复边界",
@@ -426,7 +435,7 @@ describe("ActionDetailPanel", () => {
     expect(container.querySelector(".md-body h1")?.textContent).toBe("容量恢复分析");
     expect(container.querySelector(".md-body strong")?.textContent).toBe("Context");
     expect(container.querySelector(".md-body code")?.textContent).toBe("MessageStack");
-    expect(container.textContent).toContain("报告引用（1）");
+    expect(container.textContent).toContain(t("trace.reportReferences", { count: 1 }));
     expect(container.textContent).toContain(t("trace.sourceChars", { count: 1200 }));
   });
 
@@ -438,7 +447,7 @@ describe("ActionDetailPanel", () => {
       }, [TURN, CYCLE, PHASE2]),
       event("action.result", 20, {
         result_id: "r1", call_id: "c1", action: "workspace.describe",
-        status: "success", stage: "execution", sequence: 1, domain: "workspace",
+        status: "success", stage: "execute", sequence: 1, domain: "workspace",
         invoke_id: "invoke_c1", batch_id: "b1", failure: null,
         payload: { ref: "workspace:docs/context.md", description: "记录 Context 的装配与恢复职责。" },
       }, [TURN, CYCLE, PHASE3]),
@@ -458,7 +467,7 @@ describe("ActionDetailPanel", () => {
       }, [TURN, CYCLE, PHASE2]),
       event("action.result", 40, {
         result_id: "r2", call_id: "c2", action: "workspace.compose",
-        status: "success", stage: "execution", sequence: 1, domain: "workspace",
+        status: "success", stage: "execute", sequence: 1, domain: "workspace",
         invoke_id: "invoke_c2", batch_id: "b1", failure: null,
         payload: {
           ref: "workspace:reports/weekly.md", kind: "text", media_type: "text/markdown",
@@ -485,7 +494,7 @@ describe("ActionDetailPanel", () => {
       }, [TURN, CYCLE, PHASE2]),
       event("action.result", 20, {
         result_id: "r1", call_id: "c1", action: "web.search_by_kimi",
-        status: "success", stage: "execution", sequence: 1, domain: "web",
+        status: "success", stage: "execute", sequence: 1, domain: "web",
         invoke_id: "invoke_c1", batch_id: "b1", failure: null,
         payload: {
           answer: "Context owner drives recovery.", result_count: 1,
@@ -511,7 +520,7 @@ describe("ActionDetailPanel", () => {
       }, [TURN, CYCLE, PHASE2]),
       event("action.result", 40, {
         result_id: "r2", call_id: "c2", action: "web.fetch_with_defuddle",
-        status: "success", stage: "execution", sequence: 1, domain: "web",
+        status: "success", stage: "execute", sequence: 1, domain: "web",
         invoke_id: "invoke_c2", batch_id: "b1", failure: null,
         payload: {
           extractor: "defuddle", title: "Recovery guide", excerpt: "Bounded content is reclaimed.",
@@ -525,7 +534,7 @@ describe("ActionDetailPanel", () => {
     );
     await flush();
     expect(container.textContent).toContain("defuddle");
-    expect(container.textContent).toContain("18,420 字符");
+    expect(container.textContent).toContain(`${(18420).toLocaleString()} ${t("home.chars")}`);
     expect(container.textContent).toContain("Recovery guide");
     expect(container.textContent).toContain("Bounded content is reclaimed.");
     expect(container.textContent).toContain(t("trace.originalPage"));
@@ -540,7 +549,7 @@ describe("ActionDetailPanel", () => {
       }, [TURN, CYCLE, PHASE2]),
       event("action.result", 20, {
         result_id: "r1", call_id: "c1", action: "web.discover_pages",
-        status: "success", stage: "execution", sequence: 1, domain: "web",
+        status: "success", stage: "execute", sequence: 1, domain: "web",
         invoke_id: "invoke_c1", batch_id: "b1", failure: null,
         payload: {
           source: { title: "Example docs", url: "https://example.com/docs/" },
@@ -561,10 +570,10 @@ describe("ActionDetailPanel", () => {
     );
     await flush();
     expect(container.textContent).toContain("Example docs");
-    expect(container.textContent).toContain("3 页");
-    expect(container.textContent).toContain("1 已访问");
-    expect(container.textContent).toContain("1 失败");
-    expect(container.textContent).toContain("1 候选");
+    expect(container.textContent).toContain(t("trace.pageCount", { count: 3 }));
+    expect(container.textContent).toContain(t("trace.visitedCount", { count: 1 }));
+    expect(container.textContent).toContain(t("trace.failedCount", { count: 1 }));
+    expect(container.textContent).toContain(t("trace.candidateCount", { count: 1 }));
     expect(container.textContent).toContain(t("trace.stopReason", { reason: "completed" }));
     expect(container.textContent).toContain("request timeout");
     expect(container.textContent).toContain("API reference");
@@ -578,7 +587,7 @@ describe("ActionDetailPanel", () => {
       }, [TURN, CYCLE, PHASE2]),
       event("action.result", 20, {
         result_id: "r1", call_id: "c1", action: "workspace.read",
-        status: "success", stage: "execution", sequence: 1, domain: "workspace",
+        status: "success", stage: "execute", sequence: 1, domain: "workspace",
         invoke_id: "invoke_c1", batch_id: "b1", failure: null,
         payload: {
           ref: "workspace:src/context.ts",
@@ -603,7 +612,7 @@ describe("ActionDetailPanel", () => {
       }, [TURN, CYCLE, PHASE2]),
       event("action.result", 40, {
         result_id: "r2", call_id: "c2", action: "workspace.read",
-        status: "success", stage: "execution", sequence: 1, domain: "workspace",
+        status: "success", stage: "execute", sequence: 1, domain: "workspace",
         invoke_id: "invoke_c2", batch_id: "b1", failure: null,
         payload: {
           ref: "workspace:src/context.ts", requested: { start_line: 42 },
@@ -626,7 +635,7 @@ describe("ActionDetailPanel", () => {
       }, [TURN, CYCLE, PHASE2]),
       event("action.result", 60, {
         result_id: "r3", call_id: "c3", action: "workspace.read",
-        status: "success", stage: "execution", sequence: 1, domain: "workspace",
+        status: "success", stage: "execute", sequence: 1, domain: "workspace",
         invoke_id: "invoke_c3", batch_id: "b1", failure: null,
         payload: { ref: "workspace:src/context.ts", text: "plain text" },
       }, [TURN, CYCLE, PHASE3]),
@@ -648,7 +657,7 @@ describe("ActionDetailPanel", () => {
       }, [TURN, CYCLE, PHASE2]),
       event("action.result", 20, {
         result_id: "r1", call_id: "c1", action: "core.job.status",
-        status: "success", stage: "execution", sequence: 1, domain: "core",
+        status: "success", stage: "execute", sequence: 1, domain: "core",
         invoke_id: "invoke_c1", batch_id: "b1", failure: null,
         payload: { job_id: "job_9", state: "running", summary: "uv run --locked --extra dev python scripts/test.py --suite full" },
       }, [TURN, CYCLE, PHASE3]),
@@ -661,14 +670,15 @@ describe("ActionDetailPanel", () => {
     expect(container.textContent).toContain(t("trace.summary"));
     expect(container.textContent).toContain("uv run --locked --extra dev python scripts/test.py --suite full");
 
+    const markdown = "## 今日进展\n- 完成 Context 容量恢复设计";
     serveEvents([
       event("action.call", 30, {
         call_id: "c2", action: "memory.write_daily", domain: "memory", sequence: 1,
-        params: { markdown: "## 今日进展\n- 完成 Context 容量恢复设计" },
+        params: { markdown },
       }, [TURN, CYCLE, PHASE2]),
       event("action.result", 40, {
         result_id: "r2", call_id: "c2", action: "memory.write_daily",
-        status: "success", stage: "execution", sequence: 1, domain: "memory",
+        status: "success", stage: "execute", sequence: 1, domain: "memory",
         invoke_id: "invoke_c2", batch_id: "b1", failure: null,
         payload: { ref: "memory:daily/2026-10-28", written: true },
       }, [TURN, CYCLE, PHASE3]),
@@ -678,7 +688,7 @@ describe("ActionDetailPanel", () => {
         selector={{ callId: "c2", action: "memory.write_daily", ordinal: 0 }} />,
     );
     await flush();
-    expect(container.textContent).toContain("提交内容");
+    expect(container.textContent).toContain(t("trace.submittedContentChars", { count: markdown.length }));
     expect(container.querySelector(".md-body h2")?.textContent).toBe("今日进展");
 
     serveEvents([
@@ -688,7 +698,7 @@ describe("ActionDetailPanel", () => {
       }, [TURN, CYCLE, PHASE2]),
       event("action.result", 60, {
         result_id: "r3", call_id: "c3", action: "home.diff",
-        status: "success", stage: "execution", sequence: 1, domain: "home",
+        status: "success", stage: "execute", sequence: 1, domain: "home",
         invoke_id: "invoke_c3", batch_id: "b1", failure: null,
         payload: { items: [{
           ref: "home:top/agent/context", kind: "change",
@@ -714,7 +724,7 @@ describe("ActionDetailPanel", () => {
       }, [TURN, CYCLE, PHASE2]),
       event("action.result", 20, {
         result_id: "r1", call_id: "c1", action: "subagent.collect",
-        status: "success", stage: "execution", sequence: 1, domain: "subagent",
+        status: "success", stage: "execute", sequence: 1, domain: "subagent",
         invoke_id: "invoke_c1", batch_id: "b1", failure: null,
         payload: {
           job_id: "job_9",

@@ -166,7 +166,7 @@ export class ActivityBuffer {
       }
       const call = parseActionCall(event);
       if (call) {
-        const glimpse: ActionGlimpseData = { actionId: call.action, callId: call.callId, domain: call.domain, stage: "plan", params: call.params, executionState: "planned" };
+        const glimpse: ActionGlimpseData = { actionId: call.action, callId: call.callId, domain: call.domain, kind: "plan", params: call.params, executionState: "planned" };
         plans.set(key(call.callId), glimpse);
         add({ type: "action_plan", glimpse });
       }
@@ -175,7 +175,7 @@ export class ActivityBuffer {
         const plan = plans.get(key(result.callId));
         if (plan) plan.executionState = "executed";
         add({ type: "action_result", glimpse: {
-          actionId: result.action, callId: result.callId, domain: result.domain, stage: "result", params: plan?.params,
+          actionId: result.action, callId: result.callId, domain: result.domain, kind: "result", params: plan?.params,
           payload: result.payload, failure: result.failure,
           result: { status: result.status === "failed" ? "failure" : result.status === "success" || result.status === "timeout" ? result.status : "result_unknown",
             preview: asString(result.failure?.feedback) ?? actionResultSummary(result.payload) },

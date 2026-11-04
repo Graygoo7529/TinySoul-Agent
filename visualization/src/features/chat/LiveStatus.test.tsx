@@ -23,7 +23,7 @@ const activity: ActivityPresentation = {
   headline: { phase: "phase3", label: "Executing" }, thinking: { current: "", expanded: false, history: [] },
   working: { todos: [], milestones: [] }, timing: { startedAt: new Date(0).toISOString(), elapsedMs: 100 }, incomplete: false,
   trail: [{ id: "read", type: "action_result", timestamp: "", autoExpandGist: true,
-    content: { type: "action_result", glimpse: { actionId: "workspace.read", domain: "workspace", stage: "result", payload: { text: "Real body" }, result: { status: "success" } } } }],
+    content: { type: "action_result", glimpse: { actionId: "workspace.read", domain: "workspace", kind: "result", payload: { text: "Real body" }, result: { status: "success" } } } }],
 };
 function render() { act(() => root.render(<LiveStatus epoch={1} turnId="turn" day="2026-10-02" activity={{ ...activity }} />)); }
 
@@ -75,7 +75,7 @@ it("keeps new steps on top, removes old gists with their rows, and never shrinks
   const makeStep = (index: number): ActivityPresentation["trail"][number] => ({
     id: `step-${index}`, type: "action_result", timestamp: "", autoExpandGist: true,
     content: { type: "action_result", glimpse: {
-      actionId: "workspace.read", domain: "workspace", stage: "result",
+      actionId: "workspace.read", domain: "workspace", kind: "result",
       payload: { summary: `row-${index}`, text: `gist-${index}` }, result: { status: "success" },
     } },
   });

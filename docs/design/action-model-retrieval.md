@@ -4,7 +4,7 @@
 
 Action catalog 的 execution.executor 只表示业务执行器注册键。Action runner 统一负责批次、deadline、hook、取消和执行事实；executor 解释参数并调用所属 owner。模型调用是 executor 内部的一次 typed input → configured model/use → typed output，不形成另一套 Action 调度器。
 
-代码贡献 ModelUseDescriptor，配置以 ModelUseBinding 绑定实现和逻辑用途。LLM 使用 task profile，decision model 使用结构化决策用途，Embedding 相似度引用 Home、Memory owner 已绑定的向量用途。模型服务负责 provider 顺序、协议、重试和关闭；输入、输出、候选语义与 Context 由调用 owner 决定。Stage1、Stage2 使用 LLM，Action 内部操作按其声明选择实现。
+代码贡献 ModelUseDescriptor，配置以 ModelUseBinding 绑定实现和逻辑用途。LLM 使用 task profile，decision model 使用结构化决策用途，Embedding 相似度引用 Home、Memory owner 已绑定的向量用途。模型服务负责 provider 顺序、协议、重试和关闭；输入、输出、候选语义与 Context 由调用 owner 决定。Phase1、Phase2 使用 LLM，Action 内部操作按其声明选择实现。
 
 ModelServices 按 generation 共享客户端，按 provider → logical model → use 装配。Home 与 Memory 各自拥有可重建向量索引，缓存按 provider/model/use、抽取规则和实际内容身份隔离；缓存不拥有业务事实。显式 select/rerank 失败不会跨实现降级成另一个操作；query 的可选通道失败则保留已完成通道并报告缺失。
 

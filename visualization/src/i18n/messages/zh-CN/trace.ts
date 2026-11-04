@@ -2,6 +2,7 @@
 export const traceMessages = {
   "trace.process": "过程",
   "trace.actionDetail": "行动详情",
+  "trace.processingStep": "处理环节",
   "trace.modelTask": "模型任务",
   "trace.modelCall": "模型调用",
   "trace.searchEvaluation": "检索评估",

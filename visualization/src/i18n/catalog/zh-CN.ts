@@ -1,6 +1,22 @@
 /** Presentation text indexed by the backend's declared field path, never by a value. */
 export type FieldText = readonly [title: string, description: string];
 
+export const choiceText: Record<string, Record<string, string>> = {
+  "llm.models.*.reasoning_effort": {
+    low: "低",
+    medium: "中",
+    high: "高",
+    xhigh: "超高",
+    max: "最大",
+  },
+  "llm.models.*.adapter_options.thinking": {
+    adaptive: "自适应",
+    enabled: "启用",
+    disabled: "关闭",
+    between_tools: "工具之间",
+  },
+};
+
 export const collectionText: Record<string, FieldText> = {
   "llm.providers": ["LLM 提供方", "可供模型调用的对话模型提供方。"],
   "llm.models": ["LLM 模型", "具有 TinySoul 能力声明的模型。"],

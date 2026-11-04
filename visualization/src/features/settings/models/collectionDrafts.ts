@@ -1,4 +1,4 @@
-import { t } from "../../../i18n";
+import { message, t, type UiText } from "../../../i18n";
 /**
  * Projected views over the shared ConfigDraft for the Models & Services pages
  * (implementation plan §15.1/§16).
@@ -640,6 +640,8 @@ export function useConsumers(state: ConfigDraftState, useId: string): UseConsume
 export interface CredentialReferenceSite {
   /** The concrete config path holding the reference. */
   path: string;
+  /** Stable catalog identity, independent of the displayed title. */
+  groupKey: string;
   /** Owning catalog group title (fallback: surface title). */
   groupTitle: string;
   /** Whether the value feeds an environment variable or an HTTP header. */
@@ -656,6 +658,29 @@ export interface CredentialEntry {
   draftState: "none" | "set" | "deleted";
 }
 
+export interface CredentialGroup {
+  key: string;
+  title: UiText;
+  entries: CredentialEntry[];
+}
+
+/** Group by catalog identity; fixed labels are resolved only when displayed. */
+export function groupCredentials(entries: CredentialEntry[]): CredentialGroup[] {
+  const groups = new Map<string, CredentialGroup>();
+  for (const entry of entries) {
+    const owners = new Map(entry.references.map((site) => [site.groupKey, site.groupTitle]));
+    const [owner] = owners;
+    const key = owners.size > 1 ? "shared" : owner?.[0] ?? "unreferenced";
+    const title = owners.size > 1
+      ? message("settings.sharedCredentials")
+      : owner?.[1] ?? message("settings.unreferencedCredentials");
+    const group = groups.get(key);
+    if (group) group.entries.push(entry);
+    else groups.set(key, { key, title, entries: [entry] });
+  }
+  return [...groups.values()];
+}
+
 /**
  * Every credential reference declared by the catalog's
  * `credential_reference` fields, resolved against the projected state, merged
@@ -664,7 +689,8 @@ export interface CredentialEntry {
  */
 export function deriveCredentials(state: ConfigDraftState): CredentialEntry[] {
   const catalog = state.catalog;
-  const fields = projectedFields(state);
+  const values: Record<string, JsonValue> = {};
+  for (const [path, value] of projectedFields(state)) setDeepValue(values, path, value);
   const references = new Map<string, CredentialReferenceSite[]>();
   const addReference = (name: string, site: CredentialReferenceSite) => {
     if (name === "") return;
@@ -675,17 +701,12 @@ export function deriveCredentials(state: ConfigDraftState): CredentialEntry[] {
 
   for (const field of catalog?.fields ?? []) {
     if (!field.credentialReference) continue;
-    const segments = field.path.split(".");
-    for (const [path, value] of fields) {
-      const parts = path.split(".");
-      if (parts.length !== segments.length) continue;
-      if (!segments.every((segment, index) => segment === "*" || segment === parts[index])) {
-        continue;
-      }
+    for (const { path, value } of credentialValues(values, field.path.split("."))) {
       const group = catalog?.fieldGroups.find((item) => item.id === field.group);
       const surface = catalog?.surfaces.find((item) => item.id === field.surface);
       const site: CredentialReferenceSite = {
         path,
+        groupKey: group ? `group:${group.id}` : surface ? `surface:${surface.id}` : `group:${field.group}`,
         groupTitle: group?.title ?? surface?.title ?? field.group,
         kind: field.path.endsWith("header_refs") ? "header" : "env",
       };
@@ -721,6 +742,32 @@ export function deriveCredentials(state: ConfigDraftState): CredentialEntry[] {
       } satisfies CredentialEntry;
     })
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Read declared credential paths through objects and ID-addressed object lists. */
+function* credentialValues(
+  value: JsonValue,
+  segments: string[],
+  path: string[] = [],
+): Generator<{ path: string; value: JsonValue }> {
+  const [segment, ...rest] = segments;
+  if (segment === undefined) {
+    yield { path: path.join("."), value };
+  } else if (segment === "*") {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (isPlainRecord(item) && typeof item.id === "string") {
+          yield* credentialValues(item, rest, [...path, item.id]);
+        }
+      }
+    } else if (isPlainRecord(value)) {
+      for (const [key, item] of Object.entries(value)) {
+        yield* credentialValues(item, rest, [...path, key]);
+      }
+    }
+  } else if (isPlainRecord(value) && value[segment] !== undefined) {
+    yield* credentialValues(value[segment], rest, [...path, segment]);
+  }
 }
 
 /** Extract referenced env names from a credential_reference field value. */

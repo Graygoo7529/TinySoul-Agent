@@ -82,7 +82,7 @@ function actionResult(sequence: number, text: string): ObservationEvent {
       call_id: `call-${sequence}`,
       action: "workspace.read",
       status: "success",
-      stage: "execution",
+      stage: "execute",
       sequence,
       domain: "workspace",
       invoke_id: `invoke-${sequence}`,

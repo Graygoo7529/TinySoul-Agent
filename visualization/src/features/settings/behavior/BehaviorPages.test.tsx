@@ -451,6 +451,11 @@ describe("PhaseBindingsPage", () => {
     });
     expect(useSettingsUiStore.getState().page).toBe("llm-tasks");
     expect(useSettingsUiStore.getState().focusPath).toBe("llm.tasks.vision");
+    await act(async () => setSelectValue(select, ""));
+    expect(select.selectedOptions[0].textContent).toBe(t("settings.phaseBindings.useDefault"));
+    expect(draftOperations(store())).toEqual([
+      { op: "delete", source_id: TINYSOUL, path: "loop.cycle.phase1_task_profile" },
+    ]);
   });
 });
 

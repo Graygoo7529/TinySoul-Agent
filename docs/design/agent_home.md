@@ -237,7 +237,7 @@ prompt mount create/delete action。文件存在但编码损坏、不可读或�
 
 Home owner 构造有界来源和原始行定位，Skill 标题复用 frontmatter metadata。query/directory 先按 Skill top 聚合资源及 resource_types，再判定资格；lexical 与 Embedding 独立处理合格候选后融合，nested resource 的命中仍保留实际 resource ref。通用 search/inspect 在 User 和两个 Reflection 情景中都读取 effective view，复用同一可重建向量缓存；Reflection 的 actual Background 与 baseline/diff 保持独立，客户端由 generation ModelServices 共享。
 
-`refs` 精确读取指定入口与 fragment，Skill top 只读 SKILL.md；要继续处理此前发现的深层聚合，使用 result。`directory`/`refs` 来源不会隐藏预筛；需要内容相关性时由 Stage2 显式组合 `select` 或 `rerank`。consumer binding 选择具体实现和模型用途，Action 选择是否准备当前 Context。rerank 保留全部候选，select 可以返回空集合。Search 返回 refs、真实内容预览、有界 evidence 和稳定分页，不自动加载 Background。
+`refs` 精确读取指定入口与 fragment，Skill top 只读 SKILL.md；要继续处理此前发现的深层聚合，使用 result。`directory`/`refs` 来源不会隐藏预筛；需要内容相关性时由 Phase2 显式组合 `select` 或 `rerank`。consumer binding 选择具体实现和模型用途，Action 选择是否准备当前 Context。rerank 保留全部候选，select 可以返回空集合。Search 返回 refs、真实内容预览、有界 evidence 和稳定分页，不自动加载 Background。
 
 Home 引用、effective overlay 和来源归属由 Home owner 解释，Infra 不解释这些业务概念。Home 没有日归属，不以文件修改时间推断引用日期；Workspace 目标由该 owner 解析当前日身份。Memory 的 search/inspect 与持久文档写入属于 Memory owner。
 

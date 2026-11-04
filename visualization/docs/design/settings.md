@@ -54,6 +54,8 @@ Action 页面先显示情景下的可用状态、用途和模型绑定，再显�
 
 界面页同时维护项目共享的 `locale`、主题、字体、字号、行高、密度及减少动画设置。`locale` 只有 `zh-CN` 和 `en-US` 两个值，默认固定为 `zh-CN`，保存到 PresentationService 的 `presentation/configs/interface.toml`；它不进入 Agent 配置、连接凭据或浏览器本地连接目标。修改后当前客户端立即预览，其它客户端在重新读取项目展示配置后更新。
 
-前端固定文案集中在 `visualization/src/i18n/`，以稳定 message ID 组织双语字典；Settings 页面和导航通过页面/分组 ID 找到对应文案。ConfigCatalog 的字段、document 字段、collection 和 choice 使用后端声明的稳定 path/id/value 做中文显示投影；未登记的动态 surface/group 继续显示后端 source。英文直接使用后端当前 source catalog，中文没有登记的字段身份回退 source 文本。搜索同时索引源文本、本地化文本与稳定路径。
+前端固定文案集中在 `visualization/src/i18n/`，以稳定 message ID 组织双语字典；Settings 页面和导航通过页面/分组 ID 找到对应文案。ConfigCatalog 的字段、document 字段、collection 和 choice 使用后端声明的稳定 path/id/value 做中文显示投影；动态 surface/group 标题继续显示后端 source。英文直接使用后端当前 source catalog，中文没有登记的字段身份回退 source 文本。搜索同时索引源文本、本地化文本与稳定路径。
+
+凭据页从已声明的 credential reference 收集引用，既读取普通配置对象，也读取按 ID 定位的对象列表。分组使用 catalog 身份，标题只负责显示；同名不同组保持独立，跨组共用的凭据只显示一份。语言或标题变化不会重建正在编辑的凭据行。Phase 绑定候选来自任务链投影，默认选项暂存删除来源覆盖，不在前端另存一套后端默认任务名。
 
 Action semantic、模型/provider/action 名称、配置值、路径、引用、用户输入、Agent 回答和后端错误详情都是动态内容，保持原样。稳定协议 code/value 可以显示前端固定摘要；未知 code 使用后端原始 message。字典不生成配置 schema、默认值或校验规则；新增 catalog 条目可以先回退，不需要为可编辑内容更新测试快照。

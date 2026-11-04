@@ -12,7 +12,7 @@ let host: HTMLDivElement;
 let root: Root;
 beforeEach(() => { host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
 afterEach(() => { act(() => root.unmount()); host.remove(); });
-const result = (patch: Partial<ActionGlimpseData>): ActionGlimpseData => ({ actionId: "workspace.read", domain: "workspace", stage: "result", result: { status: "success" }, ...patch });
+const result = (patch: Partial<ActionGlimpseData>): ActionGlimpseData => ({ actionId: "workspace.read", domain: "workspace", kind: "result", result: { status: "success" }, ...patch });
 
 it("keeps terminal output compact and reveals the earlier lines on request", () => {
   act(() => root.render(glimpseBody(result({ actionId: "execution.run", payload: { exit_code: 0, stdout: "one\ntwo\nthree\nfour\n" } }))));
@@ -32,10 +32,12 @@ it("shows actual search previews and bounds the live inset to three hits", () =>
 });
 
 it("adapts ordered v2 edits to the original diff rows and retains failure feedback", () => {
-  act(() => root.render(glimpseBody(result({ actionId: "workspace.edit", stage: "plan", params: { edits: [{ old_text: "old", new_text: "new" }] } }))));
+  act(() => root.render(glimpseBody(result({ actionId: "workspace.edit", kind: "plan", params: { edits: [{ old_text: "old", new_text: "new" }] } }))));
   expect(host.textContent).toContain("− old");
   expect(host.textContent).toContain("+ new");
-  act(() => root.render(glimpseBody(result({ result: { status: "failure" }, failure: { feedback: "Resource missing" } }))));
+  act(() => root.render(glimpseBody(result({ result: { status: "failure" }, failure: {
+    reason: "resource_missing", scope: "workspace", disposition: "change_request", feedback: "Resource missing",
+  } }))));
   expect(host.textContent).toBe("Resource missing");
   expect(glimpseBody(result({ actionId: "core.answer", payload: { text: "Already shown in chat" } }))).toBeNull();
 });
@@ -57,15 +59,15 @@ it("labels Memory character counts and Home resource sizes with their actual uni
     actionId: "memory.memorize",
     payload: { ref: "memory:current", changed: true, chars: 126 },
   }))));
-  expect(host.textContent).toContain("126 字符");
-  expect(host.textContent).not.toContain("126 bytes");
+  expect(host.textContent).toContain(`126 ${t("resources.chars")}`);
+  expect(host.textContent).not.toContain(`126 ${t("common.bytes")}`);
 
   act(() => root.render(glimpseBody(result({
     actionId: "home.resource.write",
     payload: { ref: "home:resource/agent/resources/guide.md", size: 240 },
   }))));
   expect(host.textContent).toContain("240");
-  expect(host.textContent).not.toContain("240 bytes");
+  expect(host.textContent).not.toContain(`240 ${t("common.bytes")}`);
 });
 
 it("summarizes analysis reports and descriptions from their actual fields", () => {
@@ -73,7 +75,7 @@ it("summarizes analysis reports and descriptions from their actual fields", () =
     actionId: "workspace.analyze",
     payload: { answer: "# 容量恢复分析\n\n先检查 Context，再决定是否重建。\n\n## 细节" },
   }))));
-  expect(host.textContent).toMatch(/分析报告 · \d+ 字符/);
+  expect(host.textContent).toContain(t("chat.analysisReport"));
   expect(host.textContent).toContain("容量恢复分析");
   expect(host.textContent).toContain("先检查 Context，再决定是否重建。");
   expect(host.textContent).not.toContain("# 容量恢复分析");
@@ -82,7 +84,7 @@ it("summarizes analysis reports and descriptions from their actual fields", () =
     actionId: "workspace.describe",
     payload: { description: "记录 Context 段组合与容量恢复边界。" },
   }))));
-  expect(host.textContent).toMatch(/资源描述 · \d+ 字符/);
+  expect(host.textContent).toContain(t("chat.resourceDescription"));
   expect(host.textContent).toContain("记录 Context 段组合与容量恢复边界。");
 
   act(() => root.render(glimpseBody(result({
@@ -118,7 +120,6 @@ it("keeps web gists focused on primary content and adds only discovery states", 
   expect(host.textContent).toContain("Context design");
   expect(host.textContent).toContain("Context slots and recovery");
   expect(host.textContent).not.toContain("不应重复插入 gist 的搜索回答");
-  expect(host.textContent).not.toContain("2 个来源");
 
   act(() => root.render(glimpseBody(result({
     actionId: "web.fetch_with_defuddle",
@@ -141,19 +142,19 @@ it("keeps web gists focused on primary content and adds only discovery states", 
       ],
     },
   }))));
-  expect(host.textContent).toContain("已访问");
+  expect(host.textContent).toContain(t("trace.visited"));
   expect(host.textContent).toContain(t("common.failed"));
-  expect(host.textContent).toContain("候选");
+  expect(host.textContent).toContain(t("trace.candidate"));
   expect(host.textContent).toContain("request timeout");
   expect(host.textContent).toContain("API reference");
-  expect(host.textContent).not.toContain("4 页");
-  expect(host.textContent).not.toContain("2 已访问");
+  expect(host.textContent).not.toContain(t("trace.pageCount", { count: 4 }));
+  expect(host.textContent).not.toContain(t("trace.visitedCount", { count: 2 }));
   expect(host.textContent).not.toContain("第四页不进入有界 gist");
 });
 
 it("shows the first nonempty guide line for core.reason planning", () => {
   act(() => root.render(glimpseBody(result({
-    actionId: "core.reason", stage: "plan",
+    actionId: "core.reason", kind: "plan",
     params: {
       guide_blocks: [{ text: "\n判断由谁负责容量恢复\n第二行不进入摘要" }],
       input_blocks: [{ text: "输入区不进入摘要" }],
@@ -190,11 +191,11 @@ it("falls back to field counts for nested or empty core.reason results", () => {
     actionId: "core.reason",
     payload: { trace: { nodes: 3 }, tags: ["context"] },
   }))));
-  expect(host.textContent).toContain("对象 · 2 个字段");
+  expect(host.textContent).toContain(t("chat.objectFields", { count: 2 }));
   expect(host.textContent).not.toContain("nodes");
 
   act(() => root.render(glimpseBody(result({ actionId: "core.reason", payload: {} }))));
-  expect(host.textContent).toContain("对象 · 0 个字段");
+  expect(host.textContent).toContain(t("chat.objectFields", { count: 0 }));
   expect(glimpseBody(result({ actionId: "core.ask", payload: { question: "not a gist" } }))).toBeNull();
 });
 
@@ -218,7 +219,7 @@ it("shows wait conditions and actual job content", () => {
 
 it("shows ACP briefs and real MCP names and call content", () => {
   act(() => root.render(glimpseBody(result({
-    actionId: "subagent.delegate", stage: "plan",
+    actionId: "subagent.delegate", kind: "plan",
     params: { connection_id: "conn_3", brief: "分析失败原因\n第二行不显示" },
   }))));
   expect(host.textContent).toContain(`${t("chat.delegation")} conn_3`);

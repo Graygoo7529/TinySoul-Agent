@@ -8,8 +8,7 @@
  * outside the vite watch root. The project directory is unique per run so
  * the Session day list starts empty.
  *
- * Python resolution order: $TINYSOUL_PYTHON, then $CONDA_PREFIX/python.exe
- * (an activated conda env), then "python" on PATH.
+ * Uses the repository's uv-managed .venv, shared with the backend test entry.
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
@@ -39,18 +38,11 @@ const READY_TIMEOUT_MS = 180_000;
 let backend: ChildProcess | null = null;
 
 function resolvePython(): string {
-  const fromEnv = process.env.TINYSOUL_PYTHON?.trim();
-  if (fromEnv) return fromEnv;
   const localVenv = process.platform === "win32"
     ? path.join(repoRoot, ".venv", "Scripts", "python.exe")
     : path.join(repoRoot, ".venv", "bin", "python");
-  if (existsSync(localVenv)) return localVenv;
-  const condaPrefix = process.env.CONDA_PREFIX?.trim();
-  if (condaPrefix) {
-    const candidate = path.join(condaPrefix, "python.exe");
-    if (existsSync(candidate)) return candidate;
-  }
-  return "python";
+  if (!existsSync(localVenv)) throw new Error("Run uv sync --locked --extra dev from the repository root before the backend browser tests.");
+  return localVenv;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -84,7 +76,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     ],
     {
       cwd: repoRoot,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env, PYTHONIOENCODING: "utf-8" },
     },
   );
@@ -139,13 +131,10 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 async function globalTeardown(): Promise<void> {
   const child = backend;
   backend = null;
-  if (!child || child.exitCode !== null) return;
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
   const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
-  if (!child.killed) child.kill();
-  const timer = setTimeout(() => {
-    if (child.exitCode === null) child.kill("SIGKILL");
-  }, 5000);
-  timer.unref();
+  // EOF asks the harness to close its server and Agent, including on Windows
+  // where killing only the venv launcher can leave its Python child alive.
+  child.stdin?.end();
   await exited;
-  clearTimeout(timer);
 }

@@ -1,4 +1,4 @@
-[llm.tasks.frame-stage1]
+[llm.tasks.frame-phase1]
 models = ["gpt-terra", "deepseek-flash"]
 required_capabilities = ["text_input"]
 # Profile defaults only.
@@ -17,7 +17,7 @@ max_cycles = 10
 prefer_successful_provider_seconds = 600
 prefer_successful_model_seconds = 600
 
-[llm.tasks.frame-stage2]
+[llm.tasks.frame-phase2]
 models = ["deepseek-flash", "gpt-terra"]
 required_capabilities = ["text_input"]
 answer_format = "json_object"

@@ -82,7 +82,7 @@ Anthropic 模型能力读取是显式的只读请求，前端只呈现所选 pro
 
 ### 2.3 LLM 任务链 —— collection `llm.tasks`
 
-| 路径 | 类型/约束 | 默认（模板 frame-stage1/2/llm-action） | 影响 |
+| 路径 | 类型/约束 | 默认（模板 frame-phase1/2/llm-action） | 影响 |
 | --- | --- | --- | --- |
 | `llm.tasks.<id>.models` | 非空引用列表，指向 `llm.models` | 按模板 | 依次尝试的模型 |
 | `.required_capabilities` | string_list，链内每个模型须满足 | `["text_input"]` | 候选过滤 |
@@ -121,8 +121,8 @@ catalog value_kind 为 object_list，三个数组**各自整体提交**；UI 按
 
 | 路径 | 类型 | 默认 | 影响 |
 | --- | --- | --- | --- |
-| `loop.cycle.phase1_task_profile` | reference → `llm.tasks` | frame-stage1 | Phase1（更新语境、选择行动域）所用任务链 |
-| `loop.cycle.phase2_task_profile` | reference → `llm.tasks` | frame-stage2 | Phase2（域内生成 ActionCall）所用任务链 |
+| `loop.cycle.phase1_task_profile` | reference → `llm.tasks` | frame-phase1 | Phase1（更新语境、选择行动域）所用任务链 |
+| `loop.cycle.phase2_task_profile` | reference → `llm.tasks` | frame-phase2 | Phase2（域内生成 ActionCall）所用任务链 |
 
 不存在 decision model Phase 切换；框架 Phase 与 Action 内部用途是两层配置。
 

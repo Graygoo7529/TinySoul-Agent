@@ -306,7 +306,7 @@ function PanelHeader({
       {entry.copyText && <CopyIconButton text={entry.copyText} />}
       {onToggleExpand && (
         <IconButton
-          label={expanded ? "Collapse wide view" : "Expand wide view"}
+          label={t(expanded ? "inspector.collapse" : "inspector.expand")}
           active={expanded}
           onClick={onToggleExpand}
         >
@@ -322,6 +322,7 @@ function PanelHeader({
 
 /** Copies the entry's real link/reference; briefly confirms with a check. */
 function CopyIconButton({ text }: { text: string }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -332,7 +333,7 @@ function CopyIconButton({ text }: { text: string }) {
 
   return (
     <IconButton
-      label={copied ? "Copied" : "Copy link"}
+      label={t(copied ? "inspector.copied" : "inspector.copyLink")}
       onClick={() => {
         const write = navigator.clipboard?.writeText(text);
         if (write) {

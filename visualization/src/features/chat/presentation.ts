@@ -180,7 +180,7 @@ export type ActivityStepContent =
   | { type: "todo"; text: string; status: TodoItem["status"] | "removed" };
 
 /**
- * Action glimpse data (two-stage preview)
+ * Action glimpse data (plan or result preview)
  */
 export interface ActionGlimpseData {
   callId?: string;
@@ -191,11 +191,11 @@ export interface ActionGlimpseData {
   actionId: string;
   /** Domain */
   domain: string;
-  /** Stage */
-  stage: "plan" | "result";
-  /** Params summary (plan stage) */
+  /** Preview kind */
+  kind: "plan" | "result";
+  /** Params summary (plan preview) */
   params?: Record<string, unknown>;
-  /** Result summary (result stage) */
+  /** Result summary (result preview) */
   result?: {
     status: "success" | "failure" | "timeout" | "cancelled" | "not_executed" | "result_unknown";
     durationMs?: number;

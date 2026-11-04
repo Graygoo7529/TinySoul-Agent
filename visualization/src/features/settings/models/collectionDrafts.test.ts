@@ -13,6 +13,7 @@ import { draftKey } from "../draft/model";
 import { draftOperations, useConfigDraftStore } from "../draft/store";
 import {
   deriveCredentials,
+  groupCredentials,
   modelReferences,
   moveItem,
   objectDeletable,
@@ -55,6 +56,7 @@ function makeCatalog(): ConfigCatalog {
     surfaces: [],
     field_groups: [
       { id: "providers.connection", surface: "providers", title: "Connection", description: "" },
+      { id: "services.connection", surface: "models", title: "Connection", description: "" },
     ],
     collections: [
       {
@@ -102,7 +104,7 @@ function makeCatalog(): ConfigCatalog {
       field("infra.model_services.providers", "object_list"),
       field("infra.model_services.providers.*.api_key_env", "string", {
         credential_reference: true,
-        group: "providers.connection",
+        group: "services.connection",
       }),
     ],
     document_fields: [],
@@ -498,6 +500,24 @@ describe("reference finders", () => {
 // ---------------------------------------------------------------------------
 
 describe("deriveCredentials", () => {
+  it("keeps same-titled owners distinct and groups shared credentials by their references", () => {
+    install(makeSaved({
+      "llm.providers.primary.api_key_envs": { value: ["PROVIDER_KEY", "SHARED_KEY"], source: PROVIDERS },
+      "infra.model_services.providers": {
+        value: [{ id: "first", api_key_env: "SHARED_KEY" }, { id: "second", api_key_env: "SERVICE_KEY" }],
+        source: SERVICES,
+      },
+    }, [{ id: "dotenv", values: { UNUSED_KEY: "<redacted>" } }]));
+    const groups = groupCredentials(deriveCredentials(store()));
+    expect(Object.fromEntries(groups.map((group) => [group.key, group.entries.map((entry) => entry.name)]))).toEqual({
+      "group:providers.connection": ["PROVIDER_KEY"],
+      "group:services.connection": ["SERVICE_KEY"],
+      shared: ["SHARED_KEY"],
+      unreferenced: ["UNUSED_KEY"],
+    });
+    expect(groups.find((group) => group.key === "shared")?.title).toEqual({ id: "settings.sharedCredentials" });
+  });
+
   it("collects referenced names, dotenv contents and draft state without values", () => {
     install(
       makeSaved(

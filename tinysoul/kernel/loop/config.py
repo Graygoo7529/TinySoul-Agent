@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import cast
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
+from tinysoul.llm import TaskProfile
 
 
 @dataclass(frozen=True)
@@ -33,8 +34,8 @@ class TurnSettings:
 class CycleSettings:
     """Task-profile routing shared by every reusable Cycle."""
 
-    phase1_task_profile: str = "frame-stage1"
-    phase2_task_profile: str = "frame-stage2"
+    phase1_task_profile: str = TaskProfile.FRAME_PHASE1
+    phase2_task_profile: str = TaskProfile.FRAME_PHASE2
 
     def __post_init__(self) -> None:
         _validate_task_profile(

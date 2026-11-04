@@ -21,8 +21,8 @@ from .tools import ToolScope, ToolUse
 class TaskProfile(StrEnum):
     """Built-in LLM task profiles."""
 
-    FRAME_STAGE1 = "frame-stage1"
-    FRAME_STAGE2 = "frame-stage2"
+    FRAME_PHASE1 = "frame-phase1"
+    FRAME_PHASE2 = "frame-phase2"
     LLM_ACTION = "llm-action"
 
 

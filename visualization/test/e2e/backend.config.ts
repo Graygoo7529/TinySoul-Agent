@@ -24,5 +24,5 @@ export default defineConfig({
     timeout: 120_000,
     reuseExistingServer: process.env.TINYSOUL_E2E_REUSE_SERVER === "1",
   },
-  outputDir: "../../.local-test/playwright-output-backend",
+  outputDir: path.resolve(visualizationRoot, "../.local-test/playwright-output-backend"),
 });

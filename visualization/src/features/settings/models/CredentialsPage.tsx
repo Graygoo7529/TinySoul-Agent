@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../../i18n";
+import { LocalizedText, resolveText, useI18n } from "../../../i18n";
 /**
  * Credentials settings page (plan §16.6): the unified editor for every
  * credential reference the catalog declares (provider env names, dedicated
@@ -14,12 +14,12 @@ import { Badge } from "../../../components/ui/Badge";
 import { Button } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { useConfigDraftStore } from "../draft/store";
-import { deriveCredentials, type CredentialEntry } from "./collectionDrafts";
+import { deriveCredentials, groupCredentials, type CredentialEntry } from "./collectionDrafts";
 import { CredentialValueEditor } from "../editors/controls";
 import { inputClass } from "./controls";
 
 export function CredentialsPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const state = useConfigDraftStore();
   const credentials = useMemo(
     () => deriveCredentials(state),
@@ -53,7 +53,11 @@ export function CredentialsPage() {
         reference.path.toLowerCase().includes(needle),
       ),
   );
-  const groups = groupCredentials(visible);
+  const groups = groupCredentials(visible).sort((a, b) => {
+    if (a.key === "unreferenced") return 1;
+    if (b.key === "unreferenced") return -1;
+    return resolveText(a.title, locale).localeCompare(resolveText(b.title, locale), locale);
+  });
 
   const nameError =
     newName.trim() === ""
@@ -143,7 +147,7 @@ export function CredentialsPage() {
         groups.map((group) => (
           <section key={group.key} className="mb-5">
             <div className="mb-1.5 text-[11px] font-semibold tracking-wide text-fg-faint uppercase">
-              {group.title}
+              <LocalizedText value={group.title} />
             </div>
             <div className="space-y-1.5">
               {group.entries.map((entry) => (
@@ -160,31 +164,8 @@ export function CredentialsPage() {
   );
 }
 
-function groupCredentials(entries: CredentialEntry[]): { key: string; title: string; entries: CredentialEntry[] }[] {
-  const groups = new Map<string, CredentialEntry[]>();
-  for (const entry of entries) {
-    const titles = new Set(entry.references.map((reference) => reference.groupTitle));
-    const title =
-      titles.size === 0
-        ? "Unreferenced (dotenv only)"
-        : titles.size > 1
-          ? "Shared across groups"
-          : ([...titles][0] as string);
-    const list = groups.get(title) ?? [];
-    list.push(entry);
-    groups.set(title, list);
-  }
-  return [...groups.entries()]
-    .sort(([a], [b]) => {
-      // Referenced groups first (alphabetical), unreferenced last.
-      if (a === "Unreferenced (dotenv only)") return 1;
-      if (b === "Unreferenced (dotenv only)") return -1;
-      return a.localeCompare(b);
-    })
-    .map(([title, groupEntries]) => ({ key: title, title: title === "Unreferenced (dotenv only)" ? t("settings.unreferencedCredentials") : title === "Shared across groups" ? t("settings.sharedCredentials") : title, entries: groupEntries }));
-}
-
 function CredentialRow({ entry }: { entry: CredentialEntry }) {
+  const { t } = useI18n();
   return (
     <div className="rounded-md border border-line bg-bg-elev px-3 py-2">
       <CredentialValueEditor name={entry.name} />

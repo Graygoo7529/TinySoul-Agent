@@ -48,6 +48,15 @@ pnpm test    # vitest
 pnpm build   # tsc + vite build
 ```
 
+For browser checks against the real backend, first run `uv sync --locked --extra dev` at the repository root. Then, from `visualization/`:
+
+```bash
+node node_modules/playwright/cli.js install chromium  # once, if needed
+node node_modules/playwright/cli.js test --config test/e2e/backend.config.ts
+```
+
+The harness uses the repository `.venv`, an isolated project under `.local-test/`, and scripted model responses. It needs no model credentials. Logs and screenshots also stay under `.local-test/`.
+
 ## Architecture
 
 - `src-tauri/src/lib.rs` — Tauri Rust boundary for frontend-only capabilities such as trace export; connection credentials stay in the client storage module.
@@ -62,7 +71,7 @@ pnpm build   # tsc + vite build
 
 - Conversation of user turns: user bubbles on the right, agent rows on the left.
 - Final answers rendered as Markdown (GFM).
-- **Live status disclosure** while a turn runs: current phase and model/action activity, a 3-stage phase stepper, the todo/milestone working snapshot, and a rolling semantic activity feed (context loading, domain selection, action execution, workspace changes…).
+- **Live status disclosure** while a turn runs: current phase and model/action activity, a three-phase stepper, the todo/milestone working snapshot, and a rolling semantic activity feed (context loading, domain selection, action execution, workspace changes…).
 
 ### Turn Trace Drawer
 

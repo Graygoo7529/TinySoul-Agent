@@ -1,4 +1,10 @@
 export const protocolMessages = {
+  "protocol.action.stage.normalize": "Call normalization",
+  "protocol.action.stage.prepare": "Call preparation",
+  "protocol.action.stage.hook": "Execution hook",
+  "protocol.action.stage.schedule": "Scheduling",
+  "protocol.action.stage.execute": "Action execution",
+  "protocol.action.stage.timeout": "Execution timeout",
   "protocol.presentation.invalid_config": "Invalid interface configuration",
   "protocol.presentation.not_found": "Interface configuration was not found",
   "protocol.presentation.io_failed": "Interface files could not be accessed",

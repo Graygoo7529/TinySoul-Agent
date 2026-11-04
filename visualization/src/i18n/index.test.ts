@@ -46,6 +46,15 @@ describe("settings presentation localization", () => {
     expect(field?.path).toBe(catalog.fields[0].path);
     expect(catalog.fields[0].title).toBe("Reasoning Effort");
     expect(localizeField({ ...catalog.fields[0], path: "new.owner.field" }).title).toBe("Reasoning Effort");
+    const edited = {
+      ...catalog.fields[0], title: "New source title", description: "New source description",
+      choices: [...catalog.fields[0].choices, { value: "future-level", label: "New choice" }],
+    };
+    const translated = localizeField(edited, "zh-CN");
+    expect(translated.title).toBe(field?.title);
+    expect(translated.description).toBe(field?.description);
+    expect(translated.choices[1]).toEqual(edited.choices[1]);
+    expect(localizeField(edited, "en-US")).toEqual(edited);
   });
 
   it("routes both Chinese and source-language searches to the same stable field", () => {

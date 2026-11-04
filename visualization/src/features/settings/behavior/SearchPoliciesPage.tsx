@@ -148,7 +148,7 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
       >
         <FieldRow
           title={t("settings.sources")}
-          description={t("settings.candidateOriginsStage2MayCombineAtLeastOne")}
+          description={t("settings.search.sourcesHint")}
           dirty={dirty}
         >
           <ChoiceToggles
@@ -165,7 +165,7 @@ function PolicyEditor({ capability }: { capability: SearchCapabilityInfo }) {
         </FieldRow>
         <FieldRow
           title={t("settings.operations")}
-          description={t("settings.constraintOperationsAvailableToStage2MayBeEmpty")}
+          description={t("settings.search.operationsHint")}
           dirty={dirty}
         >
           <ChoiceToggles

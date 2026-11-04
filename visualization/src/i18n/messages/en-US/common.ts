@@ -1,5 +1,9 @@
 /** Fixed common interface copy. */
 export const commonMessages = {
+  "inspector.expand": "Expand wide view",
+  "inspector.collapse": "Collapse wide view",
+  "inspector.copyLink": "Copy link",
+  "inspector.copied": "Copied",
   "common.retry": "Retry",
   "common.refresh": "Refresh",
   "common.cancel": "Cancel",

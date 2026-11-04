@@ -2,6 +2,7 @@
 export const traceMessages = {
   "trace.process": "Process",
   "trace.actionDetail": "Action detail",
+  "trace.processingStep": "Processing step",
   "trace.modelTask": "Model task",
   "trace.modelCall": "Model call",
   "trace.searchEvaluation": "Search evaluation",

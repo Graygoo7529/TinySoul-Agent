@@ -713,7 +713,7 @@ function PhaseCard({ phase, onOpenTask, onOpenAction, children }: {
                 const planGist = glimpseBody({
                   actionId: call.name,
                   domain: planDomain,
-                  stage: "plan",
+                  kind: "plan",
                   params: call.arguments,
                 });
                 return (
@@ -788,7 +788,7 @@ function ActionRow({
   const duration = actionDuration(trace);
   // Static gist preview reusing the chat trail renderer: plan for phase2,
   // result for phase3, best-effort by available facts otherwise.
-  const stage =
+  const kind =
     trace.phase === "phase2"
       ? ("plan" as const)
       : trace.phase === "phase3"
@@ -800,7 +800,7 @@ function ActionRow({
     callId: trace.call?.callId,
     actionId: action,
     domain,
-    stage,
+    kind,
     params: trace.call?.params ?? {},
     payload: trace.result?.payload ?? null,
     failure: trace.result?.failure ?? null,

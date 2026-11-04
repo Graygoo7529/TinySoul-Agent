@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { t } from "../../i18n";
+import { localizeField, t } from "../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -15,7 +15,7 @@ import {
 } from "../../app/testing";
 import { useConfigDraftStore } from "./draft/store";
 import { useSettingsUiStore } from "./uiStore";
-import type { SettingsGroupId } from "./pages";
+import { SETTINGS_GROUPS, type SettingsGroupId } from "./pages";
 import { SettingsPage } from "./SettingsPage";
 import { SettingsPlaceholderPage } from "./SettingsPlaceholderPage";
 
@@ -105,20 +105,12 @@ describe("SettingsPage shell", () => {
     });
     await flush();
 
-    for (const group of [
-      "概览与方案",
-      "模型与服务",
-      "行为与调用",
-      "工具与连接",
-      "数据与知识",
-      "系统与诊断",
-      "界面",
-    ]) {
-      expect(text()).toContain(group);
+    for (const group of SETTINGS_GROUPS) {
+      expect(text()).toContain(t(`settings.group.${group.id}`));
     }
-    expect(text()).toContain("运行配置");
+    expect(text()).toContain(t("settings.overview.running"));
     expect(text()).toContain("Balanced"); // preset summary
-    expect(text()).toContain("没有本地修改"); // bottom bar
+    expect(text()).toContain(t("settings.bottom.noChanges"));
   });
 
   it("renders the run-plans page from the overview group", async () => {
@@ -136,9 +128,10 @@ describe("SettingsPage shell", () => {
       button?.click();
     });
     await flush();
-    expect(text()).toContain("新建方案");
-    expect(text()).toContain("方案内容");
-    expect(text()).toContain("应用变化");
+    expect(useSettingsUiStore.getState().page).toBe("plans");
+    expect(text()).toContain(t("settings.newPlan"));
+    expect(text()).toContain(t("settings.planContent"));
+    expect(text()).toContain(t("settings.planChanges"));
     expect(text()).toContain("Balanced");
   });
 
@@ -147,8 +140,8 @@ describe("SettingsPage shell", () => {
       root.render(<SettingsPlaceholderPage page="plans" />);
     });
     await flush();
-    expect(text()).toContain("此页面尚未实现");
-    expect(text()).toContain("概览与方案");
+    expect(text()).toContain(t("settings.pageUnavailable"));
+    expect(text()).toContain(t("settings.group.overview"));
   });
 
   it("routes catalog search hits to their owning page", async () => {
@@ -158,14 +151,14 @@ describe("SettingsPage shell", () => {
     await flush();
 
     const input = container.querySelector(
-      "input[placeholder='搜索设置…']",
+      `input[placeholder="${t("settings.nav.searchPlaceholder")}"]`,
     ) as HTMLInputElement | null;
     expect(input).not.toBeNull();
     await act(async () => {
       setInputValue(input!, "execution");
     });
     const hit = [...container.querySelectorAll("button")].find((item) =>
-      item.textContent?.includes("启用本地执行"),
+      item.textContent?.includes(localizeField(useConfigDraftStore.getState().catalog!.fields[0]).title),
     );
     expect(hit).toBeDefined();
     await act(async () => {
@@ -247,7 +240,7 @@ describe("SettingsPage shell", () => {
       });
     });
     await flush();
-    expect(text()).toContain("配置被拒绝");
+    expect(text()).toContain(t("settings.overview.failure.configInvalid"));
     expect(text()).not.toContain('"expected"');
 
     const toggle = [...container.querySelectorAll("button")].find(

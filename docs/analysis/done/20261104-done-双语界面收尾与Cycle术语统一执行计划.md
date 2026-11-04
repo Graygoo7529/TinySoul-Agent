@@ -2,16 +2,16 @@
 
 日期：2026-11-04
 
-状态：pending（设计已明确，准备实施；本轮仅建立计划，尚未实施代码修改）
+状态：done（2026-11-04 完成 P1–P5，按 AGENTS.md 和 A1–A10 逐项核对后归档）
 
 核对基线：`1364e5d6`，`feat(visualization): 完成中英文界面收尾与文案治理`。建立计划前工作树干净。
 
-依据：[AGENTS.md](../../AGENTS.md)、当前模块实现，以及此前关于双语收尾和 Cycle 术语的讨论。
+依据：[AGENTS.md](../../../AGENTS.md)、当前模块实现，以及此前关于双语收尾和 Cycle 术语的讨论。
 
 关联归档：
 
-- [前端中英文界面与共享语言执行计划](done/20261102-done-前端中英文界面与共享语言执行计划.md)
-- [前端双语界面收尾执行计划](done/20261103-done-前端双语界面收尾执行计划.md)
+- [前端中英文界面与共享语言执行计划](20261102-done-前端中英文界面与共享语言执行计划.md)
+- [前端双语界面收尾执行计划](20261103-done-前端双语界面收尾执行计划.md)
 
 两份旧计划已经归档。本计划承接复核时发现的具体缺口，不重新建设语言配置和翻译框架，也不以旧计划的完成状态代替本次验收。
 
@@ -202,39 +202,39 @@ Agent
 
 ### P1：统一 Cycle 术语与内置任务绑定
 
-- [ ] 更新 TaskProfile、CycleSettings、两套正式模板、测试自有配置与 E2E harness；声明与引用同时修改。
-- [ ] 改造 PhaseBindings 默认选项，删除前端重复的任务名默认值。
-- [ ] 更新 SearchPolicies 两个语义 ID 和 Phase 文案；清理当前代码注释中的同义残留。
-- [ ] 聚焦验证 Loop 配置、LLM 路由、模板装配、CLI fake provider 与任务绑定控件。
-- [ ] 同步受影响的当前术语、配置文档；检查自定义任务 ID 仍按普通引用处理。
+- [x] 更新 TaskProfile、CycleSettings、两套正式模板、测试自有配置与 E2E harness；声明与引用同时修改。
+- [x] 改造 PhaseBindings 默认选项，删除前端重复的任务名默认值。
+- [x] 更新 SearchPolicies 两个语义 ID 和 Phase 文案；清理当前代码注释中的同义残留。
+- [x] 聚焦验证 Loop 配置、LLM 路由、模板装配、CLI fake provider 与任务绑定控件。
+- [x] 同步受影响的当前术语、配置文档；检查自定义任务 ID 仍按普通引用处理。
 
 ### P2：完成双语与 catalog 显示边界
 
-- [ ] 补齐中文遗漏，校正英文预算、超时和 entity 字面文本；对照实际页面审阅易读性。
-- [ ] 将 catalog choice 文案移入语言资源，adapter 不承担内容管理。
-- [ ] 凭据按稳定身份分组，固定分类在渲染时翻译，后端标题继续作为动态内容。
-- [ ] 验证切换语言、标题变化时保留草稿与组件状态；更新 catalog 与 i18n 当前设计说明。
+- [x] 补齐中文遗漏，校正英文预算、超时和 entity 字面文本；对照实际页面审阅易读性。
+- [x] 将 catalog choice 文案移入语言资源，adapter 不承担内容管理。
+- [x] 凭据按稳定身份分组，固定分类在渲染时翻译，后端标题继续作为动态内容。
+- [x] 验证切换语言、标题变化时保留草稿与组件状态；更新 catalog 与 i18n 当前设计说明。
 
 ### P3：清理展示分类与 Trace 协议残留
 
-- [ ] `ActionGlimpseData.stage` 改为 `kind`，更新所有生产者与消费者。
-- [ ] Action 详情展示顶层 result stage，补充少量协议摘要；原始数据和导出保留原值。
-- [ ] 修正成功与失败夹具，覆盖正常执行和一条有代表性的局部失败路径。
-- [ ] 检查 Phase、Action stage、glimpse kind 在同一条过程展示中各有明确含义。
+- [x] `ActionGlimpseData.stage` 改为 `kind`，更新所有生产者与消费者。
+- [x] Action 详情展示顶层 result stage，补充少量协议摘要；原始数据和导出保留原值。
+- [x] 修正成功与失败夹具，覆盖正常执行和一条有代表性的局部失败路径。
+- [x] 检查 Phase、Action stage、glimpse kind 在同一条过程展示中各有明确含义。
 
 ### P4：收口测试与浏览器验证入口
 
-- [ ] 受影响的 Settings/Trace/Chat/AppShell 测试移除旧文案字面断言与失真协议值。
-- [ ] 更新 `chat-flow.pw.ts`、`presentation.pw.ts` 中受本次语义和现有双语入口影响的选择器；固定 UI 标签从纯字典入口按明确 locale 获取，不通过“中文或英文都行”掩盖语言状态。
-- [ ] 复用现有后端 harness 验证任务路由与共享语言保存；仅模型输出脚本化，不要求真实 provider。
-- [ ] 记录代表性双语浏览器检查，区分 FakeEndpoint、真实后端 harness、浏览器和 Tauri。
+- [x] 受影响的 Settings/Trace/Chat/AppShell 测试移除旧文案字面断言与失真协议值。
+- [x] 更新 `chat-flow.pw.ts`、`presentation.pw.ts` 中受本次语义和现有双语入口影响的选择器；固定 UI 标签从纯字典入口按明确 locale 获取，不通过“中文或英文都行”掩盖语言状态。
+- [x] 复用现有后端 harness 验证任务路由与共享语言保存；仅模型输出脚本化，不要求真实 provider。
+- [x] 记录代表性双语浏览器检查，区分 FakeEndpoint、真实后端 harness、浏览器和 Tauri。
 
 ### P5：规约核对与交付
 
-- [ ] 按下节运行最终门禁，并记录真实命令、结果与限制。
-- [ ] 复核依赖方向、单一 owner、UiText 边界、动态内容、局部 stage 保留范围及无兼容别名。
-- [ ] 复核当前文档、代码、模板、测试一致；剩余旧术语均能解释为历史或合法局部语义。
-- [ ] 逐项填写验收表；所有必要项完成后，将本计划标记 done，文件名加入 `-done-` 并移至 `docs/analysis/done/`。
+- [x] 按下节运行最终门禁，并记录真实命令、结果与限制。
+- [x] 复核依赖方向、单一 owner、UiText 边界、动态内容、局部 stage 保留范围及无兼容别名。
+- [x] 复核当前文档、代码、模板、测试一致；剩余旧术语均能解释为历史或合法局部语义。
+- [x] 逐项填写验收表；所有必要项完成后，将本计划标记 done，文件名加入 `-done-` 并移至 `docs/analysis/done/`。
 
 P1 的任务绑定修改须作为完整单元验证；P2 与 P3 职责独立，但共享字典修改应集中核对。P4 在显示代码稳定后收口，P5 最后执行。不得用“测试数量未下降”或旧计划已归档替代验收。
 
@@ -299,22 +299,84 @@ pnpm exec playwright test --config test/e2e/backend.config.ts
 
 ## 7. 完成验收与记录
 
-| 编号 | 验收要求 | 状态 |
+| 编号 | 验收要求 | 核对结果与证据 |
 | --- | --- | --- |
-| A1 | 固定 UI 文案双语可读，预算/超时说明与当前执行语义一致 | 待实施 |
-| A2 | catalog 文案与 adapter 职责分开，未知动态内容可用且原值不变 | 待实施 |
-| A3 | 凭据分组以稳定身份计算，标题与 locale 变化不丢编辑状态 | 待实施 |
-| A4 | Cycle 统一 Phase，内置任务名声明/引用同步，无旧内置别名 | 待实施 |
-| A5 | Phase 绑定界面不重复写死默认任务名，自定义任务引用正常 | 待实施 |
-| A6 | 合法局部 stage 保留；glimpse kind 与 executionState 职责明确 | 待实施 |
-| A7 | Action 详情消费真实 result/failure 结构，原始诊断与导出不被翻译覆盖 | 待实施 |
-| A8 | 测试保护行为与协议，受影响路径无旧文案快照、失真夹具和无效选择器 | 待实施 |
-| A9 | 前后端最终门禁、代表性浏览器协作和双语检查完成并留证 | 待实施 |
-| A10 | AGENTS 与当前设计文档一致；历史勘误与配置更新影响已明确记录 | 待实施 |
+| A1 | 固定 UI 文案双语可读，预算/超时说明与当前执行语义一致 | 完成。Settings 两份字典及 Inspector 固定标签已修正；对照 Cycle 预算等待和 Action 调用时限；双语浏览器检查通过。 |
+| A2 | catalog 文案与 adapter 职责分开，未知动态内容可用且原值不变 | 完成。choiceText 移入 catalog/zh-CN.ts；index.test.ts 验证改写 source 仍按身份匹配，未知字段/choice 回显，原对象不变。 |
+| A3 | 凭据分组以稳定身份计算，标题与 locale 变化不丢编辑状态 | 完成。collectionDrafts 按 group/surface ID 分组；同名不同 ID、共享和无引用由 owner 测试覆盖；pages.test.tsx 验证输入节点、未提交值和最终 dotenv 操作保留。 |
+| A4 | Cycle 统一 Phase，内置任务名声明/引用同步，无旧内置别名 | 完成。TaskProfile、CycleSettings、两套模板、夹具与 harness 同步；Full 验证配置装配、CLI、wheel；当前代码与设计文档检索无 Cycle Stage1/2/3 残留。 |
+| A5 | Phase 绑定界面不重复写死默认任务名，自定义任务引用正常 | 完成。删除 ownerDefault；BehaviorPages 测试验证空选项暂存 delete；任务候选来自现有投影，Python 保留 str 自定义路由。 |
+| A6 | 合法局部 stage 保留；glimpse kind 与 executionState 职责明确 | 完成。Chat/Trace 生产者与消费者统一 kind；Action/Control/retrieval/释放顺序及草稿 staging 保留原语义。 |
+| A7 | Action 详情消费真实 result/failure 结构，原始诊断与导出不被翻译覆盖 | 完成。详情读取 result.stage；代表夹具使用 execute/hook/timeout 和规范 failure；mounted 测试保留诊断和展开参数，浏览器消费真实 workspace.read 结果。 |
+| A8 | 测试保护行为与协议，受影响路径无旧文案快照、失真夹具和无效选择器 | 完成。相关 Settings/Chat/Trace/Inspector/E2E 固定标签由字典定位；保留测试自有正文，未增加正式模型清单或文案快照。 |
+| A9 | 前后端最终门禁、代表性浏览器协作和双语检查完成并留证 | 完成。Full 1516、Fast 1374、Vitest 891 全部通过；ty/build 通过；真实后端 Chromium E2E 3 条通过；详见下方记录。 |
+| A10 | AGENTS 与当前设计文档一致；历史勘误与配置更新影响已明确记录 | 完成。同步 AGENTS、runtime/loop/Home/retrieval 与前端当前文档；§4.3 记录配置影响，§4.5 记录旧浏览器页面勘误。 |
 
 实施记录按每项填写：修改位置、验证方式、结果、实际限制。失败先区分实现问题、失真测试或环境问题，不能靠跳过测试、放松协议或吞掉异常换取通过。
 
-旧计划记录的 Full 1516 passed / 3 deselected、Vitest 101 文件 / 889 测试以及 ty/build/cargo 结果仅作历史基线。本轮是计划编写，不将其登记为本计划的实施后验证结果。
+旧计划的验证仅作历史基线。以下为本轮实施后实际执行的结果，没有复用旧结果作为完成证据。
+
+### 7.1 实际实施与补充修复
+
+- P1 完成内置任务命名及声明/引用同步；前端默认选项只表达恢复默认，未新增 Endpoint 字段或兼容别名。
+- P2 完成 Settings 文案、choice 资源归属和凭据稳定分组。分组测试发现专用模型的 `object_list` 凭据引用原先未被收集；现由同一个草稿投影按 catalog 声明路径读取对象和 ID 列表，没有另建配置状态或反向写业务数据。
+- P3 完成 glimpse kind、result stage 与真实失败夹具对齐。保留协议原值、动态诊断及未知值回显。
+- P4 补齐 Action 详情抽屉的放大、复制标签，更新其既有交互测试。窄屏检查发现 SliderField 的固定宽度子项挤出卡片，改为在可用宽度内换行，保持单一输入和原提交行为。
+- 浏览器 harness 固定读取仓库 `.venv`，删除 conda/个人解释器覆盖分支；Node 通过关闭 stdin 请求 Python 正常退出，随后等待进程完成。测试专用 WebSocket 心跳设为 1 秒，让断开的观察流及时结束。最终后端日志只有 ready 记录，无关闭超时诊断。
+- 浏览器产物移至仓库 `.local-test/playwright-output-backend/`，避开 Vite 监听目录；截图禁用过渡动画，避免把视口切换过程误记为最终布局。前端 README 补充可复用的真实后端浏览器命令。
+
+这些补充均来自本轮正常路径验证，沿用现有 owner、控件和测试入口。没有引入恢复状态机、通用配置遍历平台或新的 i18n 框架。
+
+### 7.2 本轮验证记录
+
+| 验证 | 实际结果 | 记录 |
+| --- | --- | --- |
+| Full 筛选 Loop 配置、LLM、project 初始化及 CLI fake provider | 282 passed，19.56s | `.local-test/reports/42576626364e4aab9f93125acc024479/` |
+| 默认 Fast | 1374 passed，145 deselected，36.74s | `.local-test/reports/e7bb5bfc41294507b67af969147ee688/` |
+| 最终 Python Full | 1516 passed，3 deselected，202.18s | `.local-test/reports/28f991c9dbe44c1ebdbe36c15f558960/`；按 suite 排除 external |
+| `uv run --locked --extra dev ty check` | All checks passed | 最后修改后再次通过 |
+| `pnpm.cmd test` | 101 文件、891 测试全部通过，16.66s | 包含 catalog 身份、分组、草稿保持、Trace/Inspector 和既有语言切换测试 |
+| 最终 ActionGlimpse 夹具核对 | 14 passed，2.45s | 补齐测试自有 failure 摘要后聚焦复验；glimpse 的内部 failure 状态仍由 activityBuffer 从协议 failed 映射 |
+| `pnpm.cmd build` | TypeScript 与 Vite 构建通过 | 仅有现有大 chunk 提示 |
+| 真实后端 Chromium E2E | 3 passed，38.7s | `.local-test/e2e-backend-6TkMwq/backend.log`；使用下方命令 |
+| `git diff --check` 与当前术语复核 | 通过 | 无旧内置 task 枚举/别名、Cycle Stage1/2/3、failure.stage、失真 execution stage；合法局部 stage 保留 |
+
+真实后端浏览器的最终命令（在 `visualization/`）为：
+
+```powershell
+node node_modules/playwright/cli.js test --config test/e2e/backend.config.ts
+```
+
+本机 `pnpm exec playwright` 未能解析已安装的命令，直接调用同一已安装 Playwright CLI 完成验证，未下载或替换依赖。Windows 沙箱限制了 Playwright 对自己启动的 Vite 服务进行进程清理，本轮在获准的本地非沙箱运行中完成 E2E；这一环境处理没有写入仓库脚本。uv 在本机不在 PATH，通过已安装 uv 的绝对路径调用上述标准入口，缓存留在 `.local-test/uv-cache/`，未提交个人路径。
+
+中途失败包括旧 UI 选择器、窄屏导航定位、未同步的 Copied 标签断言，以及新增详情测试误选 Action 名称；均根据真实界面修正后复验，没有跳过测试或放宽业务结果。最初长心跳使测试关闭等待超时，短测试心跳与正常退出流程消除了该诊断。Vitest 仍有既有 jsdom scrollTo 提示，不影响用例结果。
+
+### 7.3 浏览器观察范围
+
+本轮使用浏览器 Chromium、真实 Agent/Endpoint/owner 和脚本化 LLM 输出，无公网 provider、个人凭据或个人运行数据。
+
+| 页面/路径 | 本轮检查 |
+| --- | --- |
+| User Turn | 两个 Phase 任务可路由；回答、ask/reply、原问题与补充回复、刷新后的 Session 恢复正常 |
+| Reflection | 共用 ask/reply；完成和刷新保留状态，不新增 User Session 记录 |
+| Interface | 主题、字体、字号、locale 保存至项目 TOML；新客户端与刷新读取同一 locale；没有 config apply/reload，generation 不变；鉴权资产预览与下载正常 |
+| Context 设置 | 中英文当前占用/无活动轮次/背景说明；420×900 窄屏长说明与数值控件可读 |
+| Phase 绑定 | 中英文说明、真实 task 候选、默认选项；420×900 布局 |
+| 凭据 | 中英文固定标签、原始 backend 分组标题和引用；420×900 布局；编辑节点/未提交值保持另由 mounted 测试验证 |
+| Action 详情 | 中英文真实 workspace.read 的位置、处理环节、参数与正文；420×900 布局；同一已展开详情切换时不重读、不丢参数由 mounted 测试验证 |
+
+本轮截图保存在 `.local-test/playwright-output-backend/` 下对应 spec 目录，包括 `context-{locale}-narrow.png`、`phase-bindings-{locale}-narrow.png`、`credentials-{locale}-narrow.png`、`action-detail-{locale}-narrow.png` 和 `shared-interface-and-assets.png`。截图只作人工检查证据，不建立像素快照门禁。
+
+未声称遍历全部界面、验证真实模型效果或完成 Tauri 桌面验收；本轮未修改 Rust、Tauri bridge 或依赖，未重复运行 cargo。旧 MemoryGraph/Session graph 勘误仍以 §4.5 为准。
+
+### 7.4 AGENTS.md 对照
+
+- **唯一 owner 与依赖方向：** kernel 复用 llm 的 TaskProfile；后端业务 owner、Agent/Turn/Cycle 调度和 Endpoint 协议职责保持清楚。Presentation 独立保存语言，不触发运行世代激活。
+- **事实与显示分层：** UiText 保存固定消息身份或动态原文；catalog 仅投影已知身份的标签，凭据分组使用正式 ID；未知字段和值不会因翻译缺失而消失。
+- **类型与语义：** 继续使用既有 StrEnum、CyclePhase 与 ActionResultStage；kind 只表示前端展示种类；没有旧名称 alias、平行状态机或新的失败控制层。
+- **正常主线优先：** 修复已证实的引用读取、草稿稳定、窄屏换行与测试关闭问题；不扩展假设故障的恢复链。测试仍围绕协议、owner 行为和代表协作路径。
+- **当前文档与历史记录：** 当前 AGENTS/design/README 与实现同步；配置变更成组更新要求已记录，未操作个人数据；旧归档不批量重写。
+- **交付门禁：** 先聚焦、Fast，再 Full/ty；前端单测/build 及真实后端浏览器检查通过。P1–P5 与 A1–A10 已完成，满足归档条件。
 
 ## 8. 合理性、影响与准备状态
 
@@ -330,4 +392,4 @@ pnpm exec playwright test --config test/e2e/backend.config.ts
 
 本计划不包含 uv/conda 环境再迁移、主机更新脚本、运行数据调整、模型提示词翻译或无关的 Session/Memory 功能重构。已确认的个人使用、共享界面偏好和正常主线优先原则均保持一致。
 
-当前没有阻塞实施的待决策语义。以上选择足以直接进入实施，状态保持 **pending（准备实施）**；收到实施指令后按 P1–P5 推进，并以 A1–A10 逐项核对完成。
+实施后复核：方案已按 P1–P5 完成，并由 A1–A10 和 §7 的实际证据核对。没有遗留待决策项或必要验证缺口，状态为 **done**。已有项目采用新默认任务名时仍需同步更新配置引用，这属于 §4.3 已确认的部署影响，不自动修改个人数据。

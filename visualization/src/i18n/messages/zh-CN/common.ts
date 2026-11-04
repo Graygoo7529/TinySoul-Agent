@@ -1,5 +1,9 @@
 /** Fixed common interface copy. */
 export const commonMessages = {
+  "inspector.expand": "加宽显示",
+  "inspector.collapse": "恢复宽度",
+  "inspector.copyLink": "复制链接",
+  "inspector.copied": "已复制",
   "common.retry": "重试",
   "common.refresh": "刷新",
   "common.cancel": "取消",

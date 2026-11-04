@@ -1,26 +1,8 @@
 import type { CatalogCollection, CatalogDocumentField, CatalogField, SettingsCatalog } from "../../features/settings/draft/catalog";
 import { matchField } from "../../features/settings/draft/catalog";
-import { collectionText, documentText, fieldText } from "./zh-CN";
+import { choiceText, collectionText, documentText, fieldText, type FieldText } from "./zh-CN";
 import { effectiveLocale } from "../locale";
 import type { Locale } from "../types";
-
-type FieldText = readonly [title: string, description: string];
-
-const choiceText: Record<string, Record<string, string>> = {
-  "llm.models.*.reasoning_effort": {
-    low: "低",
-    medium: "中",
-    high: "高",
-    xhigh: "超高",
-    max: "最大",
-  },
-  "llm.models.*.adapter_options.thinking": {
-    adaptive: "自适应",
-    enabled: "启用",
-    disabled: "关闭",
-    between_tools: "工具之间",
-  },
-};
 
 function catalogPair(identity: string, locale: Locale): FieldText | undefined {
   return locale === "zh-CN" ? fieldText[identity] : undefined;

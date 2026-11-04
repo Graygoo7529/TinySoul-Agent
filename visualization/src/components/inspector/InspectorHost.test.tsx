@@ -220,7 +220,7 @@ describe("focus management", () => {
     });
     const panel = mainPanel();
     const inside = buttonWithText(panel, "inside action");
-    const expand = panel.querySelector('[aria-label="Expand wide view"]') as HTMLElement;
+    const expand = panel.querySelector(`[aria-label="${t("inspector.expand")}"]`) as HTMLElement;
 
     inside.focus();
     pressKey(inside, "Tab");
@@ -243,19 +243,19 @@ describe("copy button", () => {
       onPop: noop,
       onClose: noop,
     });
-    const copyButton = mainPanel().querySelector('[aria-label="Copy link"]');
+    const copyButton = mainPanel().querySelector(`[aria-label="${t("inspector.copyLink")}"]`);
     expect(copyButton).not.toBeNull();
 
     await act(async () => {
       (copyButton as HTMLElement).click();
     });
     expect(writeText).toHaveBeenCalledWith("memory:entity/alice");
-    expect(mainPanel().querySelector('[aria-label="Copied"]')).not.toBeNull();
+    expect(mainPanel().querySelector(`[aria-label="${t("inspector.copied")}"]`)).not.toBeNull();
   });
 
   it("is hidden when the entry has no link to copy", () => {
     renderHost({ entries: [entry({ key: "a" })], onPop: noop, onClose: noop });
-    expect(mainPanel().querySelector('[aria-label="Copy link"]')).toBeNull();
+    expect(mainPanel().querySelector(`[aria-label="${t("inspector.copyLink")}"]`)).toBeNull();
   });
 });
 
@@ -307,11 +307,11 @@ describe("scroll memory and wide view", () => {
       body.dispatchEvent(new Event("scroll"));
     });
 
-    click(panel.querySelector('[aria-label="Expand wide view"]')!);
+    click(panel.querySelector(`[aria-label="${t("inspector.expand")}"]`)!);
     expect(panel.style.width).toBe("900px");
     expect(panelBody(panel).scrollTop).toBe(60);
 
-    click(panel.querySelector('[aria-label="Collapse wide view"]')!);
+    click(panel.querySelector(`[aria-label="${t("inspector.collapse")}"]`)!);
     expect(panel.style.width).toBe("400px");
     expect(panelBody(panel).scrollTop).toBe(60);
   });

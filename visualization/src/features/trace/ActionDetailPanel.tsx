@@ -1,4 +1,4 @@
-import { t, useI18n } from "../../i18n";
+import { protocolText, t, useI18n } from "../../i18n";
 /**
  * One action's detail (plan §9.1).
  *
@@ -144,6 +144,14 @@ function ActionDetail({
             </dd>
           </>
         )}
+        {trace.result !== null && trace.result.stage !== "" && (
+          <>
+            <dt className="text-fg-faint">{t("trace.processingStep")}</dt>
+            <dd className="text-fg-muted">
+              {protocolText(`action.stage.${trace.result.stage}`) ?? trace.result.stage}
+            </dd>
+          </>
+        )}
         {trace.call !== null && (
           <>
             <dt className="text-fg-faint">{t("trace.invocation")}</dt>
@@ -173,9 +181,6 @@ function ActionDetail({
           <div className="flex items-center gap-1.5 font-medium text-danger">
             <AlertTriangle size={12} className="shrink-0" />
             {typeof failure.reason === "string" ? failure.reason : t("common.failed")}
-            {typeof failure.stage === "string" && (
-              <span className="font-normal text-danger/80">· {failure.stage}</span>
-            )}
           </div>
           {typeof failure.feedback === "string" && failure.feedback !== "" && (
             <div className="break-words whitespace-pre-wrap text-fg-muted">

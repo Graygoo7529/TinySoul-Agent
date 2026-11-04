@@ -26,6 +26,8 @@ TurnCompletion 保存执行状态、typed Trace、输入和段快照。必要 fi
 2. Phase2 只暴露所选域的 Action Tools，挂载相应领域 Skill，生成并归一化 ActionCall。
 3. Phase3 执行 ActionBatch，把 typed 执行事实交给 Trace，并解释完成、问题和等待意图。
 
+Cycle 的执行阶段统一称 Phase。Action/Control 的局部 `stage` 表示处理环节，资源释放的 stage 表示生命周期顺序，均不另建一套 Cycle 阶段。
+
 Phase1/Phase2 的可修正协议失败是 PhaseFailure，当前 Cycle 在失败 Phase 结束，有限反馈交给下一完整 Cycle；不在 Phase 内重复同一协议调用，不以空 ActionBatch 进入 Phase3。供应商/模型链重试归 LLM，模块契约失败经 owner bridge 进入 Runtime。
 
 Phase task profile 由 loop.cycle 配置，三 profile 共用模型链选择；TaskPrompt 只叠加当前引导和 Skill。背景、Trace、Working 均由 Context 按段描述组合，Phase 不解释领域内容。

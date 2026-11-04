@@ -1,4 +1,10 @@
 export const protocolMessages = {
+  "protocol.action.stage.normalize": "调用归一化",
+  "protocol.action.stage.prepare": "准备调用",
+  "protocol.action.stage.hook": "执行钩子",
+  "protocol.action.stage.schedule": "安排执行",
+  "protocol.action.stage.execute": "执行行动",
+  "protocol.action.stage.timeout": "执行超时",
   "protocol.presentation.invalid_config": "界面配置无效",
   "protocol.presentation.not_found": "界面配置不存在",
   "protocol.presentation.io_failed": "界面文件访问失败",

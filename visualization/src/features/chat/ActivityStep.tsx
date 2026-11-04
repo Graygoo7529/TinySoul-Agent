@@ -4,10 +4,10 @@ import { t, useI18n, resolveText, effectiveLocale, type UiText } from "../../i18
  * in the chat view and the activity timeline in the trace view.
  *
  * Every kind renders its structured semantics instead of a bare text line:
- * reasoning and stage-1 intent expand inline; domain selections and mounted
+ * reasoning and Phase1 intent expand inline; domain selections and mounted
  * skills render as separate chip rows, and action calls come as paired
- * entries — the plan entry shows the stage-2 call headline, the result
- * entry leads with the stage-3 outcome headline.
+ * entries — the plan entry shows the Phase2 call headline, the result
+ * entry leads with the Phase3 outcome headline.
  */
 
 import { useState, type ReactNode } from "react";

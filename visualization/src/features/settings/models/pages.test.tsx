@@ -18,6 +18,7 @@ import { createV2Clients } from "../../../api/v2/clients";
 import { parseEndpointAddress } from "../../../api/v2/connection";
 import { V2Transport } from "../../../api/v2/transport";
 import { useConnectionStore } from "../../../store/connectionStore";
+import { initialUiPrefsState, useUiPrefsStore } from "../../../store/uiPrefsStore";
 import { draftOperations, useConfigDraftStore } from "../draft/store";
 import { pageForDraft } from "../pages";
 import { useSettingsUiStore } from "../uiStore";
@@ -25,6 +26,7 @@ import { LlmModelsPage } from "./LlmModelsPage";
 import { LlmProvidersPage } from "./LlmProvidersPage";
 import { ModelSelectionList } from "./ModelPicker";
 import { LlmTaskChainsPage } from "./LlmTaskChainsPage";
+import { CredentialsPage } from "./CredentialsPage";
 import { projectCollection } from "./collectionDrafts";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -213,6 +215,7 @@ function buttonByText(text: string): HTMLButtonElement {
 }
 
 beforeEach(() => {
+  useUiPrefsStore.setState(initialUiPrefsState());
   store().reset();
   store().applySnapshots({
     saved: makeSaved(),
@@ -231,6 +234,32 @@ afterEach(async () => {
   });
   container.remove();
   useConnectionStore.setState({ clients: null });
+  useUiPrefsStore.setState(initialUiPrefsState());
+});
+
+it("keeps a credential editor open when its catalog title or interface language changes", async () => {
+  const catalog = store().catalog!;
+  const group = { id: "g", surface: "models", title: "Original title", description: "" };
+  useConfigDraftStore.setState({ catalog: { ...catalog, fieldGroups: [group] } });
+  await act(async () => root.render(<CredentialsPage />));
+  await act(async () => buttonByText(t("settings.setValue")).click());
+  const input = container.querySelector<HTMLInputElement>('input[type="password"]')!;
+  expect(input).not.toBeNull();
+  await act(async () => setInputValue(input, "draft-key"));
+  await act(async () => {
+    useConfigDraftStore.setState({ catalog: { ...catalog, fieldGroups: [{ ...group, title: "Renamed title" }] } });
+    useUiPrefsStore.setState({ pending: { locale: "en-US" } });
+  });
+  expect(container.querySelector('input[type="password"]')).toBe(input);
+  expect(input.value).toBe("draft-key");
+  expect(container.textContent).toContain("Renamed title");
+  expect(container.textContent).toContain(t("settings.credentialsTitle"));
+  expect(draftOperations(store())).toEqual([]);
+  const stage = container.querySelector<HTMLButtonElement>(`button[aria-label="${t("settings.stageCredential")}"]`)!;
+  await act(async () => stage.click());
+  expect(draftOperations(store())).toEqual([
+    { op: "set", source_id: "dotenv", path: "KIMI_API_KEY", value: "draft-key" },
+  ]);
 });
 
 async function renderSelected(id: string): Promise<void> {

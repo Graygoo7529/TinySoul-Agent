@@ -302,8 +302,8 @@ def _configure_fake_provider(root: Path, *, port: int) -> None:
     (root / "configs" / "llm" / "tasks.toml").write_text(
         "\n".join(
             (
-                _task_config("frame-stage1"),
-                _task_config("frame-stage2"),
+                _task_config("frame-phase1"),
+                _task_config("frame-phase2"),
                 _task_config("llm-action"),
             )
         ),

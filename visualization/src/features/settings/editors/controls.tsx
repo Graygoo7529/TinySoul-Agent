@@ -424,7 +424,7 @@ export function SliderField({
   };
 
   return (
-    <span className="flex items-center gap-2">
+    <span className="flex max-w-full flex-wrap items-center gap-2">
       <input
         type="range"
         aria-label={t("settings.fieldSlider", { path: api.path })}

@@ -52,8 +52,8 @@ const OTHER_DETAIL: Preset = {
     values: {
       "llm.tasks": { "deep-task": { models: ["gpt-sol", "deepseek-flash"], temperature: 0.2 } },
       "action.models.bindings": [],
-      "loop.cycle.phase1_task_profile": "frame-stage1",
-      "loop.cycle.phase2_task_profile": "deep-stage2",
+      "loop.cycle.phase1_task_profile": "frame-phase1",
+      "loop.cycle.phase2_task_profile": "custom-chain",
       "context.max_window_tokens": 100000,
     },
     retrieval: { "home.search": { "query.channels": ["lexical"] } },

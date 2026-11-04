@@ -382,6 +382,7 @@ export function LiveStatus({ activity, mode = "live", status, epoch, turnId, day
           {(overflow > 0 || (live && rolledFull.current) || showAll) && (
             <div className="grow-in px-4 pb-2.5">
               <button
+                aria-label={showAll ? t("chat.fewerSteps") : t("chat.allSteps")}
                 onClick={() => {
                   holdFollow();
                   if (!showAll) {
