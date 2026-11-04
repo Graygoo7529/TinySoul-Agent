@@ -393,3 +393,22 @@ node node_modules/playwright/cli.js test --config test/e2e/backend.config.ts
 本计划不包含 uv/conda 环境再迁移、主机更新脚本、运行数据调整、模型提示词翻译或无关的 Session/Memory 功能重构。已确认的个人使用、共享界面偏好和正常主线优先原则均保持一致。
 
 实施后复核：方案已按 P1–P5 完成，并由 A1–A10 和 §7 的实际证据核对。没有遗留待决策项或必要验证缺口，状态为 **done**。已有项目采用新默认任务名时仍需同步更新配置引用，这属于 §4.3 已确认的部署影响，不自动修改个人数据。
+
+## 9. 提交后复核（2026-11-04）
+
+复核提交：`ca048294`（`refactor: 统一 Cycle Phase 术语并完成双语界面收尾`）；复核开始时工作树干净。本轮重新读取 AGENTS.md，核对当前源码、正式模板、前端显示与草稿、相关测试和设计文档，P1–P5、A1–A10 的完成结论成立，计划保持 done。本轮仅补充此记录，未修改源码。
+
+维护者补充确认：当前尚无已初始化并投入使用的项目，整体仍在内部开发与优化阶段。因此 §4.3、§8 的旧项目配置说明是条件性影响说明，当前没有迁移工作需要执行，也无需兼容别名或迁移脚本。实际验收以 development/standard 新项目初始化、任务引用解析和运行主线为准；这些路径已由 Full 中的初始化、CLI、wheel/装配测试及真实后端浏览器流程覆盖。
+
+本轮重新执行的结果：
+
+| 检查 | 结果 |
+| --- | --- |
+| `uv run --locked --extra dev python scripts/test.py --suite full` | 1516 passed、3 deselected，211.29s；报告 `.local-test/reports/d53d4835f5224594aca5a82e61fc60fb/` |
+| `uv run --locked --extra dev ty check` | All checks passed |
+| `pnpm.cmd test` | 101 文件、891 测试通过，16.49s |
+| `pnpm.cmd build` | TypeScript 与 Vite 构建通过；保留现有大 chunk 提示 |
+| `node node_modules/playwright/cli.js test --config test/e2e/backend.config.ts` | 3 passed，41.7s；日志 `.local-test/e2e-backend-Szfk2n/backend.log`，正常退出 |
+| 当前术语及职责检查 | 代码与当前设计说明无 Cycle Stage1/2/3、旧内置任务名、settingsText/rawText 或 failure.stage 残留；合法局部 stage 保留 |
+
+共享语言仍由 PresentationService 保存，前端固定文案、catalog 身份投影和动态原文职责清楚；凭据分组不依赖标题，Action 详情保留真实协议值。测试覆盖任务绑定、显示切换、草稿保持、真实结果与前后端协作，没有新增可编辑 assets/prompts 内容快照。浏览器范围仍以 §7.3 为限，本轮不新增 Tauri 桌面或真实模型验收结论。
