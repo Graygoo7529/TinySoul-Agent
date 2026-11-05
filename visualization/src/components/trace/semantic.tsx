@@ -7,36 +7,24 @@ import { t, useI18n, message, resolveText, effectiveLocale, type UiText } from "
 
 import {
   BookOpen,
-  BookOpenText,
   Brain,
   Check,
   CheckCircle2,
   AlertTriangle,
   Compass,
   Copy,
-  Eye,
-  FileEdit,
-  FilePlus2,
   FileText,
   Flag,
   Home,
   ListChecks,
   Loader2,
   MemoryStick,
-  MessageSquareText,
-  PlayCircle,
   RotateCcw,
-  ScanSearch,
-  Search,
-  Terminal,
-  Globe,
-  Trash2,
   WandSparkles,
-  Wrench,
 } from "lucide-react";
 import { Badge, type BadgeTone } from "../ui/Badge";
 import { useState } from "react";
-import type { ActivityStepType } from "../../features/chat/presentation";
+import type { ActivityStepType } from "../../features/chat/trail/presentation";
 
 /* ------------------------------ domains ------------------------------ */
 
@@ -55,39 +43,13 @@ const domainTones: Record<string, BadgeTone> = {
   context: "gray",
 };
 
-export function domainTone(domain: string): BadgeTone {
+function domainTone(domain: string): BadgeTone {
   return domainTones[domain] ?? "gray";
 }
 
 /** True when the value names a registered action domain. */
 export function isKnownDomain(value: string): boolean {
   return value in domainTones;
-}
-
-/**
- * Static soft-bg + text classes in the domain's hue (icon boxes, chips).
- * Kept as literal class names so Tailwind can see them.
- */
-export function domainHueClasses(domain: string): string {
-  switch (domain) {
-    case "workspace":
-      return "bg-domain-workspace-soft text-domain-workspace";
-    case "execution":
-    case "shell":
-    case "script":
-    case "supervised_process":
-      return "bg-domain-execution-soft text-domain-execution";
-    case "web":
-      return "bg-domain-web-soft text-domain-web";
-    case "home":
-      return "bg-domain-home-soft text-domain-home";
-    case "memory":
-      return "bg-domain-memory-soft text-domain-memory";
-    case "core":
-      return "bg-accent-soft text-accent";
-    default:
-      return "bg-hover text-fg-muted";
-  }
 }
 
 export function DomainChip({ domain }: { domain: string }) {
@@ -222,7 +184,7 @@ export function IdChip({ id, className = "" }: { id: string; className?: string 
 }
 
 /* ------------------------------ links -------------------------------- */
-export function linkNamespace(resourceRef: string): string {
+function linkNamespace(resourceRef: string): string {
   const colon = resourceRef.indexOf(":");
   return colon > 0 ? resourceRef.slice(0, colon) : "";
 }
@@ -252,8 +214,8 @@ export function LinkChip({ resourceRef, className = "" }: { resourceRef: string;
 
 /**
  * The single source of turn status wording (Chinese, terse). Used by the
- * settled LiveStatus headline, the conversation footer badge, and
- * TurnStatusBadge — unknown values pass through unchanged.
+ * settled LiveStatus headline and the conversation footer badge —
+ * unknown values pass through unchanged.
  */
 export function turnStatusText(status: string): string {
   switch (status) {
@@ -279,47 +241,6 @@ export function turnStatusText(status: string): string {
       return t("trace.finished");
     default:
       return status;
-  }
-}
-
-export function TurnStatusBadge({ status }: { status: string }) {
-  const { t } = useI18n();
-  switch (status) {
-    case "answered":
-    case "completed":
-      return <Badge tone="green">{turnStatusText(status)}</Badge>;
-    case "failed":
-      return <Badge tone="red">{turnStatusText(status)}</Badge>;
-    case "stopped":
-      return <Badge tone="yellow">{turnStatusText(status)}</Badge>;
-    case "exhausted":
-      return <Badge tone="yellow">{turnStatusText(status)}</Badge>;
-    case "running":
-      return (
-        <Badge tone="accent">
-          <span className="animate-pulse-dot">●</span> {t("common.running")}</Badge>
-      );
-    default:
-      return <Badge tone="gray">{turnStatusText(status)}</Badge>;
-  }
-}
-
-export function ActionStatusBadge({ status }: { status: string }) {
-  const { t } = useI18n();
-  switch (status) {
-    case "success":
-      return <Badge tone="green">{t("common.success")}</Badge>;
-    case "failed":
-      return <Badge tone="red">{t("common.failed")}</Badge>;
-    case "timeout":
-      return <Badge tone="yellow">{t("common.timeout")}</Badge>;
-    case "running":
-      return (
-        <Badge tone="accent">
-          <span className="animate-pulse-dot">●</span> {t("common.running")}</Badge>
-      );
-    default:
-      return <Badge tone="gray">{status}</Badge>;
   }
 }
 
@@ -351,60 +272,7 @@ export function actionSummary(
     return query.length > 40 ? `${query.slice(0, 40)}…` : query;
   }
   return null;
-}/**
- * Icon per action presentation family (see features/trace/registry.ts).
- * The domain color comes from DomainChip; the icon carries the action kind.
- */
-export function actionIcon(family: string) {
-  switch (family) {
-    case "answer":
-      return MessageSquareText;
-    case "reason":
-      return Brain;
-    case "generate":
-      return FilePlus2;
-    case "patch":
-      return FileEdit;
-    case "command":
-      return Terminal;
-    case "process":
-      return PlayCircle;
-    case "search":
-      return Search;
-    case "web":
-      return Globe;
-    case "inspect":
-      return Eye;
-    case "analysis":
-      return ScanSearch;
-    case "reflection-write":
-      return MemoryStick;
-    case "execution":
-      return Terminal;
-    case "job-control":
-      return PlayCircle;
-    case "acp":
-      return PlayCircle;
-    case "mcp":
-      return Wrench;
-    case "session-organize":
-      return BookOpenText;
-    case "core-dialog":
-      return MessageSquareText;
-    case "write":
-      return FileEdit;
-    case "read":
-      return BookOpen;
-    case "scan":
-      return ScanSearch;
-    case "delete":
-      return Trash2;
-    default:
-      return Wrench;
-  }
-}
-
-/* -------------------------- activity visuals ------------------------- */
+}/* -------------------------- activity visuals ------------------------- */
 
 export const activityIcons: Record<ActivityStepType, React.ComponentType<{ size?: number; className?: string }>> = {
   background: BookOpen,

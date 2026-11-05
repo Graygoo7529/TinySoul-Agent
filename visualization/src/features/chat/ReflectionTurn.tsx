@@ -8,12 +8,14 @@ import { useTurnStore } from "../../store/turnStore";
 import { Button } from "../../components/ui/Button";
 import { Markdown } from "../../components/markdown/Markdown";
 import { openTurnProcess } from "../trace/entries";
-import { AgentRow, BudgetCard, InteractionRow, UserBubble } from "./ConversationRows";
+import { AgentRow, BudgetCard, InteractionRow, UserBubble } from "./trail/ConversationRows";
 import { useTurnPresentation } from "./useTurnPresentation";
-import { useActivityDetails } from "./useActivityDetails";
-import { LiveStatus } from "./LiveStatus";
-import { cancelReflection } from "./turnController";
-import type { ActivityPresentation } from "./presentation";
+import { useActivityDetails } from "./live/useActivityDetails";
+import { LiveStatus } from "./live/LiveStatus";
+import {
+  cancelReflection,
+} from "./turnInteractions";
+import type { ActivityPresentation } from "./trail/presentation";
 
 const EMPTY_ITEMS: RuntimeTurnProjection["items"] = [];
 const RESULT_LABELS: Record<string, UiText> = {

@@ -6,7 +6,7 @@ import { useI18n } from "../../../i18n";
  */
 
 import { Badge } from "../../../components/ui/Badge";
-import { FieldSection, SettingsPageBody } from "./controls";
+import { FieldSection, SettingsPageBody } from "./draftCompositeControls";
 
 export function WorkspacePage() {
   const { t } = useI18n();

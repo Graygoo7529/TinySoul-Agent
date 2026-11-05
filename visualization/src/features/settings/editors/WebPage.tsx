@@ -6,7 +6,7 @@ import { NetworkPolicyField } from "./NetworkPolicyEditor";
  * pipelines live under Behavior → Search Policies.
  */
 
-import { FieldSection, SettingsPageBody } from "./controls";
+import { FieldSection, SettingsPageBody } from "./draftCompositeControls";
 
 /** kimi-k2.5/k2.6 are the only models the backend accepts (catalog has no choices). */
 const KIMI_MODEL_CHOICES = [

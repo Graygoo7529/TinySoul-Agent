@@ -12,11 +12,11 @@ import { LocalizedText, message } from "../../i18n";
 
 import { useInspectorStore } from "../../store/inspectorStore";
 import { openReference } from "../resources/router";
-import type { ModelCallTarget, TraceNavigation } from "./registry";
-import { ActionDetailPanel } from "./ActionDetailPanel";
-import { JobPanel } from "./JobPanel";
-import { ModelCallPanel } from "./ModelCallPanel";
-import { ProcessPanel } from "./ProcessPanel";
+import type { ModelCallTarget, TraceNavigation } from "./model/registry";
+import { ActionDetailPanel } from "./panels/ActionDetailPanel";
+import { JobPanel } from "./panels/JobPanel";
+import { ModelCallPanel } from "./panels/ModelCallPanel";
+import { ProcessPanel } from "./panels/ProcessPanel";
 
 /** The navigation handed to every trace panel and result view. */
 export function makeTraceNavigation(
@@ -57,7 +57,7 @@ export function openTurnProcess(
 }
 
 /** Push the same process view one level deeper (e.g. from an action detail). */
-export function pushTurnProcess(
+function pushTurnProcess(
   epoch: number,
   turnId: string,
   day: string | null,
@@ -99,7 +99,7 @@ export function pushActionDetail(
 }
 
 /** Push the model-call Inspector for one LLM/decision model/Embedding/Search record. */
-export function pushModelCall(
+function pushModelCall(
   epoch: number,
   turnId: string,
   day: string | null,

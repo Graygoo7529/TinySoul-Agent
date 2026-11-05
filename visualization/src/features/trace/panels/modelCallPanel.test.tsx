@@ -1,0 +1,359 @@
+// @vitest-environment jsdom
+import { t } from "../../../i18n";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import type { JsonObject, ObservationEvent } from "../../../api/v2/types";
+import {
+  FakeEndpoint,
+  jsonResponse,
+  makeStatus,
+  queryOf,
+  resetAppStores,
+  wireConnectedStores,
+} from "../../../app/testing";
+import type { ModelCallTarget } from "../model/registry";
+import { ModelCallPanel } from "./ModelCallPanel";
+
+(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+
+let container: HTMLDivElement;
+let root: Root;
+let endpoint: FakeEndpoint;
+let epoch: number;
+
+const TURN_ID = "contract-turn";
+const HEAD = 900;
+
+function event(name: string, sequence: number, payload: JsonObject): ObservationEvent {
+  return {
+    sequence,
+    name,
+    level: name.includes("model.") ? "model" : "verbose",
+    source: "test",
+    scope: [],
+    message: name,
+    payload,
+    created_at: sequence,
+  };
+}
+
+function serveEvents(events: ObservationEvent[], gap = false) {
+  endpoint.get("/v2/events", () =>
+    jsonResponse({
+      instance_id: "instance_1",
+      events,
+      next_sequence: HEAD,
+      gap,
+    }),
+  );
+}
+
+beforeEach(() => {
+  resetAppStores();
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  endpoint = new FakeEndpoint();
+  epoch = wireConnectedStores(
+    endpoint,
+    makeStatus({ activeTurnId: TURN_ID, latestEventSequence: HEAD }),
+  ).epoch;
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+  resetAppStores();
+});
+
+async function flush(rounds = 10) {
+  for (let index = 0; index < rounds; index += 1) {
+    await act(async () => {});
+  }
+}
+
+async function renderPanel(target: ModelCallTarget) {
+  act(() => {
+    root.render(
+      <ModelCallPanel epoch={epoch} turnId={TURN_ID} day="2026-09-29" target={target} />,
+    );
+  });
+  await flush();
+}
+
+function lastEventRequest() {
+  const calls = endpoint.calls("/v2/events");
+  const request = calls[calls.length - 1];
+  if (request === undefined) throw new Error("no /v2/events request recorded");
+  return request;
+}
+
+describe("ModelCallPanel directed reads (plan §9.3)", () => {
+  it("reads an LLM task by task_id in model mode with a pinned through", async () => {
+    serveEvents([
+      event("llm.task.started", 10, {
+        task_id: "task_1",
+        consumer: "loop.phase2",
+        target: "default",
+        profile: "action",
+      }),
+      event("llm.task.completed", 40, { task_id: "task_1", status: "completed" }),
+    ]);
+    await renderPanel({ kind: "llm", taskId: "task_1" });
+
+    const request = lastEventRequest();
+    expect(queryOf(request, "task_id")).toBe("task_1");
+    expect(queryOf(request, "mode")).toBe("model");
+    expect(queryOf(request, "through")).toBe(String(HEAD));
+    expect(container.textContent).toContain("action");
+    expect(container.textContent).toContain("loop.phase2");
+    expect(container.textContent).toContain(t("trace.completed"));
+    // Head metrics: elapsed derives from the retained events' timestamps.
+    expect(container.textContent).toContain(t("trace.duration"));
+    expect(container.textContent).toContain("30s");
+  });
+
+  it("reads a dedicated model call by call_id", async () => {
+    serveEvents([
+      event("model.call.started", 10, {
+        call_id: "mc_1",
+        search_id: "s_1",
+        consumer: "memory.search.embedding",
+        implementation: "embedding",
+        provider: "openai",
+        model: "text-embedding-3",
+        attempt: 1,
+      }),
+      event("model.call.completed", 20, {
+        call_id: "mc_1",
+        search_id: "s_1",
+        elapsed_seconds: 0.3,
+        input_count: 7,
+        dimensions: 1536,
+        usage: { input_tokens: 91 },
+      }),
+    ]);
+    await renderPanel({ kind: "call", callId: "mc_1", label: "Embedding" });
+
+    expect(queryOf(lastEventRequest(), "call_id")).toBe("mc_1");
+    expect(container.textContent).toContain("memory.search.embedding");
+    expect(container.textContent).toContain(t("trace.dimensions"));
+    expect(container.textContent).toContain(t("trace.inputs"));
+    expect(container.textContent).toContain("completed");
+  });
+
+  it("reads a search by search_id + step_index and links the invoked tasks", async () => {
+    serveEvents([
+      event("retrieval.step.completed", 10, {
+        search_id: "s_1",
+        action: "memory.search",
+        step_index: 2,
+        op: "rerank",
+        input: 6,
+        evaluated: 6,
+        output: 2,
+      }),
+      event("retrieval.model.invoked", 11, {
+        search_id: "s_1",
+        step_index: 2,
+        op: "rerank",
+        task_id: "task_9",
+        consumer: "memory.search.rerank",
+      }),
+    ]);
+    await renderPanel({ kind: "search", searchId: "s_1", stepIndex: 2 });
+
+    const request = lastEventRequest();
+    expect(queryOf(request, "search_id")).toBe("s_1");
+    expect(queryOf(request, "step_index")).toBe("2");
+    expect(container.textContent).toContain("rerank");
+    expect(container.textContent).toContain(t("trace.evaluated"));
+    expect(container.textContent).toContain("task_9");
+  });
+
+  it("renders the provider-neutral request with messages in order", async () => {
+    serveEvents([
+      event("llm.task.started", 10, {
+        task_id: "task_1",
+        consumer: "loop.phase2",
+        profile: "action",
+      }),
+      event("llm.model.request", 20, {
+        task_id: "task_1",
+        profile: "action",
+        model_id: "model_x",
+        provider_id: "prov",
+        provider_model: "pm-1",
+        adapter: "openai",
+        attempt: 1,
+        messages: [
+          { role: "system", label: "identity", parts: [{ type: "text", text: "You are TinySoul." }] },
+          { role: "user", label: null, parts: [{ type: "text", text: "read the file" }] },
+        ],
+        provenance: [
+          { segment_id: "identity", owner: "core", slot: "background", shape: "state", message_indices: [0], refs: [] },
+          { segment_id: "inputs", owner: "core", slot: "trace", shape: "state", message_indices: [1], refs: [] },
+        ],
+        resolved_references: {},
+        tools: [{ name: "core.answer", description: "", parameters: {}, kind: "control", strict: false }],
+        tool_selection: { allowed_names: ["core.answer"], forced_name: null },
+      }),
+      event("llm.model.response", 30, {
+        task_id: "task_1",
+        profile: "action",
+        model_id: "model_x",
+        provider_id: "prov",
+        provider_model: "pm-1",
+        adapter: "openai",
+        attempt: 1,
+        stop_reason: "stop",
+        answer_text: "Done.",
+        tool_calls: [],
+        usage: { input_tokens: 100, output_tokens: 5 },
+        metadata: {},
+        reasoning: { summary: "short plan", native_part_digests: ["a".repeat(64)] },
+      }),
+    ]);
+    await renderPanel({ kind: "llm", taskId: "task_1" });
+
+    // The attempt renders Context / Tools / Response folds, all closed except
+    // the response groups: no explanation line, no message text up front.
+    expect(container.textContent).not.toContain("provider-neutral request");
+    expect(container.textContent).toContain(t("trace.context"));
+    expect(container.textContent).not.toContain("You are TinySoul.");
+    // Expanding Context reveals the slot sections; expanding a section reveals
+    // its messages (header + first-line preview).
+    const foldButton = (label: string) => {
+      const target = Array.from(container.querySelectorAll("button")).find(
+        (button) =>
+          button.hasAttribute("aria-expanded") && button.textContent?.includes(label),
+      );
+      if (target === undefined) throw new Error(`fold "${label}" not found`);
+      act(() => {
+        target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    };
+    foldButton(t("trace.context"));
+    foldButton(t("trace.background"));
+    foldButton(t("trace.trace"));
+    expect(container.textContent).toContain("You are TinySoul.");
+    expect(container.textContent).toContain("read the file");
+    // Message order is the real stack order: system identity before user.
+    const identity = container.textContent?.indexOf("You are TinySoul.") ?? -1;
+    const user = container.textContent?.indexOf("read the file") ?? -1;
+    expect(identity).toBeGreaterThanOrEqual(0);
+    expect(user).toBeGreaterThan(identity);
+    // The tool scope sits behind the Tools fold; a chip expands its definition.
+    foldButton(t("trace.tools"));
+    expect(container.textContent).toContain("core.answer");
+    // Response and its sub-groups default collapsed; expand to read the answer.
+    expect(container.textContent).not.toContain("Done.");
+    foldButton(t("trace.response"));
+    foldButton(t("trace.modelAnswer"));
+    expect(container.textContent).toContain("Done.");
+    // Reasoning/calls groups default collapsed.
+    expect(container.textContent).not.toContain("short plan");
+    foldButton(t("trace.reasoning"));
+    expect(container.textContent).toContain("short plan");
+    // Only the recorded reasoning summary is shown — never raw digests.
+    expect(container.textContent).not.toContain("a".repeat(64));
+    // Head metrics: model from the attempt, elapsed and token totals surface.
+    expect(container.textContent).toContain("prov / pm-1");
+    expect(container.textContent).toContain("100 → 5");
+    expect(container.textContent).toContain("105");
+  });
+
+  it("says when the request was not recorded instead of inventing one", async () => {
+    serveEvents([
+      event("llm.task.started", 10, { task_id: "task_1", consumer: "loop.phase1", profile: "control" }),
+      // Model lifecycle events carry no attempt number: they are task-level
+      // head/tail facts, not attempts.
+      event("llm.model.started", 20, { task_id: "task_1", profile: "control", model_id: "model_x" }),
+      event("llm.provider.started", 25, {
+        task_id: "task_1",
+        profile: "control",
+        model_id: "model_x",
+        provider_id: "prov",
+        provider_model: "pm-1",
+        adapter: "openai",
+        attempt: 1,
+      }),
+      event("llm.provider.completed", 28, {
+        task_id: "task_1",
+        profile: "control",
+        model_id: "model_x",
+        provider_id: "prov",
+        provider_model: "pm-1",
+        adapter: "openai",
+        attempt: 1,
+      }),
+      event("llm.model.completed", 30, { task_id: "task_1", profile: "control", model_id: "model_x", status: "completed" }),
+    ]);
+    await renderPanel({ kind: "llm", taskId: "task_1" });
+    expect(container.textContent).toContain(t("trace.requestMissing"));
+    // No attempt-less event ever lands in a misleading "Attempt ?" group.
+    expect(container.textContent).not.toContain("Attempt ?");
+    // Model-level lifecycle folds into the head model row — no separate block.
+    expect(container.textContent).not.toContain("Model lifecycle");
+    expect(container.textContent).toContain(`prov / pm-1 ${t("protocol.runtime.completed")}`);
+    // A single attempt renders inline without an attempt fold header.
+    expect(container.textContent).not.toContain("第 1 次调用");
+  });
+
+  it("shows provider failures by provider_error_kind, model failures at task level", async () => {
+    serveEvents([
+      event("llm.task.started", 10, { task_id: "task_1", consumer: "loop.phase1", profile: "control" }),
+      event("llm.model.started", 20, { task_id: "task_1", profile: "control", model_id: "model_x" }),
+      event("llm.provider.started", 25, {
+        task_id: "task_1",
+        profile: "control",
+        model_id: "model_x",
+        provider_id: "prov",
+        provider_model: "pm-1",
+        adapter: "openai",
+        attempt: 1,
+      }),
+      event("llm.provider.failed", 28, {
+        task_id: "task_1",
+        profile: "control",
+        model_id: "model_x",
+        provider_id: "prov",
+        provider_model: "pm-1",
+        adapter: "openai",
+        attempt: 1,
+        provider_error_kind: "transient",
+        provider_failure_scope: "provider",
+      }),
+      event("llm.model.failed", 30, {
+        task_id: "task_1",
+        profile: "control",
+        model_id: "model_x",
+        error_type: "ProviderError",
+        provider_error_kind: "transient",
+        provider_failure_scope: "provider",
+      }),
+      event("llm.task.failed", 40, { task_id: "task_1", profile: "control", error_type: "ProviderChainExhaustedError" }),
+    ]);
+    await renderPanel({ kind: "llm", taskId: "task_1" });
+    const text = container.textContent ?? "";
+    // The attempt failure reads provider_error_kind — not a null error_type.
+    expect(text).toContain(t("trace.attemptFailed", { reason: "transient" }));
+    // The model-level failure stays at task level, outside the attempt group.
+    expect(text).toContain("ProviderError · transient");
+    expect(text).not.toContain("Attempt ?");
+  });
+
+  it("reports a missing record without stitching from other calls", async () => {
+    serveEvents([]);
+    await renderPanel({ kind: "call", callId: "mc_gone" });
+    expect(container.textContent).toContain(t("trace.recordNotFound"));
+  });
+
+  it("marks a truncated retained window", async () => {
+    serveEvents([event("llm.task.completed", 800, { task_id: "task_1", status: "completed" })], true);
+    await renderPanel({ kind: "llm", taskId: "task_1" });
+    expect(container.textContent).toContain(t("trace.retainedRange"));
+  });
+});

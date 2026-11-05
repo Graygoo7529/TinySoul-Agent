@@ -16,7 +16,7 @@ import { useAppStore } from "../../store/appStore";
 import { useConnectionStore } from "../../store/connectionStore";
 import { useInspectorStore } from "../../store/inspectorStore";
 import { useTurnStore } from "../../store/turnStore";
-import { useComposerDraft } from "../chat/composerDraft";
+import { useComposerDraft } from "../chat/composer/composerDraft";
 import { resetTurnController } from "../chat/turnController";
 import { useWorkspacePage } from "../workspace/store";
 import {

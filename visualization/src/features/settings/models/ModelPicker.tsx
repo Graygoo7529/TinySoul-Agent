@@ -4,7 +4,7 @@ import { Check, ChevronDown, Plus } from "lucide-react";
 import { Badge } from "../../../components/ui/Badge";
 import { Modal } from "../../../components/ui/Modal";
 import { stringField, type ProjectedObject } from "./collectionDrafts";
-import { inputClass } from "./controls";
+import { inputClass } from "./modelControls";
 import { useConfigDraftStore } from "../draft/store";
 import { adapterRule } from "../draft/catalog";
 

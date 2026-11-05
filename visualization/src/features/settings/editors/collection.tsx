@@ -26,11 +26,7 @@ import {
   subtreeDeleteRefs,
 } from "../draft/fields";
 import { useConfigDraftStore } from "../draft/store";
-import {
-  CredentialValueEditor,
-  KeyValueMapEditor,
-  SettingsPageBody,
-} from "./controls";
+import { CredentialValueEditor, KeyValueMapEditor, SettingsPageBody } from "./draftCompositeControls";
 
 /** Editing context for the selected collection object. */
 export interface ObjectEditContext {

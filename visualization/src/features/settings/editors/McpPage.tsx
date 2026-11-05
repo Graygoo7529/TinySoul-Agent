@@ -16,7 +16,7 @@ import { SectionCard } from "../../../components/ui/Card";
 import { Collapsible } from "../../../components/ui/Collapsible";
 import { useConnectionStore } from "../../../store/connectionStore";
 import { useAppStore } from "../../../store/appStore";
-import { FieldSection } from "./controls";
+import { FieldSection } from "./draftCompositeControls";
 import {
   CollectionObjectEditor,
   ObjBoolean,

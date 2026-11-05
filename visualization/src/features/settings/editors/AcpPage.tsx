@@ -14,7 +14,7 @@ import { Badge } from "../../../components/ui/Badge";
 import { SectionCard } from "../../../components/ui/Card";
 import { useAppStore } from "../../../store/appStore";
 import { useConnectionStore } from "../../../store/connectionStore";
-import { FieldSection } from "./controls";
+import { FieldSection } from "./draftCompositeControls";
 import {
   CollectionObjectEditor,
   ObjBoolean,

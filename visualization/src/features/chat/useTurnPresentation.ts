@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
 import type { Interaction, TurnSnapshot } from "../../api/v2/types";
-import { presentationStore } from "./presentationStore";
+import { presentationStore } from "./trail/presentationStore";
 import { snapshotToPresentation } from "./adapters";
-import type { TurnPresentation } from "./presentation";
+import type { TurnPresentation } from "./trail/presentation";
 
 /** One view lifecycle for User and Reflection; no singleton active-Turn assumption. */
 export function useTurnPresentation(turnId: string, snapshot: TurnSnapshot | null, items: Interaction[], enabled: boolean): TurnPresentation | null {

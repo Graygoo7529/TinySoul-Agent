@@ -11,12 +11,12 @@ import type { ReactElement } from "react";
 
 import { Tabs } from "../../components/ui/Tabs";
 import { useConnectionStore } from "../../store/connectionStore";
-import { AcpTab } from "./acpTab";
-import { EnvironmentTab } from "./environmentTab";
-import { ExecutionTab } from "./executionTab";
-import { JobsTab } from "./jobsTab";
-import { McpTab } from "./mcpTab";
-import { OverviewStrip, useActiveTurnSnapshot } from "./overview";
+import { AcpTab } from "./tabs/acpTab";
+import { EnvironmentTab } from "./tabs/environmentTab";
+import { ExecutionTab } from "./tabs/executionTab";
+import { JobsTab } from "./tabs/jobsTab";
+import { McpTab } from "./tabs/mcpTab";
+import { OverviewStrip, useActiveTurnSnapshot } from "./tabs/overview";
 import { useRuntimeUi, type RuntimeTab } from "./store";
 
 const TAB_ITEMS: { value: RuntimeTab; label: string }[] = [

@@ -31,19 +31,23 @@ import {
 } from "../../app/testing";
 import {
   cancelActiveTurn,
-  cancelQueuedTurn,
-  grantBudget,
   refreshDisplayedTurn,
   refreshSessionTurns,
-  replyToQuestion,
-  retryEcho,
-  retryTakeover,
   resetTurnController,
-  sendEchoAsNewTurn,
   sendUserMessage,
   openSessionTurn,
   syncFromStatus,
 } from "./turnController";
+import {
+  retryEcho,
+  retryTakeover,
+  sendEchoAsNewTurn,
+} from "./turnController";
+import {
+  cancelQueuedTurn,
+  grantBudget,
+  replyToQuestion,
+} from "./turnInteractions";
 
 /** Flush fire-and-forget promise chains without touching fake timers. */
 async function flushAsync(rounds = 100): Promise<void> {

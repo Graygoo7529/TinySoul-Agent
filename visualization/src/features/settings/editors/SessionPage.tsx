@@ -11,7 +11,8 @@ import { SectionCard } from "../../../components/ui/Card";
 import { activeValue, savedValue } from "../draft/model";
 import { useConfigDraftStore } from "../draft/store";
 import { useSettingsUiStore } from "../uiStore";
-import { FieldSection, SettingsPageBody, valuePreview } from "./controls";
+import { valuePreview } from "./draftControls";
+import { FieldSection, SettingsPageBody } from "./draftCompositeControls";
 
 export function SessionPage() {
   useI18n();

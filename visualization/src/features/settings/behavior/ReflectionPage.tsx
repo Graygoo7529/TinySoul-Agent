@@ -10,11 +10,8 @@ import { useI18n } from "../../../i18n";
 import { useEffect, useState } from "react";
 
 import { SectionCard } from "../../../components/ui/Card";
-import {
-  FieldSection,
-  SettingsPageBody,
-  type DraftFieldApi,
-} from "../editors/controls";
+import { type DraftFieldApi } from "../editors/draftControls";
+import { FieldSection, SettingsPageBody } from "../editors/draftCompositeControls";
 
 export function ReflectionPage() {
   const { t } = useI18n();

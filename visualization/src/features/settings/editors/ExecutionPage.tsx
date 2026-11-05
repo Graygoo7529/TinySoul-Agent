@@ -10,7 +10,7 @@ import { Badge } from "../../../components/ui/Badge";
 import { SectionCard } from "../../../components/ui/Card";
 import { activeValue } from "../draft/model";
 import { useConfigDraftStore } from "../draft/store";
-import { FieldSection, SettingsPageBody } from "./controls";
+import { FieldSection, SettingsPageBody } from "./draftCompositeControls";
 
 const INTERPRETERS = ["python", "bash", "powershell", "cmd"] as const;
 

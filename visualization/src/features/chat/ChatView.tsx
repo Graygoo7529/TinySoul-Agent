@@ -44,11 +44,13 @@ import {
   type OutgoingEcho,
 } from "../../store/turnStore";
 import {
+  syncFromStatus,
+} from "./turnController";
+import {
   dismissEcho,
   retryEcho,
   retryTakeover,
   sendEchoAsNewTurn,
-  syncFromStatus,
 } from "./turnController";
 import {
   openHistoryBrowser,
@@ -59,15 +61,15 @@ import { selectPendingQuestion } from "../../store/turnStore";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { conversationOrigin } from "../../components/markdown/origin";
-import { Composer } from "./Composer";
-import { AgentRow, BudgetCard, InteractionRow, TurnFooter, UserBubble } from "./ConversationRows";
-import { LiveStatus } from "./LiveStatus";
+import { Composer } from "./composer/Composer";
+import { AgentRow, BudgetCard, InteractionRow, TurnFooter, UserBubble } from "./trail/ConversationRows";
+import { LiveStatus } from "./live/LiveStatus";
 import { useTurnPresentation } from "./useTurnPresentation";
 import { ChatFollowContext, useConversationScroll } from "./useConversationScroll";
-import { useActivityDetails } from "./useActivityDetails";
-import type { TurnPresentation, WorkingState } from "./presentation";
+import { useActivityDetails } from "./live/useActivityDetails";
+import type { TurnPresentation, WorkingState } from "./trail/presentation";
 import { ReflectionTurn } from "./ReflectionTurn";
-import { WaitingResponseDock } from "./WaitingResponseDock";
+import { WaitingResponseDock } from "./question/WaitingResponseDock";
 
 // The chat feature's assembly: the question fence protocol joins the
 // CodeBlockRegistry (plan §21.1 explicit composition).

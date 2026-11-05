@@ -2,8 +2,8 @@ import { useI18n } from "../../../i18n";
 import type { JsonValue } from "../../../api/v2/types";
 import { SectionCard } from "../../../components/ui/Card";
 import { isPlainRecord } from "../draft/model";
-import { TextInput, selectClass } from "../models/controls";
-import { FieldRow, useDraftField } from "./controls";
+import { TextInput, selectClass } from "../models/modelControls";
+import { FieldRow, useDraftField } from "./draftControls";
 
 /** One policy object; changing mode removes addresses that no longer apply. */
 export function NetworkPolicyEditor({

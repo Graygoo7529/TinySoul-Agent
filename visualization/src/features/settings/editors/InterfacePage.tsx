@@ -16,7 +16,7 @@ import {
   type MonoFontChoice,
   type SansFontChoice,
 } from "../../../store/uiPrefsStore";
-import { SettingsPageBody } from "./controls";
+import { SettingsPageBody } from "./draftCompositeControls";
 import {
   refreshInterface,
   resetInterfaceDefaults,

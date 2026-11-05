@@ -34,7 +34,7 @@ import {
   OrderableRow,
   SelectInput,
   type SelectOption,
-} from "./controls";
+} from "./modelControls";
 import {
   CreateObjectModal,
   DeleteObjectModal,

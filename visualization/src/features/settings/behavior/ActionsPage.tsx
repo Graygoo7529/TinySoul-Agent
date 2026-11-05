@@ -32,7 +32,7 @@ import {
   SelectInput,
   inputClass,
   type SelectOption,
-} from "../models/controls";
+} from "../models/modelControls";
 import { ObjectEditorLayout } from "../models/ObjectEditor";
 import { useSettingsUiStore } from "../uiStore";
 import {

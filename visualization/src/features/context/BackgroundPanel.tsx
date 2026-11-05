@@ -8,7 +8,7 @@ import { useConnectionStore } from "../../store/connectionStore";
 import { Markdown } from "../../components/markdown/Markdown";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { contextClients, errorMessage } from "./panelShared";
-import { asObject, asString } from "../trace/facts";
+import { asObject, asString } from "../trace/model/facts";
 import type { MarkdownOrigin } from "../../components/markdown/codeBlockRegistry";
 
 /** Read installed content or its immutable completion snapshot, never Home.read_top. */

@@ -10,7 +10,8 @@ import { SectionCard } from "../../../components/ui/Card";
 import { activeValue, savedValue } from "../draft/model";
 import { useConfigDraftStore } from "../draft/store";
 import { useSettingsUiStore } from "../uiStore";
-import { FieldSection, SettingsPageBody, EmbeddingUseControl, valuePreview } from "./controls";
+import { valuePreview } from "./draftControls";
+import { FieldSection, SettingsPageBody, EmbeddingUseControl } from "./draftCompositeControls";
 
 export function HomePage() {
   const { t } = useI18n();

@@ -15,7 +15,7 @@ import { Badge } from "../../../components/ui/Badge";
 import { Button } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { useConfigDraftStore } from "../draft/store";
-import { CredentialValueEditor } from "../editors/controls";
+import { CredentialValueEditor } from "../editors/draftCompositeControls";
 import { NetworkPolicyEditor } from "../editors/NetworkPolicyEditor";
 import { useSettingsUiStore } from "../uiStore";
 import {
@@ -32,7 +32,7 @@ import {
   SelectInput,
   TextInput,
   Toggle,
-} from "./controls";
+} from "./modelControls";
 import { atomWriteSource, setAtomEntries } from "./objectEditing";
 import {
   CreateObjectModal,

@@ -25,20 +25,22 @@ import {
 } from "../../app/testing";
 import { useConfigDraftStore } from "../settings/draft/store";
 import { useWorkspacePage } from "../workspace/store";
-import { useComposerDraft } from "./composerDraft";
+import { useComposerDraft } from "./composer/composerDraft";
 import {
   openSessionTurn,
   refreshDisplayedTurn,
   refreshRuntimeTurns,
   refreshRuntimeTurn,
-  replyToQuestion,
-  grantBudget,
-  cancelReflection,
   resetTurnController,
   syncFromStatus,
 } from "./turnController";
+import {
+  replyToQuestion,
+  grantBudget,
+  cancelReflection,
+} from "./turnInteractions";
 import { ChatView } from "./ChatView";
-import { presentationStore } from "./presentationStore";
+import { presentationStore } from "./trail/presentationStore";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 

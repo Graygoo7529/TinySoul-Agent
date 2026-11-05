@@ -45,7 +45,7 @@ import { CredentialsPage } from "./models/CredentialsPage";
 import { DedicatedModelsPage } from "./models/DedicatedModelsPage";
 import { DedicatedProvidersPage } from "./models/DedicatedProvidersPage";
 import { ImageGenerationPage } from "./models/ImageGenerationPage";
-import { LlmModelsPage } from "./models/LlmModelsPage";
+import { LlmModelsPage } from "./models/llm/LlmModelsPage";
 import { LlmProvidersPage } from "./models/LlmProvidersPage";
 import { LlmTaskChainsPage } from "./models/LlmTaskChainsPage";
 import { useSettingsUiStore } from "./uiStore";

@@ -19,7 +19,7 @@ import {
   FieldRow,
   FieldSection,
   NumberInput,
-} from "../models/controls";
+} from "../models/modelControls";
 import { ObjectEditorLayout } from "../models/ObjectEditor";
 import { useSettingsUiStore } from "../uiStore";
 import { bindingEntry } from "./bindingsModel";

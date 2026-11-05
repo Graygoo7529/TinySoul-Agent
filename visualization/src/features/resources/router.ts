@@ -25,7 +25,7 @@ import {
   useConnectionStore,
 } from "../../store/connectionStore";
 import { isTauriShell } from "../../app/discovery";
-import { useComposerDraft } from "../chat/composerDraft";
+import { useComposerDraft } from "../chat/composer/composerDraft";
 import {
   backToLiveTurn,
   openHistoryConversation,

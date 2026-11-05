@@ -33,7 +33,7 @@ import { ContextPage } from "../editors/ContextPage";
 import { PhaseBindingsPage } from "./PhaseBindingsPage";
 import { ReflectionPage } from "./ReflectionPage";
 import { SearchPoliciesPage } from "./SearchPoliciesPage";
-import { SettingsField } from "../editors/controls";
+import { SettingsField } from "../editors/draftCompositeControls";
 import { resetActionsViewCache } from "./useActionsView";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;

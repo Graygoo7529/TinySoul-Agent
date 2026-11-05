@@ -9,7 +9,7 @@ import { useI18n } from "../../../i18n";
  * are open intervals).
  */
 
-import { FieldSection, SettingsPageBody } from "../editors/controls";
+import { FieldSection, SettingsPageBody } from "../editors/draftCompositeControls";
 
 export function BudgetsPage() {
   const { t } = useI18n();

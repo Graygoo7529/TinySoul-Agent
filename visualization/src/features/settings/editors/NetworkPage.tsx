@@ -8,7 +8,7 @@ import { useConnectionStore } from "../../../store/connectionStore";
 import { useConfigDraftStore } from "../draft/store";
 import { pageForPath } from "../pages";
 import { useSettingsUiStore } from "../uiStore";
-import { SettingsPageBody } from "./controls";
+import { SettingsPageBody } from "./draftCompositeControls";
 import { NetworkPolicyField } from "./NetworkPolicyEditor";
 
 /** Root network policy plus a read-only view of every configured consumer. */

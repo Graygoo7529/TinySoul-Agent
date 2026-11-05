@@ -15,7 +15,7 @@ import type {
   BudgetPresentation,
   AnswerPresentation,
   PendingItemPresentation,
-} from "./presentation";
+} from "./trail/presentation";
 
 /**
  * Map v2 TurnSnapshot + interaction items to TurnPresentation (without live activity).

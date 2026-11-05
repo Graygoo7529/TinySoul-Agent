@@ -4,7 +4,7 @@ import { useI18n } from "../../../i18n";
  * limits per document kind, inspect/search bounds and the embedding use.
  */
 
-import { EmbeddingUseControl, FieldSection, SettingsPageBody } from "./controls";
+import { EmbeddingUseControl, FieldSection, SettingsPageBody } from "./draftCompositeControls";
 
 export function MemoryPage() {
   const { t } = useI18n();

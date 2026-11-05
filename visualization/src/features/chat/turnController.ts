@@ -1,4 +1,3 @@
-import { message, type UiText } from "../../i18n/core";
 /**
  * Chat orchestration for the v2 conversation (plan §5.1/§7).
  *
@@ -14,16 +13,9 @@ import { message, type UiText } from "../../i18n/core";
  * manager — no state here is derived from event payloads.
  */
 
+import { message, type UiText } from "../../i18n/core";
 import type { V2Clients } from "../../api/v2/clients";
-import type {
-  Interaction,
-  InteractionPage,
-  PendingItem,
-  QuestionAnswer,
-  QueuedRequest,
-  SessionTurnSummary,
-  TurnResult,
-} from "../../api/v2/types";
+import type { Interaction, InteractionPage, PendingItem, QueuedRequest, SessionTurnSummary, TurnResult } from "../../api/v2/types";
 import { nextContinuation, createPageAssembler } from "../../api/v2/pagination";
 import {
   apiErrorCode,
@@ -37,7 +29,6 @@ import {
 } from "../../store/connectionStore";
 import {
   useTurnStore,
-  requestIdForTurn,
   type OutgoingEcho,
   type SessionTurnProjection,
 } from "../../store/turnStore";
@@ -45,50 +36,15 @@ import {
   convergeEchoes,
   resolveComposerIntent,
   type ComposerIntent,
-} from "./interactions";
+} from "./trail/interactions";
 import { randomId } from "../../utils/randomId";
-import { presentationStore } from "./presentationStore";
-
-/** Bounded take-over retries while the Session commit lags the finish event. */
-const TAKEOVER_RETRY_DELAYS_MS = [400, 900, 2000, 4000];
+import { presentationStore } from "./trail/presentationStore";
+import { clientsFor, errorMessage, openAcceptedTurn, toast } from "./turnShared";
 
 let activeRead: AbortController | null = null;
 let sessionReadSerial = 0;
 let runtimeReadSerial = 0;
 const runtimeReads = new Map<string, AbortController>();
-const takeoverRetries = new Map<
-  string,
-  { attempt: number; timer: ReturnType<typeof setTimeout> | null }
->();
-
-function clientsFor(epoch: number): V2Clients | null {
-  const connection = useConnectionStore.getState();
-  if (connection.epoch !== epoch || connection.phase !== "connected") {
-    return null;
-  }
-  return connection.clients;
-}
-
-function toast(kind: "success" | "error" | "info", text: UiText): void {
-  useAppStore.getState().pushToast(kind, text);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function cancelTakeoverRetry(turnId?: string): void {
-  if (turnId !== undefined) {
-    const entry = takeoverRetries.get(turnId);
-    if (entry?.timer) clearTimeout(entry.timer);
-    takeoverRetries.delete(turnId);
-    return;
-  }
-  for (const entry of takeoverRetries.values()) {
-    if (entry.timer) clearTimeout(entry.timer);
-  }
-  takeoverRetries.clear();
-}
 
 /**
  * Align the displayed turn with the formal runtime status. Only user-turn
@@ -148,6 +104,8 @@ export async function syncFromStatus(epoch: number): Promise<void> {
 }
 
 /** The bounded handle directory supplies Reflection identity, never Session history. */
+
+/** The bounded handle directory supplies Reflection identity, never Session history. */
 export async function refreshRuntimeTurns(epoch: number): Promise<void> {
   const clients = clientsFor(epoch);
   if (!clients) return;
@@ -171,6 +129,8 @@ export async function refreshRuntimeTurns(epoch: number): Promise<void> {
     }
   }
 }
+
+/** Common snapshot/interaction reader for a retained root outside the User composer. */
 
 /** Common snapshot/interaction reader for a retained root outside the User composer. */
 export async function refreshRuntimeTurn(epoch: number, requestId: string): Promise<void> {
@@ -215,10 +175,9 @@ export async function showRuntimeTurn(epoch: number, requestId: string): Promise
   await refreshRuntimeTurns(epoch);
 }
 
-function refreshCommandTarget(epoch: number, requestId: string): void {
-  if (useTurnStore.getState().requestId === requestId) void refreshDisplayedTurn(epoch);
-  else void refreshRuntimeTurn(epoch, requestId);
-}
+
+
+/** Full re-read of the displayed turn: snapshot + interaction projection. */
 
 /** Full re-read of the displayed turn: snapshot + interaction projection. */
 export async function refreshDisplayedTurn(epoch: number): Promise<void> {
@@ -403,49 +362,6 @@ async function readSessionTurn(
   };
 }
 
-function scheduleTakeover(epoch: number, turnId: string): void {
-  const entry = takeoverRetries.get(turnId) ?? { attempt: 0, timer: null };
-  if (entry.timer !== null) return; // a retry is already scheduled
-  if (entry.attempt >= TAKEOVER_RETRY_DELAYS_MS.length) {
-    // Out of retries: keep the live content; the view offers a manual retry.
-    useTurnStore.getState().setTakeoverPending(true);
-    return;
-  }
-  const delay = TAKEOVER_RETRY_DELAYS_MS[entry.attempt];
-  useTurnStore.getState().setTakeoverPending(true);
-  entry.timer = setTimeout(() => {
-    entry.timer = null;
-    entry.attempt += 1;
-    takeoverRetries.set(turnId, entry);
-    if (useTurnStore.getState().requestId !== turnId) {
-      cancelTakeoverRetry(turnId);
-      return;
-    }
-    void refreshDisplayedTurn(epoch);
-  }, delay);
-  takeoverRetries.set(turnId, entry);
-}
-
-/** Explicit re-read of a finished turn's Session projection (view button). */
-export function retryTakeover(epoch: number): void {
-  const turnId = useTurnStore.getState().requestId;
-  if (turnId === null) return;
-  cancelTakeoverRetry(turnId);
-  void refreshDisplayedTurn(epoch);
-}
-
-/** Drop the echoes the latest projection has formally covered. */
-function convergeAfterProjection(): void {
-  const store = useTurnStore.getState();
-  const { consumed } = convergeEchoes(
-    store.outgoing,
-    store.items,
-    store.pendingItems,
-    store.requestId,
-  );
-  if (consumed.length > 0) store.removeEchoes(consumed);
-}
-
 /** Refresh the committed turn list of the active day (history entries). */
 export async function refreshSessionTurns(epoch: number): Promise<void> {
   const clients = clientsFor(epoch);
@@ -514,6 +430,8 @@ export async function refreshSessionTurns(epoch: number): Promise<void> {
 }
 
 /** Open a committed turn read-only from the history entries. */
+
+/** Open a committed turn read-only from the history entries. */
 export async function openSessionTurn(
   epoch: number,
   turnId: string,
@@ -538,6 +456,12 @@ export async function openSessionTurn(
   }
   useTurnStore.getState().applyProjection(readEpoch, read);
 }
+
+/**
+ * Send the composer text with the given intent. The Composer pins the intent
+ * (and its target) at submit time (plan §5.1); callers that leave it out get
+ * the intent derived from the formal state right now.
+ */
 
 /**
  * Send the composer text with the given intent. The Composer pins the intent
@@ -653,113 +577,14 @@ async function sendNewTurn(epoch: number, value: string): Promise<boolean> {
  * Bind a creation receipt immediately, including after a completed Turn.
  * The day projection keeps preceding conversations mounted.
  */
-function openAcceptedTurn(turnId: string | null): void {
-  if (turnId === null) return;
-  const turn = useTurnStore.getState();
-  if (turn.historyView) return;
-  if (turn.turnId !== null && turn.snapshot !== null && turn.snapshot.state !== "finished") return;
-  const day = useConnectionStore.getState().status?.active_day ?? null;
-  turn.openRequest(turnId, day);
-}
-
-/** Reply to the currently pending question (choice with comment, or text). */
-export async function replyToQuestion(
-  epoch: number,
-  turnId: string,
-  questionId: string,
-  answer: QuestionAnswer,
-  displayText: string,
-): Promise<boolean> {
-  const clients = clientsFor(epoch);
-  if (clients === null) return false;
-  const requestId = requestIdForTurn(turnId);
-  const store = useTurnStore.getState();
-  const echoId = randomId();
-  store.addEcho({
-    echoId,
-    kind: "reply",
-    requestId,
-    questionId,
-    text: displayText,
-    state: "sending",
-    error: null,
-    turnClosed: false,
-  });
-  try {
-    const receipt = await clients.turns.reply(requestId, {
-      question_id: questionId,
-      answer,
-    });
-    if (clientsFor(epoch) === null) return true;
-    if (receipt.accepted === false) {
-      // Already answered earlier: the formal reply will render; no error.
-      useTurnStore.getState().removeEcho(echoId);
-    } else {
-      useTurnStore.getState().updateEcho(echoId, { state: "accepted" });
-    }
-    refreshCommandTarget(epoch, requestId);
-    return true;
-  } catch (error) {
-    if (clientsFor(epoch) === null) return true;
-    // The echo goes away; the question card keeps its draft and shows the
-    // failure next to the submit control.
-    useTurnStore.getState().removeEcho(echoId);
-    const code = apiErrorCode(error);
-    if (code === "turn.command_rejected" || code === "turn.not_found") {
-      refreshCommandTarget(epoch, requestId);
-    }
-    throw error;
-  }
-}
-
-/** Grant cycles for the open budget request. */
-export async function grantBudget(
-  epoch: number,
-  rootRequestId: string,
-  requestId: string,
-  count: number,
-): Promise<boolean> {
-  const clients = clientsFor(epoch);
-  if (clients === null || count <= 0) return false;
-  try {
-    await clients.turns.grant(rootRequestId, { budget_request_id: requestId, count });
-    refreshCommandTarget(epoch, rootRequestId);
-    return true;
-  } catch (error) {
-    if (clientsFor(epoch) === null) return false;
-    const code = apiErrorCode(error);
-    if (code === "turn.command_rejected" || code === "turn.not_found") {
-      refreshCommandTarget(epoch, rootRequestId);
-      toast("info", message("chat.budgetClosed"));
-      return false;
-    }
-    toast("error", message("chat.budgetFailed", { detail: errorMessage(error) }));
-    return false;
-  }
-}
 
 /** Ask the active turn to stop; the receipt only confirms the intent. */
-export async function cancelActiveTurn(epoch: number): Promise<void> {
-  const turn = useTurnStore.getState();
-  const connection = useConnectionStore.getState();
-  if (turn.historyView) return;
-  const intent = resolveComposerIntent(connection.status, turn.snapshot, connection.phase === "connected",
-    turn.outgoing.find((echo) => echo.kind === "new-turn" && echo.state === "accepted")?.requestId ?? null);
-  if (intent.kind !== "append") return;
-  await postCancelIntent(epoch, intent.requestId);
+export function refreshCommandTarget(epoch: number, requestId: string): void {
+  if (useTurnStore.getState().requestId === requestId) void refreshDisplayedTurn(epoch);
+  else void refreshRuntimeTurn(epoch, requestId);
 }
 
-/** Runtime queue management targets a specific request, independent of Chat. */
-export async function cancelQueuedTurn(epoch: number, turnId: string): Promise<void> {
-  await postCancelIntent(epoch, turnId);
-}
-
-export async function cancelReflection(epoch: number, turnId: string): Promise<void> {
-  await postCancelIntent(epoch, turnId);
-}
-
-/** Shared cancel-intent POST; the receipt only confirms the intent. */
-async function postCancelIntent(
+export async function postCancelIntent(
   epoch: number,
   requestId: string,
 ): Promise<void> {
@@ -779,6 +604,100 @@ async function postCancelIntent(
   }
 }
 
+export async function cancelActiveTurn(epoch: number): Promise<void> {
+  const turn = useTurnStore.getState();
+  const connection = useConnectionStore.getState();
+  if (turn.historyView) return;
+  const intent = resolveComposerIntent(connection.status, turn.snapshot, connection.phase === "connected",
+    turn.outgoing.find((echo) => echo.kind === "new-turn" && echo.state === "accepted")?.requestId ?? null);
+  if (intent.kind !== "append") return;
+  await postCancelIntent(epoch, intent.requestId);
+}
+
+/** Runtime queue management targets a specific request, independent of Chat. */
+
+/** Reset module-level orchestration state (connection switch / tests). */
+const TAKEOVER_RETRY_DELAYS_MS = [400, 900, 2000, 4000];
+
+const takeoverRetries = new Map<
+  string,
+  { attempt: number; timer: ReturnType<typeof setTimeout> | null }
+>();
+
+
+function cancelTakeoverRetry(turnId?: string): void {
+  if (turnId !== undefined) {
+    const entry = takeoverRetries.get(turnId);
+    if (entry?.timer) clearTimeout(entry.timer);
+    takeoverRetries.delete(turnId);
+    return;
+  }
+  for (const entry of takeoverRetries.values()) {
+    if (entry.timer) clearTimeout(entry.timer);
+  }
+  takeoverRetries.clear();
+}
+
+/**
+ * Align the displayed turn with the formal runtime status. Only user-turn
+ * activity takes over the view; a finished turn stays on screen (already or
+ * soon Session-backed) until another user turn starts. An explicit history
+ * view is never stolen by new activity.
+ */
+
+
+function scheduleTakeover(epoch: number, turnId: string): void {
+  const entry = takeoverRetries.get(turnId) ?? { attempt: 0, timer: null };
+  if (entry.timer !== null) return; // a retry is already scheduled
+  if (entry.attempt >= TAKEOVER_RETRY_DELAYS_MS.length) {
+    // Out of retries: keep the live content; the view offers a manual retry.
+    useTurnStore.getState().setTakeoverPending(true);
+    return;
+  }
+  const delay = TAKEOVER_RETRY_DELAYS_MS[entry.attempt];
+  useTurnStore.getState().setTakeoverPending(true);
+  entry.timer = setTimeout(() => {
+    entry.timer = null;
+    entry.attempt += 1;
+    takeoverRetries.set(turnId, entry);
+    if (useTurnStore.getState().requestId !== turnId) {
+      cancelTakeoverRetry(turnId);
+      return;
+    }
+    void refreshDisplayedTurn(epoch);
+  }, delay);
+  takeoverRetries.set(turnId, entry);
+}
+
+/** Explicit re-read of a finished turn's Session projection (view button). */
+
+
+/** Explicit re-read of a finished turn's Session projection (view button). */
+export function retryTakeover(epoch: number): void {
+  const turnId = useTurnStore.getState().requestId;
+  if (turnId === null) return;
+  cancelTakeoverRetry(turnId);
+  void refreshDisplayedTurn(epoch);
+}
+
+/** Drop the echoes the latest projection has formally covered. */
+
+
+/** Drop the echoes the latest projection has formally covered. */
+function convergeAfterProjection(): void {
+  const store = useTurnStore.getState();
+  const { consumed } = convergeEchoes(
+    store.outgoing,
+    store.items,
+    store.pendingItems,
+    store.requestId,
+  );
+  if (consumed.length > 0) store.removeEchoes(consumed);
+}
+
+/** Refresh the committed turn list of the active day (history entries). */
+
+
 /** Re-send a failed echo with its original request identity. */
 export async function retryEcho(epoch: number, echoId: string): Promise<void> {
   const echo = useTurnStore
@@ -793,9 +712,17 @@ export async function retryEcho(epoch: number, echoId: string): Promise<void> {
   }
 }
 
+
 export function dismissEcho(echoId: string): void {
   useTurnStore.getState().removeEcho(echoId);
 }
+
+/**
+ * The explicit "send as next turn" entry on a failed append whose target
+ * turn is closed (plan §5.1). The original text becomes a new-turn request
+ * with a fresh request identity — only ever on the user's explicit click.
+ */
+
 
 /**
  * The explicit "send as next turn" entry on a failed append whose target
@@ -866,6 +793,7 @@ async function resendAppend(
   }
 }
 
+
 function failEcho(echoId: string, error: unknown): void {
   const code = apiErrorCode(error);
   const kind = useTurnStore
@@ -903,6 +831,7 @@ function failEcho(echoId: string, error: unknown): void {
 }
 
 /** Reset module-level orchestration state (connection switch / tests). */
+
 export function resetTurnController(): void {
   activeRead?.abort();
   activeRead = null;

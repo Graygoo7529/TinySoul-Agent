@@ -12,11 +12,8 @@ import { ArrowRight } from "lucide-react";
 import { useConfigDraftStore } from "../draft/store";
 import { projectCollection } from "../models/collectionDrafts";
 import { useSettingsUiStore } from "../uiStore";
-import {
-  FieldSection,
-  SettingsPageBody,
-  type DraftFieldApi,
-} from "../editors/controls";
+import { type DraftFieldApi } from "../editors/draftControls";
+import { FieldSection, SettingsPageBody } from "../editors/draftCompositeControls";
 
 const PHASE1_PATH = "loop.cycle.phase1_task_profile";
 const PHASE2_PATH = "loop.cycle.phase2_task_profile";

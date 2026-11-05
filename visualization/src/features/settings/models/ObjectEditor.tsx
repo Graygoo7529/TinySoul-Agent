@@ -13,7 +13,7 @@ import { Badge } from "../../../components/ui/Badge";
 import { Button, IconButton } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { Modal } from "../../../components/ui/Modal";
-import { inputClass } from "./controls";
+import { inputClass } from "./modelControls";
 import { SettingsPicker } from "../SettingsPicker";
 import { useSettingsUiStore } from "../uiStore";
 import { objectIdError, type ObjectReference } from "./collectionDrafts";

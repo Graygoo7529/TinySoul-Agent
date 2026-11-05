@@ -37,8 +37,8 @@ import {
   TextInput,
   Toggle,
   selectClass,
-} from "./controls";
-import { CredentialValueEditor } from "../editors/controls";
+} from "./modelControls";
+import { CredentialValueEditor } from "../editors/draftCompositeControls";
 import {
   CreateObjectModal,
   DeleteObjectModal,

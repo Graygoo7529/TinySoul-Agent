@@ -57,7 +57,7 @@ export function hasApiCode(error: unknown, ...codes: string[]): boolean {
 }
 
 /** Structured detail access; returns undefined when absent. */
-export function apiErrorDetail(
+function apiErrorDetail(
   error: unknown,
   key: string,
 ): JsonValue | undefined {

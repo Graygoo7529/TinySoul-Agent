@@ -1,0 +1,749 @@
+/**
+ * Provider-neutral request/response rendering for the model-call Inspector:
+ * the message stack (slots, roles, tools, provenance) and the recorded
+ * reasoning/answer blocks. Consumed by the LLM task attempts in
+ * ModelCallPanel.tsx.
+ */
+
+import { t, useI18n } from "../../../i18n";
+import { useRef, useState, type ReactElement } from "react";
+import { Check, ChevronRight, Copy } from "lucide-react";
+import type { JsonObject } from "../../../api/v2/types";
+import { Badge, type BadgeTone } from "../../../components/ui/Badge";
+import { JsonTree } from "../../../components/ui/JsonTree";
+import { asNumber, asObject, asString, asStringArray } from "../model/facts";
+import { domainBorderClass, DomainChip, isKnownDomain, segmentLabel } from "../../../components/trace/semantic";
+import { Markdown } from "../../../components/markdown/Markdown";
+
+// ---------------------------------------------------------------------------
+// Provider-neutral request rendering
+// ---------------------------------------------------------------------------
+
+const SLOT_ORDER = ["background", "trace", "working", "task_prompt"];
+function slotLabel(slot: string): string { const labels: Record<string, string> = {
+  background: t("trace.background"),
+  trace: t("trace.trace"),
+  working: t("trace.working"),
+  task_prompt: t("trace.taskPrompt"),
+}; return labels[slot] ?? slot; }
+const ROLE_TONES: Record<string, BadgeTone> = {
+  system: "accent",
+  user: "blue",
+  assistant: "green",
+  tool_result: "gray",
+};
+
+/** Compact size rendering shared by slot headers and message headers. */
+function formatChars(count: number): string {
+  return count >= 1000 ? `${(count / 1000).toFixed(1)}k` : `${count}`;
+}
+
+/** Total text/json size of one message — the scale hint in section headers. */
+function messageChars(message: unknown): number {
+  const entry = asObject(message);
+  if (entry === null) return 0;
+  const parts = Array.isArray(entry.parts) ? entry.parts : [];
+  let total = 0;
+  for (const part of parts) {
+    const record = asObject(part);
+    if (record === null) continue;
+    const text = asString(record.text);
+    if (text !== null) {
+      total += text.length;
+      continue;
+    }
+    if (record.value !== undefined) {
+      try {
+        total += JSON.stringify(record.value).length;
+      } catch {
+        // Unstringifiable values simply do not contribute to the size hint.
+      }
+    }
+  }
+  return total;
+}
+
+/** Plain text of one message for section copy: text parts, JSON parts stringified. */
+function messageText(message: unknown): string {
+  const entry = asObject(message);
+  if (entry === null) return "";
+  const parts = Array.isArray(entry.parts) ? entry.parts : [];
+  return parts
+    .map((part) => {
+      const record = asObject(part);
+      if (record === null) return "";
+      const text = asString(record.text);
+      if (text !== null) return text;
+      if (record.value !== undefined) {
+        try {
+          return JSON.stringify(record.value, null, 2);
+        } catch {
+          return "";
+        }
+      }
+      return "";
+    })
+    .filter((chunk) => chunk !== "")
+    .join("\n");
+}
+
+/** First non-empty line of the first text part, bounded — the collapsed preview. */function messagePreview(message: unknown, limit = 80): string | null {
+  const entry = asObject(message);
+  if (entry === null) return null;
+  const parts = Array.isArray(entry.parts) ? entry.parts : [];
+  for (const part of parts) {
+    const record = asObject(part);
+    if (record === null) continue;
+    const text = asString(record.text);
+    if (text === null) continue;
+    const line = text.split("\n").map((item) => item.trim()).find((item) => item.length > 0);
+    if (line !== undefined) return line.length > limit ? `${line.slice(0, limit)}…` : line;
+  }
+  return null;
+}
+
+interface ProvenanceEntry {
+  segmentId: string;
+  owner: string;
+  slot: string;
+  indices: number[];
+  refs: string[];
+}
+
+function parseProvenance(request: JsonObject): ProvenanceEntry[] {
+  if (!Array.isArray(request.provenance)) return [];
+  const out: ProvenanceEntry[] = [];
+  for (const item of request.provenance) {
+    const entry = asObject(item);
+    if (entry === null) continue;
+    const indices = Array.isArray(entry.message_indices)
+      ? entry.message_indices.filter(
+          (value): value is number => typeof value === "number",
+        )
+      : [];
+    out.push({
+      segmentId: asString(entry.segment_id) ?? "",
+      owner: asString(entry.owner) ?? "",
+      slot: asString(entry.slot) ?? "",
+      indices,
+      refs: asStringArray(entry.refs),
+    });
+  }
+  return out;
+}
+
+/** One glowing disclosure row: closed = raised clickable edge, open = accent wash + bar. */
+function Fold({
+  name,
+  meta,
+  open,
+  onToggle,
+  title,
+  small = false,
+  actions,
+  children,
+}: {
+  name: string;
+  meta?: string;
+  open: boolean;
+  onToggle: () => void;
+  title?: string;
+  small?: boolean;
+  actions?: React.ReactNode;
+  children?: React.ReactNode;
+}): ReactElement {
+  return (
+    <div
+      className={`group overflow-hidden rounded-lg border transition-all ${
+        open ? "border-accent/35" : "border-line-strong"
+      } ${small ? "" : "bg-bg-sunken"}`}
+    >
+      <div
+        className={`flex items-center transition-all ${
+          open
+            ? "bg-accent-soft/50 shadow-[inset_2px_0_0_var(--accent)]"
+            : "bg-bg-elev/60 hover:border-accent/40 hover:bg-hover hover:shadow-[0_0_10px_var(--accent-soft)]"
+        }`}
+      >
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={onToggle}
+          className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-1.5 text-left"
+        >
+          <ChevronRight
+            size={12}
+            className={`shrink-0 transition-transform ${
+              open ? "rotate-90 text-accent" : "text-fg-muted"
+            }`}
+          />
+          <span
+            title={title}
+            className={`${small ? "text-[12px]" : "text-[12.5px]"} font-medium text-fg`}
+          >
+            {name}
+          </span>
+          {meta !== undefined && (
+            <span className="ml-auto font-mono text-[10px] text-fg-faint">{meta}</span>
+          )}
+        </button>
+        {actions !== undefined && (
+          <div className="flex shrink-0 items-center pr-1.5">{actions}</div>
+        )}
+      </div>
+      {open && <div className="border-t border-line/60 px-2 py-2">{children}</div>}
+    </div>
+  );
+}
+
+/** Hover-revealed copy button for one fold section's full text. */
+function SectionCopyButton({
+  getText,
+  title,
+}: {
+  getText: () => string;
+  title: string;
+}): ReactElement {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(getText());
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          // Clipboard may be unavailable; fail quietly.
+        }
+      }}
+      className="rounded p-0.5 text-fg-faint opacity-0 transition-opacity group-hover:opacity-60 hover:!opacity-100 hover:text-accent"
+    >
+      {copied ? <Check size={11} className="text-success" /> : <Copy size={11} />}
+    </button>
+  );
+}
+
+export function RequestView({ request }: { request: JsonObject }): ReactElement {
+  const { t } = useI18n();
+  const slotRefs = useRef(new Map<string, HTMLDivElement>());
+  const messages = Array.isArray(request.messages) ? request.messages : [];
+  const provenance = parseProvenance(request);
+  const tools = Array.isArray(request.tools) ? request.tools : [];
+  const selection = asObject(request.tool_selection);
+  const forced = selection !== null ? asString(selection.forced_name) : null;
+
+  const slotsOf = (index: number): ProvenanceEntry[] =>
+    provenance.filter((entry) => entry.indices.includes(index));
+  // A message belongs to its first slot in stack order; unslotted messages
+  // fall into a trailing "other" group.
+  const slotOf = (index: number): string => {
+    const origins = slotsOf(index);
+    for (const slot of SLOT_ORDER) {
+      if (origins.some((entry) => entry.slot === slot)) return slot;
+    }
+    return "other";
+  };
+  const groups = [...SLOT_ORDER, "other"]
+    .map((slot) => ({
+      slot,
+      indices: messages.map((_, index) => index).filter((index) => slotOf(index) === slot),
+    }))
+    .filter((group) => group.indices.length > 0);
+  const groupChars = (indices: number[]) =>
+    indices.reduce((sum, index) => sum + messageChars(messages[index]), 0);
+  const totalChars = groups.reduce((sum, group) => sum + groupChars(group.indices), 0);
+  const resolvedRefs = asObject(request.resolved_references);
+  const refCount = resolvedRefs !== null ? Object.keys(resolvedRefs).length : 0;
+
+  const [contextOpen, setContextOpen] = useState(false);
+  const [openSlots, setOpenSlots] = useState<ReadonlySet<string>>(new Set());
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [refsOpen, setRefsOpen] = useState(false);
+  const [openToolDef, setOpenToolDef] = useState<string | null>(null);
+  const toggleSlot = (slot: string) => {
+    setOpenSlots((current) => {
+      const next = new Set(current);
+      if (next.has(slot)) next.delete(slot);
+      else next.add(slot);
+      return next;
+    });
+  };
+  const openAndScroll = (slot: string) => {
+    setContextOpen(true);
+    setOpenSlots((current) => new Set(current).add(slot));
+    window.setTimeout(() => {
+      // jsdom lacks scrollIntoView; the guard keeps tests truthful.
+      slotRefs.current
+        .get(slot)
+        ?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    }, 0);
+  };
+
+  return (
+    <div className="space-y-2">
+      {messages.length > 0 && (
+        <Fold
+          name={t("trace.context")}
+          meta={t("trace.messageChars", { count: messages.length, chars: formatChars(totalChars) })}
+          open={contextOpen}
+          onToggle={() => setContextOpen(!contextOpen)}
+        >
+          <div className="flex gap-2">
+            {groups.length > 1 && (
+              <div
+                className="sticky top-2 flex w-3 shrink-0 flex-col items-start gap-[5px] self-start py-1"
+                aria-hidden="true"
+              >
+                {groups.map(({ slot, indices }) => (
+                  <button
+                    key={slot}
+                    type="button"
+                    tabIndex={-1}
+                    title={t("trace.slotMessageChars", { slot: slotLabel(slot), count: indices.length, chars: formatChars(groupChars(indices)) })}
+                    onClick={() => openAndScroll(slot)}
+                    className={`h-0.5 rounded-full transition-all duration-300 ${
+                      openSlots.has(slot)
+                        ? "w-3 bg-accent shadow-[0_0_6px_var(--accent)]"
+                        : "w-1.5 bg-line-strong hover:bg-fg-faint"
+                    }`}
+                  />
+                ))}
+              </div>
+            )}
+            <div className="min-w-0 flex-1 space-y-1.5">
+              {groups.map(({ slot, indices }) => {
+                const open = openSlots.has(slot);
+                return (
+                  <div
+                    key={slot}
+                    ref={(node) => {
+                      if (node !== null) slotRefs.current.set(slot, node);
+                    }}
+                  >
+                    <Fold
+                      small
+                      name={slotLabel(slot)}
+                      title={slot}
+                      meta={t("trace.messageChars", { count: indices.length, chars: formatChars(groupChars(indices)) })}
+                      open={open}
+                      onToggle={() => toggleSlot(slot)}
+                      actions={
+                        <SectionCopyButton
+                          title={t("trace.copyMessages")}
+                          getText={() =>
+                            indices
+                              .map((index) => messageText(messages[index]))
+                              .filter((text) => text !== "")
+                              .join("\n\n")
+                          }
+                        />
+                      }
+                    >
+                      <div className="space-y-1.5">
+                        {indices.map((index) => (
+                          <MessageView
+                            key={index}
+                            message={messages[index]}
+                            origins={slotsOf(index)}
+                          />
+                        ))}
+                      </div>
+                    </Fold>
+                  </div>
+                );
+              })}
+              {refCount > 0 && (
+                <Fold
+                  small
+                  name={t("trace.referenceResolution")}
+                  title={t("trace.resourceMappings")}
+                  meta={t("trace.itemCount", { count: refCount })}
+                  open={refsOpen}
+                  onToggle={() => setRefsOpen(!refsOpen)}
+                >
+                  <JsonTree value={resolvedRefs} defaultExpanded={false} />
+                </Fold>
+              )}
+            </div>
+          </div>
+        </Fold>
+      )}
+      {messages.length === 0 && (
+        <div className="text-[12px] text-fg-faint">
+          {t("trace.noMessages")}</div>
+      )}
+      {tools.length > 0 && (
+        <Fold
+          name={t("trace.tools")}
+          meta={`${tools.length}`}
+          open={toolsOpen}
+          onToggle={() => setToolsOpen(!toolsOpen)}
+        >
+          <div className="flex flex-wrap gap-1">
+            {tools.map((tool, index) => {
+              const entry = asObject(tool);
+              const name = entry !== null ? asString(entry.name) : null;
+              if (entry === null || name === null) return null;
+              const isForced = forced === name;
+              const defOpen = openToolDef === name;
+              const stateClass = isForced
+                ? defOpen
+                  ? "border border-accent/60 bg-accent-soft text-accent shadow-[0_0_8px_var(--accent-soft),inset_0_0_6px_var(--accent-soft)]"
+                  : "border border-accent/45 text-accent shadow-[0_0_8px_var(--accent-soft)]"
+                : defOpen
+                  ? "border border-accent/50 bg-accent-soft text-accent shadow-[inset_0_0_6px_var(--accent-soft)]"
+                  : "border border-transparent bg-hover text-fg-muted hover:text-fg";
+              return (
+                <button
+                  key={index}
+                  type="button"
+                  aria-expanded={defOpen}
+                  onClick={() => setOpenToolDef(defOpen ? null : name)}
+                  title={
+                    isForced
+                      ? t("trace.requiredThisCall")
+                      : (asString(entry.kind) ?? undefined)
+                  }
+                  className={`rounded-md px-1.5 py-0.5 font-mono text-[11px] transition-all ${stateClass}`}
+                >
+                  {name}
+                </button>
+              );
+            })}
+          </div>
+          {tools.map((tool, index) => {
+            const entry = asObject(tool);
+            const name = entry !== null ? asString(entry.name) : null;
+            if (entry === null || name === null || openToolDef !== name) return null;
+            const description = asString(entry.description);
+            return (
+              <div
+                key={`def-${index}`}
+                className="mt-1.5 rounded-lg border border-accent/30 bg-bg-elev px-2.5 py-2"
+              >
+                <div className="mb-1 font-mono text-[11px] font-medium text-accent">
+                  {name}
+                </div>
+                {description !== null && description !== "" && (
+                  <div className="mb-1.5 whitespace-pre-wrap text-[11.5px] text-fg-muted">
+                    {description}
+                  </div>
+                )}
+                {entry.parameters !== undefined && (
+                  <JsonTree
+                    value={entry.parameters}
+                    defaultExpanded={false}
+                    defaultDepth={2}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </Fold>
+      )}
+    </div>
+  );
+}
+
+function MessageView({
+  message,
+  origins,
+}: {
+  message: unknown;
+  origins: ProvenanceEntry[];
+}): ReactElement | null {
+  const { t } = useI18n();
+  const [expanded, setExpanded] = useState(false);
+  const entry = asObject(message);
+  if (entry === null) return null;
+  const role = asString(entry.role) ?? "message";
+  const label = asString(entry.label);
+  const parts = Array.isArray(entry.parts) ? entry.parts : [];
+  const toolCalls = Array.isArray(entry.tool_calls) ? entry.tool_calls : [];
+  const reasoning = asObject(entry.reasoning);
+  const reasoningSummary =
+    reasoning !== null ? asString(reasoning.summary) : null;
+  const toolName = asString(entry.tool_name);
+  const callId = asString(entry.call_id);
+  const status = asString(entry.status);
+  const segmentIds = [
+    ...new Set(origins.map((origin) => origin.segmentId).filter((id) => id !== "")),
+  ];
+  const preview = messagePreview(message);
+  const chars = messageChars(message);
+
+  return (
+    <div className="rounded-md border border-line/60 bg-bg-elev px-2.5 py-1.5">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full flex-wrap items-center gap-1.5 text-left"
+      >
+        <ChevronRight
+          size={11}
+          className={`shrink-0 text-fg-faint transition-transform ${expanded ? "rotate-90" : ""}`}
+        />
+        <Badge tone={ROLE_TONES[role] ?? "gray"}>{role}</Badge>
+        {label !== null && (
+          <span className="text-[11px] text-fg-faint">{label}</span>
+        )}
+        {toolName !== null && (
+          <span className="font-mono text-[11px] text-fg-muted">{toolName}</span>
+        )}
+        {status !== null && <Badge tone="gray">{status}</Badge>}
+        {callId !== null && (
+          <span className="font-mono text-[10px] text-fg-faint">{callId}</span>
+        )}
+        <span className="ml-auto text-[10px] text-fg-faint/70" title={segmentIds.join(" · ")}>
+          {[...segmentIds.map(segmentLabel), t("trace.charCount", { count: formatChars(chars) })].join(" · ")}
+        </span>
+      </button>
+      {!expanded && preview !== null && (
+        <div className="mt-0.5 truncate pl-5 text-[11px] text-fg-faint">{preview}</div>
+      )}
+      {reasoningSummary !== null && reasoningSummary !== "" && (
+        <div className="mb-1 mt-1 text-[11px] text-fg-faint italic">
+          {t("trace.reasoningSummary")}{reasoningSummary}
+        </div>
+      )}
+      {expanded && (
+        <>
+          <div className="space-y-1">
+            {parts.map((part, partIndex) => (
+              <MessagePart key={partIndex} part={part} />
+            ))}
+          </div>
+          {toolCalls.length > 0 && (
+            <div className="mt-1 space-y-1">
+              {toolCalls.map((call, callIndex) => {
+                const record = asObject(call);
+                if (record === null) return null;
+                return (
+                  <div
+                    key={callIndex}
+                    className="rounded border border-line/50 bg-bg-sunken px-2 py-1"
+                  >
+                    <span className="font-mono text-[11px] text-fg-muted">
+                      → {asString(record.name) ?? "tool"}
+                    </span>
+                    <JsonTree value={record.arguments ?? null} defaultExpanded={false} />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function MessagePart({ part }: { part: unknown }): ReactElement | null {
+  const { t } = useI18n();
+  const entry = asObject(part);
+  if (entry === null) return null;
+  const type = asString(entry.type);
+  if (type === "text") {
+    const text = asString(entry.text);
+    if (text === null) return null;
+    return (
+      <div className="text-[12px] leading-5 break-words whitespace-pre-wrap text-fg-muted">
+        {text}
+      </div>
+    );
+  }
+  if (type === "json") {
+    return <JsonTree value={entry.value ?? null} defaultExpanded={false} />;
+  }
+  if (type === "image" || type === "image_url") {
+    return (
+      <div className="text-[11px] text-fg-faint">
+        [{t("trace.imageType", { type: asString(entry.mime_type) ?? "" })}]
+      </div>
+    );
+  }
+  return (
+    <JsonTree value={entry} defaultExpanded={false} />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Provider-neutral response rendering
+// ---------------------------------------------------------------------------
+
+export function ResponseView({ response }: { response: JsonObject }): ReactElement {
+  const { t } = useI18n();
+  const answer = asString(response.answer_text);
+  const toolCalls = Array.isArray(response.tool_calls) ? response.tool_calls : [];
+  const usage = asObject(response.usage);
+  const metadata = asObject(response.metadata);
+  const reasoning = asObject(response.reasoning);
+  const reasoningSummary = reasoning !== null ? asString(reasoning.summary) : null;
+  const inputTokens = usage !== null ? asNumber(usage.input_tokens) : null;
+  const outputTokens = usage !== null ? asNumber(usage.output_tokens) : null;
+  // 思考过程/工具调用/模型回答默认折叠（带规模摘要）；Response 整体默认折叠。
+  const [reasoningOpen, setReasoningOpen] = useState(false);
+  const [callsOpen, setCallsOpen] = useState(false);
+  const [answerOpen, setAnswerOpen] = useState(false);
+  const [responseOpen, setResponseOpen] = useState(false);
+  const [metadataOpen, setMetadataOpen] = useState(false);
+
+  return (
+    <Fold
+      name={t("trace.response")}
+      open={responseOpen}
+      onToggle={() => setResponseOpen(!responseOpen)}
+    >
+      <div className="space-y-2">
+        {reasoningSummary !== null && reasoningSummary !== "" && (
+          <Fold
+            small
+            name={t("trace.reasoning")}
+            meta={t("trace.charCount", { count: reasoningSummary.length })}
+            open={reasoningOpen}
+            onToggle={() => setReasoningOpen(!reasoningOpen)}
+          >
+            <div className="text-[12px] italic text-fg-muted">{reasoningSummary}</div>
+          </Fold>
+        )}
+        {toolCalls.length > 0 && (
+          <Fold
+            small
+            name={t("trace.toolCalls")}
+            meta={`${toolCalls.length}`}
+            open={callsOpen}
+            onToggle={() => setCallsOpen(!callsOpen)}
+          >
+            <div className="space-y-1.5">
+              {toolCalls.map((call, index) => {
+                const record = asObject(call);
+                if (record === null) return null;
+                const name = asString(record.name) ?? "tool";
+                const kind = asString(record.kind);
+                const domain = name.includes(".") ? name.split(".")[0]! : "";
+                const args = asObject(record.arguments);
+                return (
+                  <div
+                    key={index}
+                    className={`rounded-lg border border-line/60 border-l-2 bg-bg-elev px-2.5 py-1.5 ${
+                      kind === "action"
+                        ? domainBorderClass(domain)
+                        : "border-l-line-strong"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[12px] font-medium text-fg">
+                        {name}
+                      </span>
+                      {kind !== null && <Badge tone="gray">{kind}</Badge>}
+                    </div>
+                    {args !== null && (
+                      <div className="mt-1 space-y-0.5">
+                        {Object.entries(args).map(([key, value]) => (
+                          <ToolArg key={key} name={key} value={value} />
+                        ))}
+                      </div>
+                    )}
+                    {args === null && record.arguments !== undefined && (
+                      <JsonTree
+                        value={record.arguments}
+                        defaultExpanded={false}
+                        defaultDepth={2}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </Fold>
+        )}
+        {answer !== null && answer !== "" && (
+          <Fold
+            small
+            name={t("trace.modelAnswer")}
+            open={answerOpen}
+            onToggle={() => setAnswerOpen(!answerOpen)}
+          >
+            <Markdown className="md-calm text-[12px]" origin={{ ref: "" }}>
+              {answer}
+            </Markdown>
+          </Fold>
+        )}
+        {usage !== null && (
+          <div className="flex flex-wrap gap-x-3 text-[11px] text-fg-faint">
+            {inputTokens !== null && <span>in {inputTokens}</span>}
+            {outputTokens !== null && <span>out {outputTokens}</span>}
+            {inputTokens !== null && outputTokens !== null && (
+              <span>{t("trace.total")}{inputTokens + outputTokens}</span>
+            )}
+          </div>
+        )}
+        {metadata !== null && Object.keys(metadata).length > 0 && (
+          <Fold
+            small
+            name={t("trace.responseMetadata")}
+            open={metadataOpen}
+            onToggle={() => setMetadataOpen(!metadataOpen)}
+          >
+            <JsonTree value={metadata} defaultExpanded={false} defaultDepth={2} />
+          </Fold>
+        )}
+      </div>
+    </Fold>
+  );
+}
+
+/**
+ * One tool-call argument, generically rendered: primitives inline, string
+ * lists as chips (domain-colored when every item names a domain), anything
+ * nested as a two-level-open JsonTree. No per-tool special casing.
+ */
+function ToolArg({ name, value }: { name: string; value: unknown }): ReactElement {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return (
+      <div className="flex gap-2 text-[11.5px]">
+        <span className="shrink-0 text-fg-faint">{name}</span>
+        <span className="break-words text-fg-muted">{String(value)}</span>
+      </div>
+    );
+  }
+  if (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((item) => typeof item === "string")
+  ) {
+    const items = value as string[];
+    const allDomains = items.every((item) => isKnownDomain(item));
+    return (
+      <div className="flex flex-wrap items-center gap-1 text-[11.5px]">
+        <span className="shrink-0 text-fg-faint">{name}</span>
+        {items.map((item, index) =>
+          allDomains ? (
+            <DomainChip key={index} domain={item} />
+          ) : (
+            <span
+              key={index}
+              className="rounded bg-hover px-1.5 py-0.5 font-mono text-[10.5px] text-fg-muted"
+            >
+              {item}
+            </span>
+          ),
+        )}
+      </div>
+    );
+  }
+  return (
+    <div>
+      <div className="text-[11px] text-fg-faint">{name}</div>
+      <JsonTree value={value} defaultExpanded={false} defaultDepth={2} />
+    </div>
+  );
+}

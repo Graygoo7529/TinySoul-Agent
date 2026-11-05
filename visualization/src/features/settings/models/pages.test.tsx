@@ -22,7 +22,7 @@ import { initialUiPrefsState, useUiPrefsStore } from "../../../store/uiPrefsStor
 import { draftOperations, useConfigDraftStore } from "../draft/store";
 import { pageForDraft } from "../pages";
 import { useSettingsUiStore } from "../uiStore";
-import { LlmModelsPage } from "./LlmModelsPage";
+import { LlmModelsPage } from "./llm/LlmModelsPage";
 import { LlmProvidersPage } from "./LlmProvidersPage";
 import { ModelSelectionList } from "./ModelPicker";
 import { LlmTaskChainsPage } from "./LlmTaskChainsPage";

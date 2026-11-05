@@ -11,7 +11,7 @@ import {
 } from "../../context/panelShared";
 import { useTurnActivity } from "../../context/activity";
 
-import { FieldSection, SettingsPageBody } from "./controls";
+import { FieldSection, SettingsPageBody } from "./draftCompositeControls";
 import { SettingsDisclosure } from "../SettingsDisclosure";
 import { SectionCard } from "../../../components/ui/Card";
 import { useSettingsUiStore } from "../uiStore";

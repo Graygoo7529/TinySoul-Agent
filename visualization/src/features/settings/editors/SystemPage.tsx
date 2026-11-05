@@ -12,7 +12,7 @@ import { SectionCard } from "../../../components/ui/Card";
 import { isPlainRecord, savedValue } from "../draft/model";
 import { useConfigDraftStore } from "../draft/store";
 import { useSettingsUiStore } from "../uiStore";
-import { ReadOnlyValue, SettingsPageBody } from "./controls";
+import { ReadOnlyValue, SettingsPageBody } from "./draftCompositeControls";
 
 const PROCESS_FIELDS = [
   "agent.interactive",

@@ -17,7 +17,7 @@
 import type { EndpointAddress } from "./connection";
 import { apiErrorFromBody } from "./errors";
 
-export const V2_PATH_PREFIX = "/v2";
+const V2_PATH_PREFIX = "/v2";
 
 /** Query parameter bag; undefined/null entries are skipped. */
 export type QueryParams = Record<

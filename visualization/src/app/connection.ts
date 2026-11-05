@@ -30,7 +30,7 @@ import {
   resetTurnController,
   syncFromStatus,
 } from "../features/chat/turnController";
-import { presentationStore } from "../features/chat/presentationStore";
+import { presentationStore } from "../features/chat/trail/presentationStore";
 import { refreshInterface, resetPresentation } from "../features/settings/presentationController";
 import {
   clearStoredBrowserTarget,

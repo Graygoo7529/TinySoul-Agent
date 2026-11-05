@@ -15,8 +15,8 @@ import { Button } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { useConfigDraftStore } from "../draft/store";
 import { deriveCredentials, groupCredentials, type CredentialEntry } from "./collectionDrafts";
-import { CredentialValueEditor } from "../editors/controls";
-import { inputClass } from "./controls";
+import { CredentialValueEditor } from "../editors/draftCompositeControls";
+import { inputClass } from "./modelControls";
 
 export function CredentialsPage() {
   const { t, locale } = useI18n();
