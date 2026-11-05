@@ -1159,6 +1159,22 @@ body {
   transition: opacity 0.5s ease;
 }
 
+/* ---- semantic glow: hover guidance and selected confirmation ----
+   Both derive from --accent via color-mix; box-shadow rings never shift
+   layout, and the global .ui-reduced-motion rule flattens the transition. */
+.glow-hover {
+  transition: box-shadow 150ms ease;
+}
+.glow-hover:hover {
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.glow-selected {
+  transition: box-shadow 150ms ease;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent),
+    0 0 10px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
 /* ---- breathing gradient border for the running status card ---- */
 .live-border {
   position: relative;

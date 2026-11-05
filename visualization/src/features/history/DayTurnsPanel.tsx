@@ -155,7 +155,7 @@ function CommittedTurnRow({
     <button
       type="button"
       onClick={() => openHistoryConversation(epoch, turn.turn_id, day)}
-      className="block w-full rounded-lg border border-line bg-bg-elev px-3 py-2.5 text-left transition-colors hover:border-line-strong hover:bg-hover"
+      className="glow-hover block w-full rounded-lg border border-line bg-bg-elev px-3 py-2.5 text-left transition-colors hover:border-line-strong hover:bg-hover"
     >
       <span className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium">

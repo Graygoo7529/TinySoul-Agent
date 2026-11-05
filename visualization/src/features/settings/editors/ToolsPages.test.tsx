@@ -300,6 +300,9 @@ describe("McpPage collection editor", () => {
     await act(async () => {
       button!.click();
     });
+    // The confirmed selection carries the glow ring, not a filled background.
+    expect(button!.className).toContain("glow-selected");
+    expect(button!.className).not.toContain("bg-accent-soft");
     await flush();
   }
 

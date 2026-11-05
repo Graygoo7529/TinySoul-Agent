@@ -111,7 +111,7 @@ export function HintRow({
           if (turnId !== null && onOpenTurn !== undefined) onOpenTurn(turnId);
           else openDetail();
         }}
-        className={`min-w-0 flex-1 rounded-lg border border-line bg-bg-elev px-3 py-2 text-left transition-colors hover:border-line-strong hover:bg-hover ${
+        className={`glow-hover min-w-0 flex-1 rounded-lg border border-line bg-bg-elev px-3 py-2 text-left transition-colors hover:border-line-strong hover:bg-hover ${
           retracted ? "opacity-60" : ""
         }`}
       >

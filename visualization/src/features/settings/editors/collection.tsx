@@ -243,7 +243,7 @@ function CollectionListRow({
       type="button"
       onClick={onSelect}
       className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left font-mono text-[12px] transition-colors ${
-        selected ? "bg-accent-soft text-accent" : "text-fg hover:bg-hover"
+        selected ? "glow-selected text-accent" : "text-fg hover:bg-hover"
       }`}
     >
       <span className="min-w-0 flex-1 truncate">{id}</span>

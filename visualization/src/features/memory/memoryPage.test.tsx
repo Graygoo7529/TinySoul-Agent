@@ -310,6 +310,8 @@ describe("MemoryPage knowledge catalog", () => {
       buttonByText("tinysoul").click();
     });
     await flush();
+    // The selected catalog row is confirmed by the glow ring.
+    expect(container.querySelector('button[title="memory:concept/tinysoul"]')?.className).toContain("glow-selected");
     const title = container.querySelector('div[title="memory:concept/tinysoul"]');
     expect(title?.textContent).toBe("上下文容量治理");
     expect(title?.parentElement?.textContent).toContain(t("memory.scopeConcept"));

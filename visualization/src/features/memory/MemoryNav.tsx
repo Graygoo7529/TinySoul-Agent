@@ -229,7 +229,7 @@ function KnowledgeNav({
                 title={item.ref}
                 className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[12.5px] ${
                   selectedLink === item.ref
-                    ? "bg-accent-soft text-accent"
+                    ? "glow-selected text-accent"
                     : "text-fg-muted hover:bg-hover"
                 }`}
               >

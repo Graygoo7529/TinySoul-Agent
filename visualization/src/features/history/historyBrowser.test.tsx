@@ -181,6 +181,8 @@ describe("DayTurnsPanel", () => {
     expect(list).toHaveLength(1);
     expect(queryOf(list[0], "day")).toBe("2026-09-28");
 
+    // Clickable detail rows carry the hover halo affordance.
+    expect(buttonByText("Summarize the release plan").className).toContain("glow-hover");
     await act(async () => {
       buttonByText("Summarize the release plan").click();
     });
