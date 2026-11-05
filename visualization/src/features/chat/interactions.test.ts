@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { Interaction, TurnSnapshot } from "../../../api/v2/types";
-import type { OutgoingEcho } from "../../../store/turnStore";
+import type { Interaction, TurnSnapshot } from "../../api/v2/types";
+import type { OutgoingEcho } from "../../store/turnStore";
 import {
   makeStatus,
   runningSnapshot,
-} from "../../../app/testing";
+} from "../../app/testing";
 import {
   convergeEchoes,
   formalItemForEcho,

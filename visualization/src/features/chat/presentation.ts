@@ -1,4 +1,4 @@
-import { message, type UiText } from "../../../i18n/core";
+import { message, type UiText } from "../../i18n/core";
 /**
  * Chat presentation types — pure presentation models for UI consumption.
  *
@@ -185,8 +185,8 @@ export type ActivityStepContent =
 export interface ActionGlimpseData {
   callId?: string;
   executionState?: "planned" | "running" | "executed" | "cancelled" | "not_executed" | "unknown";
-  payload?: import("../../../api/v2/types").JsonObject | null;
-  failure?: import("../../../api/v2/types").JsonObject | null;
+  payload?: import("../../api/v2/types").JsonObject | null;
+  failure?: import("../../api/v2/types").JsonObject | null;
   /** Canonical action ID */
   actionId: string;
   /** Domain */

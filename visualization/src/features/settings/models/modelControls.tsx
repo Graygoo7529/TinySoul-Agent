@@ -14,9 +14,10 @@ import type { JsonValue } from "../../../api/v2/types";
 import { Badge } from "../../../components/ui/Badge";
 import { Button, IconButton } from "../../../components/ui/Button";
 import { isPlainRecord } from "../draft/model";
+import { fieldRowPadding, inputChrome } from "../fieldChrome";
 
-export const inputClass =
-  "focus-ring h-8 w-full rounded-md border border-line bg-bg-elev px-2.5 text-[12px] outline-none transition-colors focus:border-accent disabled:cursor-not-allowed disabled:opacity-50";
+/** Models forms lay inputs out full-width; the visual chrome stays shared. */
+export const inputClass = `${inputChrome} w-full`;
 
 export const selectClass = inputClass;
 
@@ -40,7 +41,7 @@ export function FieldRow({
 }) {
   const { t } = useI18n();
   return (
-    <div className="settings-field-row gap-2 px-5 py-3">
+    <div className={`settings-field-row gap-2 ${fieldRowPadding}`}>
       <div className="min-w-0">
         <div className="flex items-center gap-1.5 text-[12px] font-medium text-fg">
           {title}

@@ -22,7 +22,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { motion } from "motion/react";
-import type { ActivityStep as ActivityStepType } from "../trail/presentation";
+import type { ActivityStep as ActivityStepType } from "../presentation";
 import { EASE_CALM } from "../../../utils/motion";
 import { Markdown } from "../../../components/markdown/Markdown";
 import { activityColors, activityIcons, DomainChip, LinkChip } from "../../../components/trace/semantic";

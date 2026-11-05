@@ -10,7 +10,7 @@ import { useConnectionStore } from "../../store/connectionStore";
 import { useTurnStore } from "../../store/turnStore";
 import { useConfigDraftStore } from "../../features/settings/draft/store";
 import { useWorkspacePage } from "../../features/workspace/store";
-import { presentationStore } from "../../features/chat/trail/presentationStore";
+import { presentationStore } from "../../features/chat/presentationStore";
 import { resetTurnController, syncFromStatus } from "../../features/chat/turnController";
 import {
   FakeEndpoint,

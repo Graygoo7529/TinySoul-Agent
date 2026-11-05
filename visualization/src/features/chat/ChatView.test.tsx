@@ -40,7 +40,7 @@ import {
   cancelReflection,
 } from "./turnInteractions";
 import { ChatView } from "./ChatView";
-import { presentationStore } from "./trail/presentationStore";
+import { presentationStore } from "./presentationStore";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 

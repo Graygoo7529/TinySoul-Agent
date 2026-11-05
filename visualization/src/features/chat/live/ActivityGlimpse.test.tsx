@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { glimpseBody } from "./ActivityGlimpse";
-import type { ActionGlimpseData } from "../trail/presentation";
+import type { ActionGlimpseData } from "../presentation";
 import searchExample from "../../../../test/fixtures/contracts/search-evidence.json";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;

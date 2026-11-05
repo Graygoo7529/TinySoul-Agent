@@ -1,7 +1,7 @@
 /** Turn-scoped process disclosure. Formal state stays in owner snapshots. */
 import { create } from "zustand";
-import { turnIdOfObservation, type ObservationEvent } from "../../../api/v2/types";
-import { ActivityBuffer } from "../live/activityBuffer";
+import { turnIdOfObservation, type ObservationEvent } from "../../api/v2/types";
+import { ActivityBuffer } from "./live/activityBuffer";
 import type { ActivityPresentation } from "./presentation";
 
 interface ActivityEntry {

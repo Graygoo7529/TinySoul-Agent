@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { Badge, type BadgeTone } from "../ui/Badge";
 import { useState } from "react";
-import type { ActivityStepType } from "../../features/chat/trail/presentation";
+import type { ActivityStepType } from "../../features/chat/presentation";
 
 /* ------------------------------ domains ------------------------------ */
 

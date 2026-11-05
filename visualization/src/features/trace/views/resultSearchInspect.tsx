@@ -10,7 +10,7 @@ import { JsonTree } from "../../../components/ui/JsonTree";
 import { asNumber, asObject, asString, asStringArray } from "../model/facts";
 import { DiffGlimpse } from "../../chat/live/ActivityGlimpse";
 import type { ResultViewProps } from "../model/registry";
-import { isSearchPage, SearchResultView } from "../panels/SearchResultView";
+import { isSearchPage, SearchResultView } from "./SearchResultView";
 import {
   ReferenceButton,
   FactRow,

@@ -6,8 +6,8 @@ import { useConnectionStore } from "../../../store/connectionStore";
 import { readEventWindow } from "../../trace/model/eventWindow";
 import { asObject, asString } from "../../trace/model/facts";
 import { narrowMessage } from "../../context/messages";
-import { presentationStore } from "../trail/presentationStore";
-import type { WorkingState } from "../trail/presentation";
+import { presentationStore } from "../presentationStore";
+import type { WorkingState } from "../presentation";
 
 const EMPTY: WorkingState = { todos: [], milestones: [] };
 

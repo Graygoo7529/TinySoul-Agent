@@ -39,6 +39,7 @@ import {
   useConfigDraftStore,
   type ConfigDraftState,
 } from "../draft/store";
+import { fieldRowPadding, inputChrome } from "../fieldChrome";
 import { useSettingsUiStore } from "../uiStore";
 
 export function valuePreview(value: JsonValue | undefined, limit = 48): string {
@@ -193,7 +194,7 @@ export function FieldRow({
     <div
       ref={rowRef}
       data-field-path={path}
-      className={`px-4 py-2.5 transition-colors ${flash ? "bg-accent-soft" : ""}`}
+      className={`${fieldRowPadding} transition-colors ${flash ? "bg-accent-soft" : ""}`}
     >
       <div className="settings-field-row gap-3">
         <div className="min-w-0 flex-1">
@@ -276,9 +277,6 @@ function lastSegment(path: string): string {
 // Scalar controls
 // ---------------------------------------------------------------------------
 
-export const inputClass =
-  "h-8 rounded-md border border-line bg-bg px-2 text-[12.5px] text-fg outline-none transition-colors focus:border-accent disabled:opacity-50";
-
 export function DraftBoolean({ api }: { api: DraftFieldApi }) {
   const on = api.value === true;
   return (
@@ -345,7 +343,7 @@ export function DraftNumber({
     <span className="flex items-center gap-1.5">
       <input
         type="number"
-        className={`${inputClass} w-28 text-right ${error !== null ? "border-danger" : ""}`}
+        className={`${inputChrome} w-28 text-right ${error !== null ? "border-danger" : ""}`}
         value={text}
         disabled={api.readOnly !== null}
         placeholder={t("common.default")}
@@ -467,7 +465,7 @@ export function DraftText({
   return (
     <input
       type="text"
-      className={`${inputClass} ${width} ${mono ? "font-mono" : ""}`}
+      className={`${inputChrome} ${width} ${mono ? "font-mono" : ""}`}
       value={text}
       disabled={api.readOnly !== null}
       placeholder={placeholder ?? "default"}
@@ -493,7 +491,7 @@ export function DraftEnum({
   const known = current === undefined || options.some((c) => c.value === current);
   return (
     <select
-      className={`${inputClass} w-56`}
+      className={`${inputChrome} w-56`}
       value={current ?? ""}
       disabled={api.readOnly !== null}
       onChange={(event) => {
@@ -578,7 +576,7 @@ export function DraftStringList({ api }: { api: DraftFieldApi }) {
       <span className="flex items-center gap-1">
         <input
           type="text"
-          className={`${inputClass} flex-1 font-mono`}
+          className={`${inputChrome} flex-1 font-mono`}
           placeholder={t("settings.addPlaceholder")}
           value={newItem}
           disabled={disabled}
@@ -623,7 +621,7 @@ function StringListRow({
     <span className="flex items-center gap-1">
       <input
         type="text"
-        className={`${inputClass} flex-1 font-mono`}
+        className={`${inputChrome} flex-1 font-mono`}
         value={text}
         disabled={disabled}
         onChange={(event) => setText(event.target.value)}

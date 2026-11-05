@@ -21,8 +21,8 @@ import type {
   PendingItem,
   RuntimeStatus,
   TurnSnapshot,
-} from "../../../api/v2/types";
-import type { OutgoingEcho } from "../../../store/turnStore";
+} from "../../api/v2/types";
+import type { OutgoingEcho } from "../../store/turnStore";
 
 /** Merge freshly read items with the current list, keyed by interaction id. */
 export function mergeInteractions(

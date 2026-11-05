@@ -15,7 +15,7 @@ import { LiveStatus } from "./live/LiveStatus";
 import {
   cancelReflection,
 } from "./turnInteractions";
-import type { ActivityPresentation } from "./trail/presentation";
+import type { ActivityPresentation } from "./presentation";
 
 const EMPTY_ITEMS: RuntimeTurnProjection["items"] = [];
 const RESULT_LABELS: Record<string, UiText> = {

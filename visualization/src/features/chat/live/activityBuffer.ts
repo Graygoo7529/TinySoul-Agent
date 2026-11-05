@@ -5,7 +5,7 @@ import { message } from "../../../i18n/core";
  */
 import { turnIdOfObservation, type ObservationEvent, type JsonObject } from "../../../api/v2/types";
 import { actionTarget, actionResultSummary, taskSkillRefs, modelControlRequests, asStringArray, asObject, asString, parseActionCall, parseActionExecution, parseActionResult, scopeValue } from "../../trace/model/facts";
-import { PHASE_META, type ActivityPresentation, type ActionGlimpseData, type ActivityStep, type ActivityStepContent, type PhaseHeadline, type PhaseName } from "../trail/presentation";
+import { PHASE_META, type ActivityPresentation, type ActionGlimpseData, type ActivityStep, type ActivityStepContent, type PhaseHeadline, type PhaseName } from "../presentation";
 
 function phaseOf(event: ObservationEvent): PhaseName | null {
   const phase = scopeValue(event, "phase") ?? event.payload.phase;

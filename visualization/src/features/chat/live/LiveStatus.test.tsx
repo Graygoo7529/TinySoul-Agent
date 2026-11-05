@@ -3,7 +3,7 @@ import { t } from "../../../i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { ActivityPresentation } from "../trail/presentation";
+import type { ActivityPresentation } from "../presentation";
 import { LiveStatus } from "./LiveStatus";
 
 const preference = vi.hoisted(() => ({ reduced: false }));

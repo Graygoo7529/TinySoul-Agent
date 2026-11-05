@@ -67,7 +67,7 @@ import { LiveStatus } from "./live/LiveStatus";
 import { useTurnPresentation } from "./useTurnPresentation";
 import { ChatFollowContext, useConversationScroll } from "./useConversationScroll";
 import { useActivityDetails } from "./live/useActivityDetails";
-import type { TurnPresentation, WorkingState } from "./trail/presentation";
+import type { TurnPresentation, WorkingState } from "./presentation";
 import { ReflectionTurn } from "./ReflectionTurn";
 import { WaitingResponseDock } from "./question/WaitingResponseDock";
 

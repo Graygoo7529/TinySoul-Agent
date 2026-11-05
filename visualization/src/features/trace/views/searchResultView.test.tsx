@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { JsonObject } from "../../../api/v2/types";
-import { SearchResultView } from "./SearchResultView";
+import { SearchResultView } from "../views/SearchResultView";
 
 import searchEvidenceFixture from "../../../../test/fixtures/contracts/search-evidence.json";
 

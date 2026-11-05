@@ -17,7 +17,7 @@ import { asObject, asString, asNumber } from "../../trace/model/facts";
 import { pushActionDetail } from "../../trace/entries";
 import { ActivityStep as Step } from "./ActivityStep";
 import { useHoldChatFollow } from "../useConversationScroll";
-import type { ActionGlimpseData, ActivityStep } from "../trail/presentation";
+import type { ActionGlimpseData, ActivityStep } from "../presentation";
 
 const DIFF_GLIMPSE_ROWS = 5;
 const DIFF_GLIMPSE_ROWS_EXPANDED = 14;

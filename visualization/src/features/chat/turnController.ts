@@ -36,9 +36,9 @@ import {
   convergeEchoes,
   resolveComposerIntent,
   type ComposerIntent,
-} from "./trail/interactions";
+} from "./interactions";
 import { randomId } from "../../utils/randomId";
-import { presentationStore } from "./trail/presentationStore";
+import { presentationStore } from "./presentationStore";
 import { clientsFor, errorMessage, openAcceptedTurn, toast } from "./turnShared";
 
 let activeRead: AbortController | null = null;

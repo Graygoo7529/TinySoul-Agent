@@ -24,7 +24,7 @@ import type { JsonValue } from "../../../api/v2/types";
 import { Badge } from "../../../components/ui/Badge";
 import { IconButton } from "../../../components/ui/Button";
 import { SectionCard } from "../../../components/ui/Card";
-import { inputClass } from "./draftControls";
+import { inputChrome } from "../fieldChrome";
 import { SliderRange } from "./draftControls";
 import {
   type CatalogChoice
@@ -162,7 +162,7 @@ export function CredentialValueEditor({
               if (event.key === "Enter") commit();
               if (event.key === "Escape") stopEditing();
             }}
-            className={`${inputClass} h-7 max-w-44 font-mono text-[11px]`}
+            className={`${inputChrome} h-7 max-w-44 font-mono text-[11px]`}
           />
           <IconButton
             label={visible ? t("settings.hideValue") : t("settings.showValue")}
@@ -297,7 +297,7 @@ export function KeyValueMapEditor({
         <div key={index} className="flex items-center gap-1">
           <input
             type="text"
-            className={`${inputClass} min-w-0 flex-1 font-mono`}
+            className={`${inputChrome} min-w-0 flex-1 font-mono`}
             placeholder={keyPlaceholder ?? t("settings.mapName")}
             value={row.key}
             disabled={disabled}
@@ -337,7 +337,7 @@ export function KeyValueMapEditor({
           ) : (
             <input
               type="text"
-              className={`${inputClass} min-w-0 flex-1 font-mono`}
+              className={`${inputChrome} min-w-0 flex-1 font-mono`}
               placeholder={valuePlaceholder ?? t("settings.mapValue")}
               value={row.value}
               disabled={disabled}
@@ -609,7 +609,7 @@ export function EmbeddingUseControl({ api }: { api: DraftFieldApi }) {
   return (
     <span className="flex flex-col items-end gap-1">
       <select
-        className={`${inputClass} w-56`}
+        className={`${inputChrome} w-56`}
         value={current ?? ""}
         disabled={api.readOnly !== null}
         onChange={(event) => {

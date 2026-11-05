@@ -29,7 +29,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import type { ActivityPresentation, ActivityStep, WorkingState, TurnStatus } from "../trail/presentation";
+import type { ActivityPresentation, ActivityStep, WorkingState, TurnStatus } from "../presentation";
 import { ActivityGlimpse, glimpseBody } from "./ActivityGlimpse";
 import { useHoldChatFollow } from "../useConversationScroll";
 import { useNow } from "../../../hooks/useNow";

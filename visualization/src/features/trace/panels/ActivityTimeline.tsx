@@ -19,7 +19,7 @@ import { formatDuration } from "../../../utils/format";
 import { SectionCard } from "../../../components/ui/Card";
 import { ActivityStep as ActivityStepComponent } from "../../chat/live/ActivityStep";
 import { ACTIVITY_FILTERS, ActivityBuffer, activityGroups, type ActivityFilter } from "../../chat/live/activityBuffer";
-import { PHASE_META } from "../../chat/trail/presentation";
+import { PHASE_META } from "../../chat/presentation";
 import {
   phaseShort,
 } from "../../../components/trace/semantic";

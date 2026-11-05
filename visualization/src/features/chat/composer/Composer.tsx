@@ -7,7 +7,7 @@ import { useState } from "react";
 import { Send, Square } from "lucide-react";
 import { useConnectionStore } from "../../../store/connectionStore";
 import { useTurnStore } from "../../../store/turnStore";
-import { resolveComposerIntent } from "../trail/interactions";
+import { resolveComposerIntent } from "../interactions";
 import { cancelActiveTurn, sendUserMessage } from "../turnController";
 import { useComposerDraft } from "./composerDraft";
 import { PresetEntry } from "./PresetEntry";
