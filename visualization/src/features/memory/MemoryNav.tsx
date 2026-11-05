@@ -11,7 +11,7 @@ import { t, useI18n } from "../../i18n";
  */
 
 import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
-import { BookOpen, CalendarDays, Loader2, MessagesSquare, RotateCcw, Sparkles } from "lucide-react";
+import { BookOpen, CalendarDays, MessagesSquare, RotateCcw, Sparkles } from "lucide-react";
 
 import type { DayEntry } from "../../api/v2/types";
 import type { JsonValue } from "../../api/v2/json";
@@ -20,6 +20,7 @@ import { nextContinuation } from "../../api/v2/pagination";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
+import { SkeletonRows } from "../../components/ui/Skeleton";
 import { Tabs } from "../../components/ui/Tabs";
 import { useAppStore } from "../../store/appStore";
 import { useConnectionStore } from "../../store/connectionStore";
@@ -174,9 +175,10 @@ function KnowledgeNav({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5">
         {catalog.loading ? (
-          <div className="flex items-center gap-2 px-2 py-3 text-[12px] text-fg-faint">
-            <Loader2 size={13} className="animate-spin-slow" />
-            {t("memory.loadingCatalog")}</div>
+          <div role="status">
+            <span className="sr-only">{t("memory.loadingCatalog")}</span>
+            <SkeletonRows />
+          </div>
         ) : catalog.error !== null && items.length === 0 ? (
           <EmptyState
             title={t("common.directoryFailed")}

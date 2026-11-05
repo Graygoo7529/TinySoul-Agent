@@ -15,7 +15,6 @@ import {
   ChevronRight,
   FileText,
   Layers,
-  Loader2,
   RotateCcw,
 } from "lucide-react";
 
@@ -25,6 +24,7 @@ import { nextContinuation } from "../../api/v2/pagination";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
+import { SkeletonRows } from "../../components/ui/Skeleton";
 import { useConnectionStore } from "../../store/connectionStore";
 import { usePagedSequence } from "../history/usePagedSequence";
 import {
@@ -101,9 +101,10 @@ export function HomeDirectory({ epoch }: { epoch: number }): ReactElement {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5">
         {catalog.loading ? (
-          <div className="flex items-center gap-2 px-2 py-3 text-[12px] text-fg-faint">
-            <Loader2 size={13} className="animate-spin-slow" />
-            {t("home.loadingDirectory")}</div>
+          <div role="status">
+            <span className="sr-only">{t("home.loadingDirectory")}</span>
+            <SkeletonRows />
+          </div>
         ) : catalog.error !== null && groups.tops.length === 0 &&
           groups.skills.length === 0 && groups.resources.length === 0 &&
           groups.guidance.length === 0 ? (
