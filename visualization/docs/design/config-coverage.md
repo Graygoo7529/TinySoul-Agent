@@ -101,7 +101,7 @@ catalog value_kind 为 object_list，三个数组**各自整体提交**；UI 按
 
 | 路径 | 条目字段 | 约束 | 影响 |
 | --- | --- | --- | --- |
-| `infra.model_services.providers` | `id`、`adapter`、`base_url`、`api_key_env`、`enabled`、`timeout_seconds`、`max_retries`、`proxy` | adapter：openai_embedding / typesafe_system_one；max_retries 0..5；**单数** `api_key_env`（区别于 LLM 复数 `api_key_envs`）；有 `proxy` | Embedding/decision model 连接、代理与凭据 |
+| `infra.model_services.providers` | `id`、`adapter`、`base_url`、`api_key_env`、`enabled`、`timeout_seconds`、`max_retries`、`network` | adapter：openai_embedding / typesafe_system_one；max_retries 0..5；**单数** `api_key_env`（区别于 LLM 复数 `api_key_envs`）；`network` 对象承载代理/路由 | Embedding/decision model 连接、代理与凭据 |
 | `infra.model_services.models` | `id`、`kind`、`provider_bindings[{provider_id, model}]`、`dimensions`、`batch_size` | kind：embedding / decision；embedding 必填 dimensions>0、decision 禁止 dimensions；batch_size 1..256；provider_bindings 有序 | 专用模型与 Provider 路由 |
 | `infra.model_services.uses` | `id`、`kind`、`model_id` | 一对一绑定一个模型；序列化字段是 `id` 不是 `use_id` | 上层引用的稳定逻辑用途 |
 
@@ -360,7 +360,7 @@ Endpoint：`GET/POST /v2/config/presets`、`GET/PUT/DELETE /v2/config/presets/{i
 3. 工具与连接分组覆盖 Web、资源、Execution/Job、ACP 与 MCP；字段可写性仍由实际 source 和 catalog 决定。
 4. **`agent.*` 在 catalog runtime.toml 中有字段声明但全部进程独有只读**；系统页只读项须以 config 读取投影的 `writable:false` 为准，不凭 catalog 存在性做成可写控件。
 5. **Kimi 搜索 model 已声明 choices**：后端 catalog 提供 kimi-k2.5/kimi-k2.6；表单应消费 choices，不开放自由文本。
-6. **LLM Provider 无 `proxy` 字段，专用 Provider（`infra.model_services.providers`）有**；两个表单可复用控件，但 LLM 使用 `endpoints`/`api_key_envs`，专用服务使用 `adapter`/`api_key_env`，不强行合并协议。
+6. **LLM Provider 与专用 Provider（`infra.model_services.providers`）统一使用 `network` 对象**表达代理/路由（两个表单均接 NetworkPolicyEditor）；LLM 使用 `endpoints`/`api_key_envs`，专用服务使用 `adapter`/`api_key_env`，不强行合并协议。
 7. **计划 §19 的简写键名**（`compression_trigger/target_ratio`、`trace_chunk_chars/branch_factor/min_hot_entries/max_inspect_chars`）对应真实完整键 `context.compression_trigger_ratio` 等（见 §8），语义一致，仅书写省略。
 8. **模板中 expand.search 无 backlinks source**（其余四个 search action 有）；MCP 配置面不显示反链入口，与计划 §17.3 “MCP 不自动获得 Embedding”一致。
 

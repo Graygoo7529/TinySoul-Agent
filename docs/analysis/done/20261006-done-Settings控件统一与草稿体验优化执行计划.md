@@ -2,7 +2,7 @@
 
 日期：2026-10-06；2026-10-27 按最新设置实现复核；**2026-11-04 按当前代码全面复核刷新**（每个改进点的前提均已对照实现重新核实，过期内容已修剪，改进点重新划分）
 
-状态：待逐项确认与实施
+状态：done（2026-11-04，五个改进点全部处理完毕：1/2/3/5 实施，4 的子项 1 与 5 的子项 2 经维护者确认不做；门禁全绿）
 
 范围：`visualization/src/features/settings/`（editors/models 控件、draft/*、SettingsBottomBar、SettingsOverviewPage、SettingsPage、pages/labels/i18n、InterfacePage、NetworkPolicyEditor）及 `visualization/docs/design/config-coverage.md`。保持字段级 ConfigDraft、apply/reload、集合对象原子提交、模型/Provider 创建逻辑与四类 API mode 规则不变；不新增配置面与端点。
 
@@ -132,6 +132,8 @@
 
 ## 改进点 5：可读性与导航收口
 
+状态：done（2026-11-04，子项 2 经维护者确认保留不做）
+
 ### 现有情况
 
 - 设置页头描述被 `line-clamp-1` 截断（SettingsPage.tsx:202），多语言下长描述不可读；
@@ -148,6 +150,13 @@
 ### 预期效果
 
 配置说明可读、导航项均有真实功能、文档与实现一致。
+
+### 实施验证（2026-11-04）
+
+- **子项 1 已实施**：设置页头描述取消 `line-clamp-1`（补 `leading-4`），长描述自然换行完整显示；
+- **子项 2 维护者确认保留不做**：image-generation 保留页继续占位（后端接入图像能力前作为可见预告存在），pages.ts / SettingsPage / ImageGenerationPage / i18n 键均不动；
+- **子项 3 已实施**：config-coverage.md 第 104 行字段表与第 363 行第 6 条的专用 Provider `proxy` 旧描述，修正为与实现一致的 `network` 对象表述（后端 infra/model_services/config.py:34 为 `network: NetworkPolicy`）；
+- 门禁：tsc 零错误；vitest 102 文件 / 893 用例全绿；build 通过；git diff --check 干净。改动文件：SettingsPage.tsx、docs/design/config-coverage.md。
 
 ## 实施顺序与验收
 

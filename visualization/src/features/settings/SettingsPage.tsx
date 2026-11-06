@@ -199,7 +199,7 @@ function SettingsHeader({ connected }: { connected: boolean }) {
         <h1 className="truncate text-[15px] font-semibold text-fg">
           {settingsTitle(def)}
         </h1>
-        <div className="line-clamp-1 text-[10px] text-fg-faint">
+        <div className="text-[10px] leading-4 text-fg-faint">
           {settingsDescription(def)}
         </div>
       </div>
