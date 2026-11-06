@@ -45,12 +45,7 @@ export function FieldRow({
       <div className="min-w-0">
         <div className="flex items-center gap-1.5 text-[12px] font-medium text-fg">
           {title}
-          {dirty && (
-            <span
-              className="inline-block h-1.5 w-1.5 rounded-full bg-accent"
-              title={t("settings.modifiedLocally")}
-            />
-          )}
+          {dirty && <DraftBadge>{t("common.modified")}</DraftBadge>}
         </div>
         {description !== undefined && description !== "" && (
           <div className="mt-0.5 text-[11px] leading-4 text-fg-faint">{typeof description === "string" ? description : description}</div>
@@ -229,7 +224,7 @@ export function Toggle({
       }`}
     >
       <span
-        className={`absolute top-0.5 h-4.5 w-4.5 rounded-full bg-white shadow transition-transform ${
+        className={`absolute left-0 top-0.5 h-4.5 w-4.5 rounded-full bg-white shadow transition-transform ${
           checked ? "translate-x-5" : "translate-x-0.5"
         }`}
       />

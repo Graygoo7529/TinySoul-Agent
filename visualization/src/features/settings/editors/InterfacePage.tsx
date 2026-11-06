@@ -17,6 +17,7 @@ import {
   type SansFontChoice,
 } from "../../../store/uiPrefsStore";
 import { SettingsPageBody } from "./draftCompositeControls";
+import { inputChrome } from "../fieldChrome";
 import {
   refreshInterface,
   resetInterfaceDefaults,
@@ -317,7 +318,7 @@ function NumberControl({
     <span className="flex items-center gap-1.5">
       <input
         type="number"
-        className="h-8 w-24 rounded-md border border-line bg-bg px-2 text-right text-[12.5px] text-fg outline-none focus:border-accent"
+        className={`${inputChrome} w-24 text-right`}
         value={text}
         min={min}
         max={max}

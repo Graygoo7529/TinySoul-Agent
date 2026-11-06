@@ -286,14 +286,13 @@ export function DraftBoolean({ api }: { api: DraftFieldApi }) {
       aria-checked={on}
       disabled={api.readOnly !== null}
       onClick={() => api.set(!on)}
-      className={`relative w-10 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+      className={`relative h-5.5 w-10 shrink-0 rounded-full transition-colors focus-ring disabled:cursor-not-allowed disabled:opacity-50 ${
         on ? "bg-accent" : "bg-line-strong"
       }`}
-      style={{ height: 22 }}
     >
       <span
-        className={`absolute top-0.5 h-[18px] w-[18px] rounded-full bg-white shadow transition-transform ${
-          on ? "translate-x-[19px]" : "translate-x-0.5"
+        className={`absolute left-0 top-0.5 h-4.5 w-4.5 rounded-full bg-white shadow transition-transform ${
+          on ? "translate-x-5" : "translate-x-0.5"
         }`}
       />
     </button>
@@ -352,6 +351,10 @@ export function DraftNumber({
         onBlur={commit}
         onKeyDown={(event) => {
           if (event.key === "Enter") commit();
+          if (event.key === "Escape") {
+            setText(display);
+            setError(null);
+          }
         }}
       />
       {unit !== undefined && (
@@ -473,6 +476,7 @@ export function DraftText({
       onBlur={commit}
       onKeyDown={(event) => {
         if (event.key === "Enter") commit();
+        if (event.key === "Escape") setText(display);
       }}
     />
   );
