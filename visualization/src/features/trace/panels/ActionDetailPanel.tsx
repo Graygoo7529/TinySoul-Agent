@@ -25,7 +25,8 @@ import {
 } from "../model/facts";
 import { readEventWindow } from "../model/eventWindow";
 import { actionFamily } from "../model/registry";
-import { cycleLabel, IdChip, phaseHint } from "../../../components/trace/semantic";
+import { IdChip } from "../../../components/trace/chips";
+import { cycleLabel, phaseHint } from "../../../components/trace/labels";
 import { FAMILY_VIEWS } from "../views/resultViews";
 import { makeTraceNavigation } from "../entries";
 import {

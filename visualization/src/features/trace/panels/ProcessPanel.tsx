@@ -35,7 +35,7 @@ import { readEventWindow } from "../model/eventWindow";
 import { buildTraceExport } from "../export/export";
 import { saveTraceExport } from "../export/exportArchive";
 import { domainTextClass } from "../model/registry";
-import { cycleLabel, phaseHint, phaseShort, shortId, actionSummary } from "../../../components/trace/semantic";
+import { cycleLabel, phaseHint, phaseShort, shortId, actionSummary } from "../../../components/trace/labels";
 import { glimpseBody } from "../../chat/live/ActivityGlimpse";
 import { makeTraceNavigation, pushActionDetail } from "../entries";
 import {

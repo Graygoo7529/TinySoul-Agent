@@ -22,7 +22,7 @@ import { ACTIVITY_FILTERS, ActivityBuffer, activityGroups, type ActivityFilter }
 import { PHASE_META } from "../../chat/presentation";
 import {
   phaseShort,
-} from "../../../components/trace/semantic";
+} from "../../../components/trace/labels";
 import {
   pushActionDetail,
 } from "../entries";

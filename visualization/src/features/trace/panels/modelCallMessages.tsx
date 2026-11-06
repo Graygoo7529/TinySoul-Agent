@@ -12,7 +12,8 @@ import type { JsonObject } from "../../../api/v2/types";
 import { Badge, type BadgeTone } from "../../../components/ui/Badge";
 import { JsonTree } from "../../../components/ui/JsonTree";
 import { asNumber, asObject, asString, asStringArray } from "../model/facts";
-import { domainBorderClass, DomainChip, isKnownDomain, segmentLabel } from "../../../components/trace/semantic";
+import { domainBorderClass, DomainChip, isKnownDomain } from "../../../components/trace/chips";
+import { segmentLabel } from "../../../components/trace/labels";
 import { Markdown } from "../../../components/markdown/Markdown";
 
 // ---------------------------------------------------------------------------

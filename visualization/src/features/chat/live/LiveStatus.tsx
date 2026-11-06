@@ -38,7 +38,7 @@ import { useOverflowing } from "../../../hooks/useOverflowing";
 import { useTruncated } from "../../../hooks/useTruncated";
 import { Crossfade } from "../../../components/ui/Crossfade";
 import { Markdown } from "../../../components/markdown/Markdown";
-import { turnStatusText } from "../../../components/trace/semantic";
+import { turnStatusText } from "../../../components/trace/labels";
 import { formatDuration } from "../../../utils/format";
 import { EASE_CALM, FOLD_DELAY_MS, LIVE_FOLD_MS } from "../../../utils/motion";
 

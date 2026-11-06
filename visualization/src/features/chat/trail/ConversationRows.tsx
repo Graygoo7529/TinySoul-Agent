@@ -5,7 +5,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { Bot, Check, Loader2, PanelRightOpen } from "lucide-react";
 import type { Interaction, TurnQuestion, TurnSnapshot } from "../../../api/v2/types";
 import { Badge, type BadgeTone } from "../../../components/ui/Badge";
-import { turnStatusText } from "../../../components/trace/semantic";
+import { turnStatusText } from "../../../components/trace/labels";
 import { Button } from "../../../components/ui/Button";
 import { formatDuration } from "../../../utils/format";
 import { openTurnProcess } from "../../trace/entries";

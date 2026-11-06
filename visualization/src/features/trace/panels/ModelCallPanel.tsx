@@ -28,7 +28,7 @@ import {
 } from "../model/facts";
 import { readEventWindow, type EventWindow } from "../model/eventWindow";
 import type { ModelCallTarget } from "../model/registry";
-import { IdChip } from "../../../components/trace/semantic";
+import { IdChip } from "../../../components/trace/chips";
 import {
   AsyncStatus,
   MissingRecord,
