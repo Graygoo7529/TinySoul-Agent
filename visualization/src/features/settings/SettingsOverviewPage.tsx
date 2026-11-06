@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-import type { JsonValue, PresetSummary } from "../../api/v2/types";
+import type { PresetSummary } from "../../api/v2/types";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { SectionCard } from "../../components/ui/Card";
@@ -23,20 +23,13 @@ import {
 } from "./draft/store";
 import {
   isFieldDraft,
-  isRedactedValue,
   pendingActivationChanges,
+  savedValue,
   type DraftEntry,
 } from "./draft/model";
+import { valuePreview, ValueCompare } from "./editors/draftControls";
 import { pageForDraft, pageForPath, SETTINGS_PAGES } from "./pages";
 import { useSettingsUiStore } from "./uiStore";
-
-/** Compact one-line rendering of a config value for summaries. */
-function previewValue(value: JsonValue | undefined, limit = 60): string {
-  if (value === undefined) return "—";
-  if (isRedactedValue(value)) return "••••••";
-  const text = typeof value === "string" ? value : JSON.stringify(value);
-  return text.length <= limit ? text : `${text.slice(0, limit)}…`;
-}
 
 /**
  * The settings overview (P10): running configuration facts, saved-but-not-
@@ -88,12 +81,16 @@ export function SettingsOverviewPage() {
         </div>}
         <div className="space-y-1">{pending.map((change) => {
           const owner = pageForPath(change.path);
-          return <button key={change.path} className="flex w-full flex-wrap items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-hover"
-            onClick={() => owner !== null && navigateTo(owner.id, change.path)}>
-            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-fg">{change.path}</span>
+          return <div key={change.path} className="flex w-full flex-wrap items-center gap-2 rounded-md px-2 py-1.5 hover:bg-hover">
+            <button className="min-w-0 flex-1 truncate text-left font-mono text-[12px] text-fg"
+              onClick={() => owner !== null && navigateTo(owner.id, change.path)}>
+              {change.path}
+            </button>
             {owner !== null && <Badge tone="gray">{SETTINGS_PAGES[owner.id].title}</Badge>}
-            <span className="w-full break-all text-[11px] text-fg-faint">{previewValue(change.active, 50)} → {previewValue(change.saved, 50)}</span>
-          </button>;
+            <span className="w-full min-w-0 text-[11px]">
+              <ValueCompare baseline={change.active} draft={change.saved} />
+            </span>
+          </div>;
         })}</div>
       </SectionCard>}
 
@@ -140,6 +137,7 @@ function DraftList({
   onLocate: (entry: DraftEntry) => void;
   onResolveStale: (key: string, action: "adopt" | "keep") => void;
 }) {
+  const saved = useConfigDraftStore((s) => s.saved);
   const entries = Object.values(drafts).sort(
     (a, b) => a.sourceId.localeCompare(b.sourceId) ||
       (isFieldDraft(a) ? a.path : "").localeCompare(isFieldDraft(b) ? b.path : ""),
@@ -151,7 +149,7 @@ function DraftList({
         return (
           <div
             key={entry.key}
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-hover"
+            className="flex flex-wrap items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-hover"
           >
             <Badge tone={entry.op.op === "delete" ? "red" : "accent"}>
               {entry.op.op}
@@ -163,11 +161,6 @@ function DraftList({
             >
               {isFieldDraft(entry) ? entry.path : entry.sourceId}
             </button>
-            {entry.op.op === "set" && (
-              <span className="hidden max-w-[200px] truncate font-mono text-[11px] text-fg-faint md:block">
-                {previewValue(entry.op.value, 28)}
-              </span>
-            )}
             {isStale && (
               <span className="flex shrink-0 items-center gap-1">
                 <Badge tone="yellow" title={t("settings.overview.staleTitle")}>
@@ -184,6 +177,15 @@ function DraftList({
                   title={t("settings.overview.staleKeep")}
                   onClick={() => onResolveStale(entry.key, "keep")}
                 >{t("settings.keep")}</Button>
+              </span>
+            )}
+            {isFieldDraft(entry) && (
+              <span className="w-full min-w-0 font-mono text-[11px]">
+                <ValueCompare
+                  baseline={savedValue(saved, entry.path)}
+                  draft={entry.op.op === "set" ? entry.op.value : undefined}
+                  deleting={entry.op.op === "delete"}
+                />
               </span>
             )}
           </div>
@@ -332,7 +334,7 @@ export function CleanupDiagnosticsBanner() {
         <ul className="mt-1 list-inside list-disc font-mono text-[11px]">
           {cleanupDiagnostics.map((item, index) => (
             <li key={index} className="break-all">
-              {previewValue(item, 120)}
+              {valuePreview(item, 120)}
             </li>
           ))}
         </ul>

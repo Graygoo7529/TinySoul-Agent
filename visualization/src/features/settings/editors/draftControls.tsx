@@ -21,6 +21,7 @@ import {
 import type { JsonValue } from "../../../api/v2/types";
 import { Badge } from "../../../components/ui/Badge";
 import { IconButton } from "../../../components/ui/Button";
+import { JsonTree } from "../../../components/ui/JsonTree";
 import {
   type CatalogChoice,
   type CatalogField,
@@ -47,6 +48,91 @@ export function valuePreview(value: JsonValue | undefined, limit = 48): string {
   if (isRedactedValue(value)) return "••••••";
   const text = typeof value === "string" ? value : JSON.stringify(value);
   return text.length <= limit ? text : `${text.slice(0, limit)}…`;
+}
+
+/**
+ * Baseline → draft comparison for one field: short scalars inline, long
+ * strings/objects as a size summary with an expandable two-column JsonTree.
+ * Redacted values only ever render the placeholder on both sides.
+ */
+export function ValueCompare({
+  baseline,
+  draft,
+  deleting = false,
+}: {
+  baseline: JsonValue | undefined;
+  draft: JsonValue | undefined;
+  /** The draft is a delete of the source override (restores the default). */
+  deleting?: boolean;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const oldPreview = valuePreview(baseline);
+  const arrow = <span className="text-fg-faint">→</span>;
+  if (deleting) {
+    return (
+      <span className="inline-flex flex-wrap items-center gap-1.5">
+        <span className="text-fg-muted">{oldPreview}</span>
+        {arrow}
+        <span className="font-medium text-danger">{t("settings.restoreDefault")}</span>
+      </span>
+    );
+  }
+  const expandable = isExpandableValue(baseline) || isExpandableValue(draft);
+  if (!expandable) {
+    return (
+      <span className="inline-flex flex-wrap items-center gap-1.5">
+        <span className="text-fg-muted">{oldPreview}</span>
+        {arrow}
+        <span className="font-medium text-accent">{valuePreview(draft)}</span>
+      </span>
+    );
+  }
+  return (
+    <span className="block">
+      <span className="inline-flex flex-wrap items-center gap-1.5">
+        <span className="text-fg-muted">{summarizeValue(baseline)}</span>
+        {arrow}
+        <span className="font-medium text-accent">{summarizeValue(draft)}</span>
+        <button
+          type="button"
+          className="ml-0.5 rounded px-1 text-accent transition-colors hover:bg-accent-soft"
+          onClick={() => setOpen((value) => !value)}
+        >
+          {open ? t("settings.collapseValue") : t("settings.expandValue")}
+        </button>
+      </span>
+      {open && (
+        <span className="mt-1.5 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+          <span className="block min-w-0">
+            <span className="mb-0.5 block text-[10px] text-fg-faint">{t("settings.valueBaseline")}</span>
+            <JsonTree value={baseline ?? null} />
+          </span>
+          <span className="block min-w-0">
+            <span className="mb-0.5 block text-[10px] text-fg-faint">{t("settings.valueDraft")}</span>
+            <JsonTree value={draft ?? null} />
+          </span>
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Long strings and structured values deserve the expandable treatment. */
+function isExpandableValue(value: JsonValue | undefined): boolean {
+  if (value === undefined || value === null) return false;
+  if (isRedactedValue(value)) return false;
+  if (typeof value === "string") return value.length > 48;
+  return typeof value === "object";
+}
+
+/** Size summary for the collapsed form of an expandable value. */
+function summarizeValue(value: JsonValue | undefined): string {
+  if (value !== null && value !== undefined && typeof value === "object" && !isRedactedValue(value)) {
+    if (Array.isArray(value)) return t("settings.arrayItems", { count: value.length });
+    return t("settings.objectKeys", { count: Object.keys(value).length });
+  }
+  return valuePreview(value, 32);
 }
 
 /**
@@ -79,6 +165,8 @@ export interface DraftFieldApi {
   sourceId: string | null;
   /** The value a control should display (draft over saved baseline). */
   value: JsonValue | undefined;
+  /** The saved baseline the draft overlays, for baseline → draft comparison. */
+  baseline: JsonValue | undefined;
   dirty: boolean;
   /** The draft is a pending delete (override removed → default restored). */
   deleting: boolean;
@@ -128,6 +216,7 @@ export function useDraftField(path: string): DraftFieldApi {
     field,
     sourceId,
     value,
+    baseline: savedBaseline,
     dirty: draft !== undefined,
     deleting,
     stale,
@@ -255,6 +344,12 @@ export function FieldRow({
       )}
       {detailsOpen && (
         <div className="mt-1.5 space-y-0.5 rounded-md bg-bg-sunken px-2.5 py-1.5 font-mono text-[11px] text-fg-muted">
+          {api.dirty && (
+            <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b border-line pb-1.5">
+              <span className="text-[10px] tracking-wide text-fg-faint">{t("settings.thisChange")}</span>
+              <ValueCompare baseline={api.baseline} draft={api.value} deleting={api.deleting} />
+            </div>
+          )}
           <div className="break-all">{t("settings.pathLabel")}{path}</div>
           <div className="break-all">
             {t("settings.sourceLabel")}{api.sourceId ?? api.field?.surface ?? "—"}
