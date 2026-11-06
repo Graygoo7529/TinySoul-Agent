@@ -440,7 +440,7 @@ export function DraftNumber({
         className={`${inputChrome} w-28 text-right ${error !== null ? "border-danger" : ""}`}
         value={text}
         disabled={api.readOnly !== null}
-        placeholder={t("common.default")}
+        placeholder={t("settings.inheritDefault")}
         title={error === null ? undefined : resolveText(error, effectiveLocale())}
         onChange={(event) => setText(event.target.value)}
         onBlur={commit}
@@ -489,7 +489,7 @@ export function SliderField({
   max?: number;
   unit?: string;
 }) {
-  useI18n();
+  const { t } = useI18n();
   const integer = api.field?.valueKind === "integer";
   const readOnly = api.readOnly !== null;
   const value = typeof api.value === "number" ? api.value : undefined;
@@ -515,7 +515,7 @@ export function SliderField({
       <input
         type="range"
         aria-label={t("settings.fieldSlider", { path: api.path })}
-        className="w-32 accent-accent disabled:opacity-50"
+        className={`w-32 accent-accent disabled:opacity-50 ${value === undefined ? "range-unset" : ""}`}
         min={slider.min}
         max={slider.max}
         step={step}
@@ -523,6 +523,9 @@ export function SliderField({
         disabled={readOnly}
         onChange={(event) => slide(event.target.value)}
       />
+      {value === undefined && (
+        <span className="text-[11px] text-fg-faint">{t("settings.sliderUnset")}</span>
+      )}
       <DraftNumber api={api} min={min} max={max} unit={unit} />
       <IconButton
         label={t("settings.restoreOwnerDefault")}
@@ -566,7 +569,7 @@ export function DraftText({
       className={`${inputChrome} ${width} ${mono ? "font-mono" : ""}`}
       value={text}
       disabled={api.readOnly !== null}
-      placeholder={placeholder ?? "default"}
+      placeholder={placeholder ?? t("settings.inheritDefault")}
       onChange={(event) => setText(event.target.value)}
       onBlur={commit}
       onKeyDown={(event) => {

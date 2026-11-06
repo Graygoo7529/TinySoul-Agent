@@ -448,6 +448,8 @@ export const settingsMessages = {
   "settings.imagesLabel": "Images",
   "settings.segmentCount": "segments",
   "settings.restoreDefault": "Restore default",
+  "settings.inheritDefault": "Inherit default",
+  "settings.sliderUnset": "Not set",
   "settings.thisChange": "Change",
   "settings.valueBaseline": "Baseline",
   "settings.valueDraft": "Draft",

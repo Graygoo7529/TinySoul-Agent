@@ -726,6 +726,38 @@ body {
   box-shadow: var(--focus-ring);
 }
 
+/* ---- unset range slider: hollow knob + dimmed track until the user drags ---- */
+input[type="range"].range-unset {
+  opacity: 0.45;
+}
+input[type="range"].range-unset::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+input[type="range"].range-unset::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--bg-elev);
+  border: 2px solid var(--fg-faint);
+}
+input[type="range"].range-unset::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+input[type="range"].range-unset::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg-elev);
+  border: 2px solid var(--fg-faint);
+}
+
 /* ---- markdown body ---- */
 .md-body {
   font-size: 14px;

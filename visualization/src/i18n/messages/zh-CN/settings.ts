@@ -448,6 +448,8 @@ export const settingsMessages = {
   "settings.imagesLabel": "图像",
   "settings.segmentCount": "个语境段",
   "settings.restoreDefault": "恢复默认",
+  "settings.inheritDefault": "继承默认",
+  "settings.sliderUnset": "未设置",
   "settings.thisChange": "本次改动",
   "settings.valueBaseline": "基线",
   "settings.valueDraft": "草稿",
