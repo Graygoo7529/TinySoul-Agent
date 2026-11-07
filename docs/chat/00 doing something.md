@@ -92,6 +92,7 @@
 - Execution 状态呈现
 - 后台 browser 状态呈现
 - Ego lite
+- Kimi-Search-Pro
 - Openai-search
 - Opencode Hosted Web Search
 - DeepSeek Search
