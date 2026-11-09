@@ -84,11 +84,10 @@ export function LlmModelsPage() {
       }
     }
   }, [focusPath]);
+  // Clear a stale selection (deleted model); entering stays list-first.
   useEffect(() => {
-    if (selected === null || !objects.some((item) => item.id === selected)) {
-      setSelected(
-        objects.find((item) => item.value.collapsed !== true)?.id ?? objects[0]?.id ?? null,
-      );
+    if (selected !== null && !objects.some((item) => item.id === selected)) {
+      setSelected(null);
     }
   }, [objects, selected]);
 
