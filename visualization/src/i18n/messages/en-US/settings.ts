@@ -509,6 +509,7 @@ export const settingsMessages = {
   "settings.modifiedLocally": "Modified in the local draft",
   "settings.moveUp": "Move up",
   "settings.moveDown": "Move down",
+  "settings.dragToReorder": "Drag to reorder",
   "settings.credentialsTitle": "Project credentials",
   "settings.credentialLocation": "Saved in the project dotenv file",
   "settings.credentialHint": ". Values stay hidden. Setting or deleting a value creates a local draft, committed when you apply configuration.",

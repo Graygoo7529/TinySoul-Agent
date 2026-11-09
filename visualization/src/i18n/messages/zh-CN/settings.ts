@@ -509,6 +509,7 @@ export const settingsMessages = {
   "settings.modifiedLocally": "已在本地草稿中修改",
   "settings.moveUp": "上移",
   "settings.moveDown": "下移",
+  "settings.dragToReorder": "拖动调整顺序",
   "settings.credentialsTitle": "项目凭据",
   "settings.credentialLocation": "保存在项目 dotenv 文件",
   "settings.credentialHint": "中。值不会直接显示；设置或删除会先形成本地草稿，应用配置后才会提交。",

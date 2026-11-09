@@ -292,6 +292,9 @@ export interface OrderableRowProps {
  * One row of an ordered list: drag handle (HTML5 DnD) plus always-available
  * up/down buttons (accessibility) and an optional remove button.
  */
+/** MIME marker: only grip-initiated drags are accepted as row reorders. */
+const REORDER_MIME = "application/x-tinysoul-reorder";
+
 export function OrderableRow({
   index,
   count,
@@ -303,35 +306,64 @@ export function OrderableRow({
   ariaLabel,
 }: OrderableRowProps) {
   const { t } = useI18n();
-  const [dragOver, setDragOver] = useState(false);
+  /** Insertion edge under the pointer while a reorder drag crosses this row. */
+  const [edge, setEdge] = useState<"before" | "after" | null>(null);
+
+  // dragend/drop bubble to the document from the drag source; either means a
+  // stale insertion line must clear (drop outside, Esc cancel, drop elsewhere).
+  useEffect(() => {
+    if (edge === null) return;
+    const clear = () => setEdge(null);
+    document.addEventListener("dragend", clear);
+    document.addEventListener("drop", clear);
+    return () => {
+      document.removeEventListener("dragend", clear);
+      document.removeEventListener("drop", clear);
+    };
+  }, [edge]);
+
   return (
     <div
-      draggable={!disabled}
-      onDragStart={(event) => {
-        event.dataTransfer.setData("text/plain", String(index));
-        event.dataTransfer.effectAllowed = "move";
-      }}
       onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes(REORDER_MIME)) return;
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
-        setDragOver(true);
+        const rect = event.currentTarget.getBoundingClientRect();
+        setEdge(event.clientY < rect.top + rect.height / 2 ? "before" : "after");
       }}
-      onDragLeave={() => setDragOver(false)}
+      onDragLeave={(event) => {
+        const next = event.relatedTarget;
+        if (!(next instanceof Node) || !event.currentTarget.contains(next)) setEdge(null);
+      }}
       onDrop={(event) => {
+        if (!event.dataTransfer.types.includes(REORDER_MIME)) return;
         event.preventDefault();
-        setDragOver(false);
-        const source = Number(event.dataTransfer.getData("text/plain"));
+        setEdge(null);
+        const source = Number(event.dataTransfer.getData(REORDER_MIME));
         if (Number.isInteger(source)) onDrop(source);
       }}
-      className={`settings-orderable-row flex items-center gap-2 rounded-md border bg-bg-elev px-2 py-1.5 ${
-        dragOver ? "border-accent" : "border-line"
+      className={`settings-orderable-row flex items-center gap-2 rounded-md border border-line bg-bg-elev px-2 py-1.5 ${
+        edge === "before" ? "insert-before" : edge === "after" ? "insert-after" : ""
       }`}
       aria-label={ariaLabel}
     >
-      <GripVertical
-        size={14}
-        className={`shrink-0 ${disabled ? "text-fg-faint/50" : "cursor-grab text-fg-faint"}`}
-      />
+      <span
+        draggable={!disabled}
+        role="button"
+        aria-label={t("settings.dragToReorder")}
+        title={t("settings.dragToReorder")}
+        onDragStart={(event) => {
+          event.dataTransfer.setData(REORDER_MIME, String(index));
+          event.dataTransfer.effectAllowed = "move";
+        }}
+        className={`shrink-0 select-none rounded px-0.5 py-1 ${
+          disabled
+            ? "text-fg-faint/50"
+            : "cursor-grab text-fg-faint transition-colors hover:bg-hover hover:text-fg active:cursor-grabbing"
+        }`}
+      >
+        <GripVertical size={14} />
+      </span>
       <span className="w-5 shrink-0 text-center text-[10px] text-fg-faint">
         {index + 1}
       </span>
