@@ -38,6 +38,13 @@
   --warning-soft: rgba(217, 119, 6, 0.12);
   --info: #0284c7;
   --info-soft: rgba(2, 132, 199, 0.1);
+  /* JSON tree: muted type colors (calm, content-first) */
+  --jt-key: #557191;
+  --jt-string: #5d8a6b;
+  --jt-number: #6f74b8;
+  --jt-boolean: #96723f;
+  --jt-punct: #a0a8b6;
+  --jt-peek: #98a2b3;
   --code-bg: #f0f2f5;
   /* aurora accent: calm deep indigo→blue gradient (no violet), white-text
      safe; shared by bubbles, logo, primary actions */
@@ -112,6 +119,12 @@
   --warning-soft: rgba(251, 191, 36, 0.12);
   --info: #38bdf8;
   --info-soft: rgba(56, 189, 248, 0.12);
+  --jt-key: #8298b5;
+  --jt-string: #87a892;
+  --jt-number: #9498c9;
+  --jt-boolean: #bfa08a;
+  --jt-punct: #4a5261;
+  --jt-peek: #525b69;
   --code-bg: #1d2129;
   --accent-grad: linear-gradient(135deg, #4f46e5, #2563eb);
   --hue-violet: #a78bfa;
@@ -971,46 +984,57 @@ input[type="range"].range-unset::-moz-range-thumb {
   line-height: 1.55;
 }
 .json-tree .jt-key {
-  color: var(--info);
+  color: var(--jt-key);
 }
 .json-tree .jt-string {
-  color: var(--success);
+  color: var(--jt-string);
 }
 .json-tree .jt-number {
-  color: var(--accent);
+  color: var(--jt-number);
 }
 .json-tree .jt-boolean {
-  color: var(--warning);
+  color: var(--jt-boolean);
 }
 .json-tree .jt-null {
   color: var(--fg-faint);
 }
 .json-tree .jt-punct {
-  color: var(--fg-faint);
+  color: var(--jt-punct);
+}
+.json-tree .jt-peek,
+.json-tree .jt-count {
+  color: var(--jt-peek);
+}
+.json-tree .jt-count {
+  font-size: 0.92em;
 }
 .json-tree .jt-toggle {
   cursor: pointer;
   user-select: none;
   color: var(--fg-faint);
+  opacity: 0.45;
   display: inline-block;
-  width: 14px;
-  transition: transform 0.12s;
+  vertical-align: -1.5px;
+  transition: transform 0.12s, opacity 0.12s;
 }
 .json-tree .jt-toggle.open {
   transform: rotate(90deg);
 }
+.json-tree .jt-row:hover .jt-toggle {
+  opacity: 0.9;
+}
 /* nested levels: a hairline guide rail instead of bare padding */
 .json-tree .jt-children {
-  margin-left: 5px;
-  border-left: 1px solid var(--line);
-  padding-left: 10px;
+  margin-left: 6px;
+  border-left: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
+  padding-left: 11px;
 }
 /* row hover for easier scanning */
 .json-tree .jt-row {
   border-radius: 4px;
 }
 .json-tree .jt-row:hover {
-  background: var(--hover);
+  background: color-mix(in srgb, var(--hover) 55%, transparent);
 }
 
 /* ---- terminal block (stdout/stderr) ---- */

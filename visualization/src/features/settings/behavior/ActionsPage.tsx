@@ -22,6 +22,7 @@ import type { ConfigScenario } from "../../../api/v2/types";
 import { Badge } from "../../../components/ui/Badge";
 import { Button, IconButton } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
+import { JsonTree } from "../../../components/ui/JsonTree";
 import { isFieldDraft, isPlainRecord, jsonDeepEqual } from "../draft/model";
 import { useConfigDraftStore, type ConfigDraftState } from "../draft/store";
 import { projectCollection } from "../models/collectionDrafts";
@@ -794,9 +795,9 @@ function ProtocolSection({ action }: { action: ActionEntryView }) {
         <SemanticList title={t("settings.examples")} items={semantic.examples} />
         <div>
           <div className="text-[11px] font-medium text-fg">{t("settings.parameterSchema")}</div>
-          <pre className="mt-1 max-h-64 overflow-auto rounded-md bg-bg-sunken p-2.5 font-mono text-[10.5px] leading-4 text-fg-muted">
-            {JSON.stringify(action.tool.schema, null, 2)}
-          </pre>
+          <div className="mt-1 max-h-64 overflow-auto rounded-md bg-bg-sunken p-2.5 text-[11px]">
+            <JsonTree value={action.tool.schema} />
+          </div>
         </div>
       </div>
     </SettingsDisclosure>

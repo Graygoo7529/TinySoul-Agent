@@ -1,13 +1,15 @@
 import { useI18n } from "../../i18n";
 import { useState } from "react";
+import { ChevronRight } from "lucide-react";
 
 /**
- * Collapsible, syntax-colored JSON tree. Colors come from the `.json-tree`
- * classes in the global stylesheet (semantic tokens, theme aware). Nested
- * levels get a left indent guide; `defaultExpanded` expands the whole tree
+ * Collapsible, syntax-colored JSON tree. Colors come from the `--jt-*`
+ * semantic tokens (muted per theme, calm and content-first). Nested levels
+ * get a faint left indent guide; `defaultExpanded` expands the whole tree
  * (pass false for deliberately collapsed raw/diagnostic views). `defaultDepth`
  * auto-opens nodes shallower than it (1 = root only), so bounded views can
- * show the first levels without a click.
+ * show the first levels without a click. Collapsed nodes peek at their first
+ * entries inline, so a closed node still reads as its content, not a count.
  */
 export function JsonTree({
   value,
@@ -43,6 +45,24 @@ interface NodeProps {
   maxStringLength: number;
 }
 
+/** Inline preview of the first entries for a collapsed node. */
+function peekEntries(entries: readonly (readonly [string, unknown])[], isArray: boolean): string {
+  const parts = entries
+    .slice(0, 2)
+    .map(([key, item]) => `${isArray ? "" : `${JSON.stringify(key)}: `}${peekValue(item)}`);
+  const suffix = entries.length > 2 ? ", …" : "";
+  return parts.join(", ") + suffix;
+}
+
+function peekValue(value: unknown): string {
+  if (typeof value === "string") {
+    return JSON.stringify(value.length > 18 ? `${value.slice(0, 18)}…` : value);
+  }
+  if (value === null || value === undefined) return "null";
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return Array.isArray(value) ? "[…]" : "{…}";
+}
+
 function JsonNode({ name, value, depth, defaultExpanded, defaultDepth, maxStringLength }: NodeProps) {
   const { t } = useI18n();
   const [open, setOpen] = useState(defaultExpanded || depth < defaultDepth);
@@ -71,17 +91,22 @@ function JsonNode({ name, value, depth, defaultExpanded, defaultDepth, maxString
   const isArray = Array.isArray(value);
   const openBracket = isArray ? "[" : "{";
   const closeBracket = isArray ? "]" : "}";
-  const summary = `${entries.length} ${isArray ? t("settings.itemCountUnit") : "keys"}`;
+  const summary = isArray
+    ? t("settings.arrayItems", { count: entries.length })
+    : t("settings.objectKeys", { count: entries.length });
 
   return (
     <div>
       <span onClick={() => setOpen(!open)} className="jt-row cursor-pointer select-none">
-        <span className={`jt-toggle ${open ? "open" : ""}`}>▸</span>
+        <ChevronRight size={11} className={`jt-toggle ${open ? "open" : ""}`} />
         {keyLabel}
         {keyLabel && <span className="jt-punct">: </span>}
         <span className="jt-punct">{openBracket}</span>
-        {!open && <span className="jt-null"> … {summary} </span>}
+        {!open && entries.length > 0 && (
+          <span className="jt-peek"> {peekEntries(entries, isArray)} </span>
+        )}
         {!open && <span className="jt-punct">{closeBracket}</span>}
+        {!open && entries.length > 0 && <span className="jt-count"> · {summary}</span>}
       </span>
       {open && (
         <>
@@ -114,6 +139,7 @@ function Primitive({
   value: unknown;
   maxStringLength: number;
 }) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   if (value === null || value === undefined) {
     return <span className="jt-null">null</span>;
@@ -124,7 +150,13 @@ function Primitive({
     return (
       <span
         className={`jt-string ${value.length > maxStringLength ? "cursor-pointer" : ""}`}
-        title={value.length > maxStringLength ? "Click to expand/collapse" : undefined}
+        title={
+          value.length > maxStringLength
+            ? expanded
+              ? t("settings.collapseValue")
+              : t("settings.expandValue")
+            : undefined
+        }
         onClick={() => value.length > maxStringLength && setExpanded(!expanded)}
       >
         {JSON.stringify(shown)}
