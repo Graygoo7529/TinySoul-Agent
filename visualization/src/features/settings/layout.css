@@ -100,3 +100,13 @@
 .settings-picker-backdrop {
   position: fixed; inset: 0; z-index: var(--z-drawer); background: #0006; backdrop-filter: blur(2px);
 }
+
+/* Type-level tint marks: family chips/headers (model lists) and domain group
+   headers (actions list). Muted by design; --fh/--gt carry the hue/color. */
+.fam-chip { border-color: hsl(var(--fh) 30% 55% / 0.3); color: hsl(var(--fh) 30% 58%); }
+.fam-chip:hover { background: hsl(var(--fh) 30% 55% / 0.07); }
+.fam-chip.fam-chip-on { border-color: hsl(var(--fh) 34% 58% / 0.6); background: hsl(var(--fh) 32% 55% / 0.1); color: hsl(var(--fh) 36% 66%); }
+.fam-head { display: flex; align-items: center; gap: 6px; }
+.fam-head::before { content: ""; width: 3px; height: 10px; border-radius: 2px; background: hsl(var(--fh) 30% 55% / 0.45); }
+.obj-group-tinted { display: flex; align-items: center; gap: 6px; color: color-mix(in srgb, var(--gt) 70%, var(--fg-muted)); }
+.obj-group-tinted::before { content: ""; width: 3px; height: 10px; border-radius: 2px; background: var(--gt); opacity: 0.45; }

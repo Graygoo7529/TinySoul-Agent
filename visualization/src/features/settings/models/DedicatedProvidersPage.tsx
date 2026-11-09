@@ -111,6 +111,7 @@ export function DedicatedProvidersPage() {
   return (
     <>
       <ObjectEditorLayout
+        colorizeIds
         title={t("settings.dedicatedProviders")}
         description={t("settings.connectionsAndCredentialsForSpecializedInferenceEmbeddingAndDecision")}
         items={[

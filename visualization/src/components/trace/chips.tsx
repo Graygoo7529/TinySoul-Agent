@@ -34,6 +34,24 @@ export function isKnownDomain(value: string): boolean {
   return value in domainTones;
 }
 
+const domainColorTokens: Record<string, string> = {
+  core: "var(--domain-core)",
+  workspace: "var(--domain-workspace)",
+  execution: "var(--domain-execution)",
+  shell: "var(--domain-execution)",
+  script: "var(--domain-execution)",
+  supervised_process: "var(--domain-execution)",
+  web: "var(--domain-web)",
+  home: "var(--domain-home)",
+  memory: "var(--domain-memory)",
+  context: "var(--domain-maintenance)",
+};
+
+/** The domain's semantic color as a CSS token (group headers, tints). */
+export function domainColorToken(domain: string): string | undefined {
+  return domainColorTokens[domain];
+}
+
 export function DomainChip({ domain }: { domain: string }) {
   return (
     <Badge tone={domainTone(domain)} className="font-mono text-[11px]">

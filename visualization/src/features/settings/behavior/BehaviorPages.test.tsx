@@ -5,7 +5,7 @@ import { t } from "../../../i18n";
  * edits against the draft-aware task-chain collection; the Actions page reads
  * the generation catalog per scenario without touching the draft and edits
  * model-use bindings per consumer; the Search Policies page stages the
- * retrieval map atom preserving other actions; Budgets and Reflection edit
+ * retrieval map atom preserving other actions; Loop budgets and Reflection edit
  * their scalar fields with range checks.
  */
 import { act } from "react";
@@ -28,9 +28,8 @@ import {
 import { draftOperations, useConfigDraftStore } from "../draft/store";
 import { useSettingsUiStore } from "../uiStore";
 import { ActionsPage } from "./ActionsPage";
-import { BudgetsPage } from "./BudgetsPage";
-import { ContextPage } from "../editors/ContextPage";
 import { PhaseBindingsPage } from "./PhaseBindingsPage";
+import { ContextPage } from "../editors/ContextPage";
 import { ReflectionPage } from "./ReflectionPage";
 import { SearchPoliciesPage } from "./SearchPoliciesPage";
 import { SettingsField } from "../editors/draftCompositeControls";
@@ -691,7 +690,7 @@ describe("BudgetsPage", () => {
 
   it("commits in-range numbers and rejects out-of-range ones locally", async () => {
     await act(async () => {
-      root.render(<BudgetsPage />);
+      root.render(<PhaseBindingsPage />);
     });
     await flush();
 
@@ -739,7 +738,7 @@ describe("BudgetsPage", () => {
 
   it("restore default deletes the override; unbounded numbers keep a plain input", async () => {
     await act(async () => {
-      root.render(<BudgetsPage />);
+      root.render(<PhaseBindingsPage />);
     });
     await flush();
 

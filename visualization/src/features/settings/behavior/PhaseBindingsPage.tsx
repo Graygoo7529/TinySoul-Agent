@@ -1,10 +1,11 @@
 import { useI18n } from "../../../i18n";
 /**
- * Phase Bindings settings page (config-coverage §3.1): which task chain the
+ * Loop settings page (config-coverage §3.1/§3.4): which task chain the
  * framework Phase1/Phase2 tasks call. The pickers read the projected
  * `llm.tasks` collection draft-aware — a chain created in the same draft is
  * already selectable — and link back to the Task Chains page. Edits stage
- * drafts only; apply stays authoritative.
+ * drafts only; apply stays authoritative. Turn/Reflection cycle budgets
+ * live here too (merged from the retired Budgets page).
  */
 
 import { ArrowRight } from "lucide-react";
@@ -37,6 +38,20 @@ export function PhaseBindingsPage() {
               <TaskChainRefControl api={api} />
             ),
           },
+        }}
+      />
+      <FieldSection
+        title={t("settings.turnCycles")}
+        description={t("settings.completeAgentCyclesAllowedInOneTurnOfEach")}
+        paths={[
+          "loop.user.max_cycles",
+          "reflection.home.max_cycles",
+          "reflection.memory.max_cycles",
+        ]}
+        overrides={{
+          "loop.user.max_cycles": { min: 1, slider: { min: 1, max: 64 } },
+          "reflection.home.max_cycles": { min: 1, slider: { min: 1, max: 64 } },
+          "reflection.memory.max_cycles": { min: 1, slider: { min: 1, max: 64 } },
         }}
       />
     </SettingsPageBody>

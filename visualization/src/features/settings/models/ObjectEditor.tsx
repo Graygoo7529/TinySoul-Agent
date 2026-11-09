@@ -1,4 +1,5 @@
 import { useI18n } from "../../../i18n";
+import type { CSSProperties } from "react";
 /**
  * Shared object-editor chrome for the Models & Services pages (plan §16):
  * the left list / right editor layout retained from the original settings
@@ -14,6 +15,7 @@ import { Button, IconButton } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { Modal } from "../../../components/ui/Modal";
 import { inputClass } from "./modelControls";
+import { hueForId } from "../../../utils/hue";
 import { SettingsPicker } from "../SettingsPicker";
 import { useSettingsUiStore } from "../uiStore";
 import { objectIdError, type ObjectReference } from "./collectionDrafts";
@@ -46,6 +48,8 @@ export function ObjectEditorLayout({
   listHeader,
   renderList,
   searchable = true,
+  groupTint,
+  colorizeIds = false,
 }: {
   title: string;
   description: string;
@@ -62,6 +66,10 @@ export function ObjectEditorLayout({
   children: ReactNode;
   /** Optional content rendered between the list header and the items. */
   listHeader?: ReactNode;
+  /** Tint group headers (e.g. domain colors on the actions page). */
+  groupTint?: (group: string) => string | undefined;
+  /** Tint each row's id text with its stable hash hue (provider lists). */
+  colorizeIds?: boolean;
   /** A specialized candidate list can replace the default object navigation. */
   renderList?: (select: (id: string) => void) => ReactNode;
   /** Pages with a specialized search control supply it in listHeader. */
@@ -116,7 +124,15 @@ export function ObjectEditorLayout({
             <div key={item.id} className="min-w-0">
               {(index === 0 || visibleItems[index - 1]?.group !== item.group) &&
                 item.group !== undefined && (
-                  <div className="px-2.5 pt-2 pb-1 text-[10px] font-semibold tracking-wide text-fg-faint uppercase first:pt-0.5">
+                  <div
+                    className={`px-2.5 pt-2 pb-1 text-[10px] font-semibold tracking-wide uppercase first:pt-0.5 ${
+                      groupTint?.(item.group) !== undefined ? "obj-group-tinted" : "text-fg-faint"
+                    }`}
+                    style={(() => {
+                      const tint = item.group !== undefined ? groupTint?.(item.group) : undefined;
+                      return tint !== undefined ? { "--gt": tint } as CSSProperties : undefined;
+                    })()}
+                  >
                     {item.group}
                   </div>
                 )}
@@ -128,15 +144,19 @@ export function ObjectEditorLayout({
                 }`}
               >
                 <div className="flex items-center gap-1.5">
-                  <span className="truncate font-mono text-[11px] font-medium">
+                  <span
+                    className="truncate font-mono text-[11px] font-medium"
+                    style={
+                      colorizeIds && selected !== item.id
+                        ? { color: `hsl(${hueForId(item.id)} 30% 58%)` }
+                        : undefined
+                    }
+                  >
                     {item.id}
                   </span>
                   {item.isNew && <Badge tone="accent">{t("settings.newBadge")}</Badge>}
                   {!item.isNew && item.dirty && (
-                    <span
-                      className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
-                      title={t("settings.modifiedLocally")}
-                    />
+                    <Badge tone="accent" title={t("settings.modifiedLocally")}>{t("common.modified")}</Badge>
                   )}
                 </div>
                 {item.summary !== undefined && (

@@ -69,7 +69,7 @@ export function PresetContent({ definition }: { definition: PresetDefinitionView
       {Object.entries(definition.retrieval).filter(([, fields]) => "query.channels" in fields).map(([consumer, fields]) =>
         <ValueRow key={consumer} path={`action.retrieval.${consumer}.query.channels`} label={t("settings.retrievalChannelsFor", { consumer })} value={fields["query.channels"]} />)}
     </section>
-    <section><div className="mb-1 text-[12px] font-semibold">{t("settings.page.budgets.title")}</div>
+    <section><div className="mb-1 text-[12px] font-semibold">{t("settings.scope.budgets")}</div>
       {definition.includeBudgets ? budgets.map((row) => <ValueRow key={row.path} path={row.path} value={row.value} />)
         : <p className="text-[12px] text-fg-muted">{t("settings.noBudgetChanges")}</p>}
     </section>

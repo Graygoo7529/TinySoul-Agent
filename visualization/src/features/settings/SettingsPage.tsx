@@ -25,7 +25,6 @@ import {
 import { SettingsPlaceholderPage } from "./SettingsPlaceholderPage";
 import { PlansPage } from "./presets/PlansPage";
 import { ActionsPage } from "./behavior/ActionsPage";
-import { BudgetsPage } from "./behavior/BudgetsPage";
 import { PhaseBindingsPage } from "./behavior/PhaseBindingsPage";
 import { ReflectionPage } from "./behavior/ReflectionPage";
 import { SearchPoliciesPage } from "./behavior/SearchPoliciesPage";
@@ -65,7 +64,6 @@ const PAGE_COMPONENTS: Partial<Record<SettingsPageId, ComponentType>> = {
   "phase-bindings": PhaseBindingsPage,
   actions: ActionsPage,
   "search-policies": SearchPoliciesPage,
-  budgets: BudgetsPage,
   reflection: ReflectionPage,
   execution: ExecutionPage,
   web: WebPage,

@@ -45,7 +45,6 @@ export type SettingsPageId =
   | "phase-bindings"
   | "actions"
   | "search-policies"
-  | "budgets"
   | "reflection"
   | "execution"
   | "web"
@@ -153,7 +152,7 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     title: "Phase Bindings",
     description: "The task chains Phase 1 and Phase 2 call.",
     surfaces: ["cycle_routing"],
-    pathPrefixes: ["loop.cycle"],
+    pathPrefixes: ["loop.cycle", "loop.user", "reflection.home", "reflection.memory"],
   },
   actions: {
     id: "actions",
@@ -169,17 +168,6 @@ export const SETTINGS_PAGES: Record<SettingsPageId, SettingsPageDef> = {
     title: "Search Policies",
     description: "Retrieval sources, operations, context and page budgets.",
     pathPrefixes: ["action.retrieval"],
-  },
-  budgets: {
-    id: "budgets",
-    group: "behavior",
-    title: "Budgets",
-    description: "Turn and reflection cycle budgets.",
-    pathPrefixes: [
-      "loop.user",
-      "reflection.home",
-      "reflection.memory",
-    ],
   },
   reflection: {
     id: "reflection",
@@ -307,7 +295,7 @@ export const SETTINGS_GROUPS: SettingsGroupDef[] = [
   {
     id: "behavior",
     title: "Behavior & Invocation",
-    pages: ["phase-bindings", "actions", "search-policies", "budgets", "reflection"],
+    pages: ["phase-bindings", "actions", "search-policies", "reflection"],
   },
   {
     id: "tools",

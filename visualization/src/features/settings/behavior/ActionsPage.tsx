@@ -20,6 +20,7 @@ import { ArrowRight, RotateCcw } from "lucide-react";
 
 import type { ConfigScenario } from "../../../api/v2/types";
 import { Badge } from "../../../components/ui/Badge";
+import { domainColorToken } from "../../../components/trace/chips";
 import { Button, IconButton } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { JsonTree } from "../../../components/ui/JsonTree";
@@ -151,6 +152,7 @@ export function ActionsPage() {
         </div>
       }
       searchable={false}
+      groupTint={domainColorToken}
     >
       {current !== null && <ActionDetail action={current} />}
     </ObjectEditorLayout>

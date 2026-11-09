@@ -108,6 +108,7 @@ export function LlmProvidersPage() {
   return (
     <>
       <ObjectEditorLayout
+        colorizeIds
         title={t("settings.providers")}
         description={
           collection?.description ??

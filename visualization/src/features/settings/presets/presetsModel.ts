@@ -30,7 +30,7 @@ export type PresetScopeId = "tasks" | "routing" | "retrieval" | "budgets";
 
 export interface PresetScopeInfo { id: PresetScopeId; title: string }
 const SCOPE_TITLES: Record<PresetScopeId, MessageId> = {
-  tasks: "settings.taskChains", routing: "settings.routing", retrieval: "settings.retrieval", budgets: "settings.page.budgets.title",
+  tasks: "settings.taskChains", routing: "settings.routing", retrieval: "settings.retrieval", budgets: "settings.scope.budgets",
 };
 export function presetScopes(preset: PresetSummary): PresetScopeInfo[] {
   return preset.included_scopes.filter((scope): scope is PresetScopeId => scope in SCOPE_TITLES)

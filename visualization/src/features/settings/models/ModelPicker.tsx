@@ -1,4 +1,6 @@
+import { hueForId } from "../../../utils/hue";
 import { useI18n } from "../../../i18n";
+import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Plus } from "lucide-react";
 import { Badge } from "../../../components/ui/Badge";
@@ -37,11 +39,17 @@ export function ModelSelectionList({ models, value, onSelect, disabledIds = [] }
       <input aria-label={t("settings.searchModels")} placeholder={t("settings.searchModelsPlaceholder")} className={inputClass}
         value={query} onChange={(event) => setQuery(event.target.value)} />
       <div className="flex flex-wrap gap-1" aria-label={t("settings.modelFamily")}>
-        {[null, ...families].map((item) => <button type="button" key={item === null ? "all" : `family:${item}`}
-          aria-pressed={family === item} onClick={() => setFamily(item)}
-          className={`rounded-full border px-2 py-0.5 text-[11px] ${family === item ? "border-accent bg-accent-soft text-accent" : "border-line text-fg-muted hover:bg-hover"}`}>
-          {item === null ? t("settings.all") : item || t("settings.ungrouped")}
-        </button>)}
+        {[null, ...families].map((item) => {
+          const tinted = item !== null && item !== "";
+          return <button type="button" key={item === null ? "all" : `family:${item}`}
+            aria-pressed={family === item} onClick={() => setFamily(item)}
+            style={tinted ? { "--fh": String(hueForId(item)) } as CSSProperties : undefined}
+            className={tinted
+              ? `fam-chip rounded-full border px-2 py-0.5 text-[11px] ${family === item ? "fam-chip-on" : ""}`
+              : `rounded-full border px-2 py-0.5 text-[11px] ${family === item ? "border-accent bg-accent-soft text-accent" : "border-line text-fg-muted hover:bg-hover"}`}>
+            {item === null ? t("settings.all") : item || t("settings.ungrouped")}
+          </button>;
+        })}
       </div>
       <label className="flex items-center gap-1.5 text-[11px] text-fg-muted">
         <input type="checkbox" checked={showCollapsed} onChange={(event) => setShowCollapsed(event.target.checked)} />{t("settings.showCollapsedModels")}</label>
@@ -54,7 +62,9 @@ export function ModelSelectionList({ models, value, onSelect, disabledIds = [] }
         const disabled = disabledIds.includes(model.id);
         return <div key={model.id}>
           {(index === 0 || group !== stringField(visible[index - 1].value, "family")) &&
-            <div className="px-2 py-1 text-[11px] font-semibold text-fg-faint">{group || t("settings.ungrouped")}</div>}
+            <div className={`px-2 py-1 text-[11px] font-semibold ${group !== "" ? "fam-head" : ""} text-fg-faint`}
+              style={group !== "" ? { "--fh": String(hueForId(group)) } as CSSProperties : undefined}>
+              {group || t("settings.ungrouped")}</div>}
           <button type="button" disabled={disabled} aria-pressed={value === model.id}
             onClick={() => onSelect(model.id)}
             className={`flex w-full flex-wrap items-center gap-1.5 rounded-md px-2 py-2 text-left text-[12px] disabled:opacity-45 ${value === model.id ? "bg-active text-accent" : "hover:bg-hover"}`}>
