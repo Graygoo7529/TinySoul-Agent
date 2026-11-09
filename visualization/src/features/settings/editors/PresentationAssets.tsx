@@ -3,16 +3,15 @@ import { useEffect, useState } from "react";
 import type { PresentationAsset } from "../../../api/v2/presentation";
 import { useConnectionStore } from "../../../store/connectionStore";
 import { usePresentationAssetUrl } from "../presentationAssets";
+import { Collapsible } from "../../../components/ui/Collapsible";
 
 const PREVIEW_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/bmp"]);
 
 export function PresentationAssets() {
   const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  return <details className="rounded-lg border border-line bg-bg-elev p-4" onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary className="cursor-pointer text-sm font-medium">{t("settings.projectSharedAssets")}</summary>
-    {open && <AssetList />}
-  </details>;
+  return <Collapsible title={t("settings.projectSharedAssets")}>
+    <AssetList />
+  </Collapsible>;
 }
 
 function AssetList() {

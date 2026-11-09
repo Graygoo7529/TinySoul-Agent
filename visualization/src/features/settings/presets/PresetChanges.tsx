@@ -3,6 +3,7 @@ import { translatedField } from "../../../i18n";
 import type { JsonValue, PresetChange } from "../../../api/v2/types";
 import { isPlainRecord } from "../draft/model";
 import { useConfigDraftStore } from "../draft/store";
+import { InlineDisclosure } from "../../../components/ui/Collapsible";
 import { budgetSummary, type PresetDefinitionView } from "./presetsModel";
 
 function valueText(value: JsonValue): string {
@@ -50,10 +51,10 @@ export function PresetContent({ definition }: { definition: PresetDefinitionView
     <section><div className="mb-1 text-[12px] font-semibold">{t("settings.taskChains")}</div>
       {isPlainRecord(tasks) && Object.entries(tasks).map(([id, task]) => isPlainRecord(task) && <div key={id} className="mb-2 rounded border border-line p-2">
         <ValueRow path={`llm.tasks.${id}.models`} label={id} value={task.models ?? null} />
-        <details className="text-[11px] text-fg-muted"><summary className="cursor-pointer">{t("settings.callParams")}</summary>
+        <InlineDisclosure title={t("settings.callParams")}>
           {Object.entries(task).filter(([key]) => key !== "models").map(([key, value]) => <ValueRow key={key} path={`llm.tasks.${id}.${key}`} value={value} />)}
           <p className="mt-1 text-fg-faint">{t("settings.defaultParameters")}</p>
-        </details>
+        </InlineDisclosure>
       </div>)}
     </section>
     <section><div className="mb-1 text-[12px] font-semibold">{t("settings.routing")}</div>

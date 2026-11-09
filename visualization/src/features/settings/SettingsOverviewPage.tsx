@@ -13,6 +13,7 @@ import { Button } from "../../components/ui/Button";
 import { SectionCard } from "../../components/ui/Card";
 import { JsonTree } from "../../components/ui/JsonTree";
 import { CopyButton } from "../../components/ui/CopyButton";
+import { Collapsible } from "../../components/ui/Collapsible";
 import { SettingsDisclosure } from "./SettingsDisclosure";
 import {
   activityReasonText,
@@ -108,17 +109,17 @@ export function SettingsOverviewPage() {
           <input aria-label={translate("settings.overview.sourceFilterLabel")} placeholder={translate("settings.overview.sourceFilterPlaceholder")} value={sourceQuery} onChange={(event) => setSourceQuery(event.target.value)}
             className="w-full rounded-md border border-line bg-bg px-2.5 py-1.5 text-[12px] outline-none focus:border-accent" />
           <div className="space-y-1">{sources.map((source) =>
-            <details key={source.id} className="rounded-md border border-line">
-              <summary className="flex cursor-pointer items-center gap-2 px-2.5 py-2 text-[12px]">
-                <span className="min-w-0 flex-1 truncate font-mono" title={source.id}>{source.id}</span>
+            <Collapsible key={source.id}
+              title={<span className="font-mono text-[12px] font-normal" title={source.id}>{source.id}</span>}
+              meta={<>
                 {!source.exists && <Badge tone="gray">{translate("settings.overview.sourceMissing")}</Badge>}
                 {!source.writable && <Badge tone="gray">{translate("settings.overview.sourceReadonly")}</Badge>}
-              </summary>
-              <div className="flex items-start gap-2 border-t border-line p-2.5">
+              </>}>
+              <div className="flex items-start gap-2">
                 <span className="min-w-0 flex-1 break-all font-mono text-[11px] text-fg-muted">{source.path === source.id ? translate("settings.overview.sourceNamePath") : source.path || translate("settings.overview.sourceNoPath")}</span>
                 <CopyButton label={translate("settings.overview.copyPath")} text={() => source.path || source.id} />
               </div>
-            </details>)}</div>
+            </Collapsible>)}</div>
           {sources.length === 0 && <p className="text-[12px] text-fg-faint">{translate("settings.overview.noMatchingSources")}</p>}
         </div>
       </SettingsDisclosure>

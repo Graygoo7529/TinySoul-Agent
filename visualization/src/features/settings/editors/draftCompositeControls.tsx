@@ -292,92 +292,93 @@ export function KeyValueMapEditor({
   };
 
   return (
-    <div className="flex w-full flex-col gap-1">
-      {rows.map((row, index) => (
-        <div key={index} className="flex items-center gap-1">
-          <input
-            type="text"
-            className={`${inputChrome} min-w-0 flex-1 font-mono`}
-            placeholder={keyPlaceholder ?? t("settings.mapName")}
-            value={row.key}
-            disabled={disabled}
-            onChange={(event) =>
-              setRows(
-                rows.map((item, i) =>
-                  i === index ? { ...item, key: event.target.value } : item,
-                ),
-              )
-            }
-            onBlur={() => commit(rows)}
-          />
-          {booleanValues ? (
-            <button
-              type="button"
-              role="switch"
-              aria-checked={row.value === "true"}
-              disabled={disabled}
-              onClick={() =>
-                commit(
-                  patchRow(index, {
-                    value: row.value === "true" ? "false" : "true",
-                  }),
-                )
-              }
-              className={`relative w-10 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
-                row.value === "true" ? "bg-accent" : "bg-line-strong"
-              }`}
-              style={{ height: 22 }}
-            >
-              <span
-                className={`absolute top-0.5 h-[18px] w-[18px] rounded-full bg-white shadow transition-transform ${
-                  row.value === "true" ? "translate-x-[19px]" : "translate-x-0.5"
-                }`}
-              />
-            </button>
-          ) : (
+    <div className="w-full">
+      <div className="w-full overflow-hidden rounded-lg border border-line bg-bg-sunken/40">
+        {rows.map((row, index) => (
+          <div
+            key={index}
+            className="flex items-center gap-2 border-b border-line px-2.5 py-1.5 last:border-b-0"
+          >
             <input
               type="text"
               className={`${inputChrome} min-w-0 flex-1 font-mono`}
-              placeholder={valuePlaceholder ?? t("settings.mapValue")}
-              value={row.value}
+              placeholder={keyPlaceholder ?? t("settings.mapName")}
+              value={row.key}
               disabled={disabled}
               onChange={(event) =>
                 setRows(
                   rows.map((item, i) =>
-                    i === index ? { ...item, value: event.target.value } : item,
+                    i === index ? { ...item, key: event.target.value } : item,
                   ),
                 )
               }
               onBlur={() => commit(rows)}
             />
-          )}
-          <IconButton
-            label={t("settings.removeRow")}
-            disabled={disabled}
-            onClick={() =>
-              commit(rows.filter((_, i) => i !== index))
-            }
-          >
-            <X size={13} />
-          </IconButton>
-        </div>
-      ))}
-      <div className="flex items-center gap-1">
+            {booleanValues ? (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={row.value === "true"}
+                disabled={disabled}
+                onClick={() =>
+                  commit(
+                    patchRow(index, {
+                      value: row.value === "true" ? "false" : "true",
+                    }),
+                  )
+                }
+                className={`relative h-5.5 w-10 shrink-0 rounded-full transition-colors focus-ring disabled:cursor-not-allowed disabled:opacity-50 ${
+                  row.value === "true" ? "bg-accent" : "bg-line-strong"
+                }`}
+              >
+                <span
+                  className={`absolute left-0 top-0.5 h-4.5 w-4.5 rounded-full bg-white shadow transition-transform ${
+                    row.value === "true" ? "translate-x-5" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+            ) : (
+              <input
+                type="text"
+                className={`${inputChrome} min-w-0 flex-1 font-mono`}
+                placeholder={valuePlaceholder ?? t("settings.mapValue")}
+                value={row.value}
+                disabled={disabled}
+                onChange={(event) =>
+                  setRows(
+                    rows.map((item, i) =>
+                      i === index ? { ...item, value: event.target.value } : item,
+                    ),
+                  )
+                }
+                onBlur={() => commit(rows)}
+              />
+            )}
+            <IconButton
+              label={t("settings.removeRow")}
+              disabled={disabled}
+              onClick={() =>
+                commit(rows.filter((_, i) => i !== index))
+              }
+            >
+              <X size={13} />
+            </IconButton>
+          </div>
+        ))}
         <button
           type="button"
-          className="flex h-7 items-center gap-1 rounded-md bg-hover px-2 text-xs font-medium text-fg hover:bg-line-strong/60 disabled:opacity-50"
           disabled={disabled}
           onClick={() => setRows([...rows, { key: "", value: booleanValues ? "true" : "" }])}
+          className={`flex w-full items-center justify-center gap-1.5 py-2 text-[11.5px] text-fg-muted transition-colors hover:bg-hover hover:text-fg disabled:opacity-50 ${
+            rows.length > 0 ? "border-t border-dashed border-line" : ""
+          }`}
         >
           <Plus size={12} /> {addLabel ?? t("common.add")}
         </button>
-        {rows.length === 0 && (
-          <span className="text-[11px] text-fg-faint">{t("settings.emptyMap")}</span>
-        )}
-        {error !== null && (
-          <span className="text-[11px] text-danger">{resolveText(error, effectiveLocale())}</span>
-        )}
       </div>
+      {error !== null && (
+        <div className="mt-1 text-[11px] text-danger">{resolveText(error, effectiveLocale())}</div>
+      )}
     </div>
   );
 }

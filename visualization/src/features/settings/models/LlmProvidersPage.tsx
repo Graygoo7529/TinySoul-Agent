@@ -32,13 +32,13 @@ import {
 import {
   FieldRow,
   FieldSection,
-  JsonObjectInput,
   StringListEditor,
   TextInput,
   Toggle,
   selectClass,
 } from "./modelControls";
-import { CredentialValueEditor } from "../editors/draftCompositeControls";
+import { InlineDisclosure } from "../../../components/ui/Collapsible";
+import { CredentialValueEditor, KeyValueMapEditor } from "../editors/draftCompositeControls";
 import {
   CreateObjectModal,
   DeleteObjectModal,
@@ -359,11 +359,13 @@ function ProviderEditor({
             description={key === "headers" ? t("settings.headerHint") : t("settings.headerRefHint")}
             dirty={field(key).dirty}
           >
-            <JsonObjectInput
-              ariaLabel={key}
+            <KeyValueMapEditor
               value={isPlainRecord(object.value[key]) ? object.value[key] : {}}
               disabled={field(key).lock !== null}
-              onCommit={(value) => setObjectField(ROOT, object, key, value, createSource)}
+              onChange={(value) => setObjectField(ROOT, object, key, value, createSource)}
+              keyPlaceholder={t("settings.headerName")}
+              valuePlaceholder={key === "headers" ? t("settings.headerValue") : t("settings.envVariableName")}
+              addLabel={key === "headers" ? t("settings.addHeader") : t("settings.addHeaderRef")}
             />
           </FieldRow>
         ))}
@@ -454,25 +456,27 @@ function EndpointEditor({
               disabled={disabled}
               onCommit={(base_url) => update(mode, { base_url })}
             />
-            <details>
-              <summary className="cursor-pointer text-xs text-fg-muted">{t("settings.entrypointProxy")}</summary>
+            <InlineDisclosure title={t("settings.entrypointProxy")}>
               <NetworkPolicyEditor value={endpoint.network} parentLabel={t("settings.providerProxy")} disabled={disabled}
                 onChange={(network) => update(mode, { network })} />
-            </details>
-            <details>
-              <summary className="cursor-pointer text-xs text-fg-muted">{t("settings.extraHeaders")}</summary>
+            </InlineDisclosure>
+            <InlineDisclosure title={t("settings.extraHeaders")}>
               {(["headers", "header_refs"] as const).map((key) => (
-                <label key={key} className="mt-2 block text-xs text-fg-muted">
-                  {key === "headers" ? t("settings.regularHeaders") : t("settings.headerRefs")}
-                  <JsonObjectInput
-                    ariaLabel={`${mode} ${key}`}
+                <div key={key} className="mt-2">
+                  <div className="mb-1 text-[11px] text-fg-muted">
+                    {key === "headers" ? t("settings.regularHeaders") : t("settings.headerRefs")}
+                  </div>
+                  <KeyValueMapEditor
                     value={isPlainRecord(endpoint[key]) ? endpoint[key] : {}}
                     disabled={disabled}
-                    onCommit={(headers) => update(mode, { [key]: headers })}
+                    onChange={(next) => update(mode, { [key]: next })}
+                    keyPlaceholder={t("settings.headerName")}
+                    valuePlaceholder={key === "headers" ? t("settings.headerValue") : t("settings.envVariableName")}
+                    addLabel={key === "headers" ? t("settings.addHeader") : t("settings.addHeaderRef")}
                   />
-                </label>
+                </div>
               ))}
-            </details>
+            </InlineDisclosure>
             {mode === "google-generate-content" && <label className="block text-xs text-fg-muted">
               {t("settings.apiVersionHint")}<TextInput ariaLabel={t("settings.googleApiVersion")} value={stringField(endpoint, "api_version")}
                 placeholder="v1beta" disabled={disabled} onCommit={(api_version) => {

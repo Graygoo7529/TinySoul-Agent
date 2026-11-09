@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { t } from "../../../i18n";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
@@ -21,8 +22,8 @@ it("loads assets only when expanded and uses authenticated blobs for preview and
   try {
     await act(async () => root.render(<PresentationAssets />));
     expect(endpoint.requests).toHaveLength(0);
-    const details = container.querySelector("details")!;
-    await act(async () => { details.open = true; details.dispatchEvent(new Event("toggle")); });
+    const toggle = [...container.querySelectorAll("button")].find((button) => button.textContent?.includes(t("settings.projectSharedAssets")))!;
+    await act(async () => toggle.click());
     const item = [...container.querySelectorAll("button")].find((button) => button.textContent?.includes("images/example.png"))!;
     await act(async () => item.click());
     expect(container.querySelector("img")?.getAttribute("src")).toBe("blob:asset");
@@ -31,7 +32,7 @@ it("loads assets only when expanded and uses authenticated blobs for preview and
     expect(request.headers.authorization).toBe("Bearer test-token");
     expect(new URL(request.url).searchParams.get("path")).toBe("images/example.png");
     expect(request.url).not.toContain("test-token");
-    await act(async () => { details.open = false; details.dispatchEvent(new Event("toggle")); });
+    await act(async () => { toggle.click(); });
     expect(revoke).toHaveBeenCalledWith("blob:asset");
   } finally {
     await act(async () => root.unmount());

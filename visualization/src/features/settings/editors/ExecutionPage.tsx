@@ -8,6 +8,7 @@ import { NetworkPolicyField } from "./NetworkPolicyEditor";
 
 import { Badge } from "../../../components/ui/Badge";
 import { SectionCard } from "../../../components/ui/Card";
+import { InlineDisclosure } from "../../../components/ui/Collapsible";
 import { activeValue } from "../draft/model";
 import { useConfigDraftStore } from "../draft/store";
 import { FieldSection, SettingsPageBody } from "./draftCompositeControls";
@@ -19,10 +20,10 @@ export function ExecutionPage() {
   return (
     <SettingsPageBody>
       <NetworkPolicyField path="execution.network" title={t("settings.executionProxy")} />
-      <details><summary className="cursor-pointer text-sm text-fg-muted">{t("settings.interpreterProxy")}</summary>
+      <InlineDisclosure title={t("settings.interpreterProxy")}>
         {INTERPRETERS.map((id) => <NetworkPolicyField key={id} path={`execution.interpreters.${id}.network`} title={id} parentLabel={t("settings.executionProxy")} />)}
-        <p className="p-3 text-xs text-fg-muted">{t("settings.executionProxyHint")}</p>
-      </details>
+        <p className="py-2 text-xs text-fg-muted">{t("settings.executionProxyHint")}</p>
+      </InlineDisclosure>
       <RunningStrip />
       <FieldSection
         title={t("settings.interpreters")}

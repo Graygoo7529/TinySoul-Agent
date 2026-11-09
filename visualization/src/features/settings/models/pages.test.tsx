@@ -372,7 +372,8 @@ describe("LlmProvidersPage", () => {
     };
     store().setValue(PROVIDERS, "llm.providers.kimi.endpoints", { "openai-chat": endpoint });
     await act(async () => root.render(<LlmProvidersPage />));
-    const disclosure = [...container.querySelectorAll("summary")].find((node) => node.textContent === t("settings.entrypointProxy"))!;
+    const disclosure = [...container.querySelectorAll("button")].find((node) => node.textContent === t("settings.entrypointProxy"))!;
+    await act(async () => disclosure.click());
     const mode = disclosure.parentElement!.querySelector<HTMLSelectElement>("select")!;
     await act(async () => {
       mode.value = "direct";

@@ -545,6 +545,7 @@ export function JsonObjectInput({
   disabled?: boolean;
   ariaLabel?: string;
 }) {
+  const { t } = useI18n();
   const serialized = useMemo(() => JSON.stringify(value, null, 2), [value]);
   const [draft, setDraft] = useState(serialized);
   const [invalid, setInvalid] = useState(false);
@@ -567,26 +568,31 @@ export function JsonObjectInput({
     }
   };
   return (
-    <textarea
-      aria-label={ariaLabel}
-      aria-invalid={invalid}
-      value={draft}
-      disabled={disabled}
-      rows={Math.min(6, Math.max(2, draft.split("\n").length))}
-      spellCheck={false}
-      onChange={(event) => {
-        setDraft(event.target.value);
-        setInvalid(false);
-      }}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) commit();
-        if (event.key === "Escape") {
-          setDraft(serialized);
+    <div className="w-full">
+      <textarea
+        aria-label={ariaLabel}
+        aria-invalid={invalid}
+        value={draft}
+        disabled={disabled}
+        rows={Math.min(6, Math.max(2, draft.split("\n").length))}
+        spellCheck={false}
+        onChange={(event) => {
+          setDraft(event.target.value);
           setInvalid(false);
-        }
-      }}
-      className={`${inputClass} min-h-16 w-full resize-y py-2 font-mono text-[11px] ${invalid ? "border-danger" : ""}`}
-    />
+        }}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) commit();
+          if (event.key === "Escape") {
+            setDraft(serialized);
+            setInvalid(false);
+          }
+        }}
+        className={`${inputClass} min-h-16 w-full resize-y py-2 font-mono text-[12px] leading-5 ${invalid ? "border-danger" : ""}`}
+      />
+      {invalid && (
+        <div className="mt-1 text-[11px] text-danger">{t("settings.invalidJson")}</div>
+      )}
+    </div>
   );
 }
