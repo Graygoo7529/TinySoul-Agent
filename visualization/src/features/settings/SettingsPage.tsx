@@ -123,7 +123,9 @@ export function SettingsPage() {
           {!connected && page !== "interface" ? (
             <ConnectNotice />
           ) : (
-            <PageContent pageId={page} />
+            <div key={page} className="settings-page-in">
+              <PageContent pageId={page} />
+            </div>
           )}
         </div>
         {connected && page !== "interface" && <SettingsBottomBar />}

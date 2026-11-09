@@ -94,7 +94,7 @@ export function SettingsBottomBar() {
   return (
     <div className="flex min-w-0 flex-col">
       {detailsOpen && draftCount > 0 && (
-        <div className="max-h-72 overflow-y-auto border border-b-0 border-line bg-bg-elev">
+        <div className="glass-panel animate-glass-in max-h-72 overflow-y-auto border border-b-0 border-line">
           {staleKeys.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 border-b border-line bg-warning-soft px-3.5 py-2 text-[12px] text-warning">
               <AlertTriangle size={12} />

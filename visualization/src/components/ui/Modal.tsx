@@ -31,7 +31,7 @@ export function Modal({
       }}
     >
       <div
-        className={`animate-fade-in max-h-[85vh] w-full ${width} overflow-hidden rounded-xl border border-line bg-bg-elev shadow-pop`}
+        className={`animate-glass-in glass-panel max-h-[85vh] w-full ${width} overflow-hidden rounded-xl border border-line shadow-pop`}
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <div className="text-sm font-semibold">{title}</div>

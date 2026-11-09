@@ -20,7 +20,7 @@ function Toast({ toast }: { toast: ToastItem }) {
   const { icon: Icon, className } = kindStyle[toast.kind];
   const action = toast.action;
   return (
-    <div className="animate-fade-in pointer-events-auto flex items-start gap-2.5 rounded-lg border border-line bg-bg-elev px-3.5 py-2.5 shadow-pop">
+    <div className="animate-glass-in glass-panel pointer-events-auto flex items-start gap-2.5 rounded-lg border border-line px-3.5 py-2.5 shadow-pop">
       <Icon size={16} className={`mt-0.5 shrink-0 ${className}`} />
       <div className="min-w-0 flex-1 text-[13px] leading-5 break-words">{text(toast.text)}</div>
       {action && (
