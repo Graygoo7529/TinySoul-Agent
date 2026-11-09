@@ -98,8 +98,8 @@ export function LlmProvidersPage() {
     }
   }, [focusPath, clearFocus]);
   useEffect(() => {
-    if (selected === null || !objects.some((item) => item.id === selected)) {
-      setSelected(objects[0]?.id ?? null);
+    if (selected !== null && !objects.some((item) => item.id === selected)) {
+      setSelected(null);
     }
   }, [objects, selected]);
 

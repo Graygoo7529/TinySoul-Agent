@@ -61,6 +61,22 @@
   .settings-picker[data-kind="objects"] .settings-picker-heading { display: flex; }
   .settings-picker[data-kind="objects"] .settings-picker-backdrop { display: block; }
 }
+@container settings (max-width: 1199px) {
+  /* List-first: with nothing selected in compact mode the object list becomes
+     the page content itself — no overlay swap, no flicker. */
+  .settings-object-layout[data-unselected="true"] > .settings-picker > .settings-picker-trigger,
+  .settings-collection-layout[data-unselected="true"] > .settings-picker > .settings-picker-trigger { display: none; }
+  .settings-object-layout[data-unselected="true"] .settings-picker-panel,
+  .settings-collection-layout[data-unselected="true"] .settings-picker-panel {
+    display: flex; position: static; inset: auto; width: auto; max-height: none; height: auto;
+    border: 0; border-radius: 0; box-shadow: none; background: transparent;
+    backdrop-filter: none; -webkit-backdrop-filter: none; animation: none;
+  }
+  .settings-object-layout[data-unselected="true"] .settings-picker-heading,
+  .settings-collection-layout[data-unselected="true"] .settings-picker-heading { display: none; }
+  .settings-object-layout[data-unselected="true"] > main,
+  .settings-collection-layout[data-unselected="true"] > .settings-form { display: none; }
+}
 @container settings (max-width: 899px) {
   .settings-shell {
     grid-template-columns: 48px minmax(0, 1fr);

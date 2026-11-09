@@ -100,12 +100,10 @@ export function ActionsPage() {
   }, [focusPath, view]);
 
   useEffect(() => {
-    if (selected !== null && filtered.some((action) => action.id === selected)) {
-      return;
+    if (selected !== null && !filtered.some((action) => action.id === selected)) {
+      setSelected(null);
     }
-    setSelected(filtered[0]?.id ?? null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered]);
+  }, [filtered, selected]);
 
   const current = actions.find((action) => action.id === selected) ?? null;
 

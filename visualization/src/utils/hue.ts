@@ -9,5 +9,8 @@ export function hueForId(id: string): number {
     hash ^= id.charCodeAt(i);
     hash = Math.imul(hash, 0x01000193);
   }
-  return ((hash >>> 0) * 137.508) % 360;
+  const scattered = ((hash >>> 0) * 137.508) % 360;
+  // Stay in the calm green→teal→blue band; warm reds/oranges/yellows and the
+  // violet end both fight the theme's indigo/semantic colors.
+  return 150 + (scattered / 360) * 105;
 }

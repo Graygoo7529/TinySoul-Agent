@@ -28,26 +28,15 @@ function TriggerIcon() {
 
 /** One navigation list, persistent on wide layouts and a panel on compact layouts.
  * The editor remains a sibling, so opening/resizing never remounts its inputs. */
-export function SettingsPicker({ kind, label, suggestOpen = false, children }: {
+export function SettingsPicker({ kind, label, children }: {
   kind: "pages" | "objects";
   label: ReactNode;
-  /** Objects pickers: open the panel once on entry when nothing is selected
-      yet (compact layouts only — the trigger is only visible there). */
-  suggestOpen?: boolean;
   children: (close: () => void) => ReactNode;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
-  const suggested = useRef(false);
-  useEffect(() => {
-    if (!suggestOpen || suggested.current) return;
-    if (trigger.current && trigger.current.getClientRects().length > 0) {
-      suggested.current = true;
-      setOpen(true);
-    }
-  }, [suggestOpen]);
   const close = () => {
     setOpen(false);
     trigger.current?.focus();

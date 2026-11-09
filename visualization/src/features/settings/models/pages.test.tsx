@@ -206,6 +206,17 @@ function setInputValue(input: HTMLInputElement, value: string): void {
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+/** Select the object whose row shows this exact id (pages stay list-first). */
+async function selectObjectRow(id: string): Promise<void> {
+  const cell = [...container.querySelectorAll("aside span.font-mono")].find(
+    (item) => item.textContent === id,
+  );
+  expect(cell, `object row "${id}"`).toBeDefined();
+  await act(async () => {
+    cell!.closest("button")!.click();
+  });
+}
+
 function buttonByText(text: string): HTMLButtonElement {
   const button = [...container.querySelectorAll("button")].find((item) =>
     item.textContent?.includes(text),
@@ -372,6 +383,7 @@ describe("LlmProvidersPage", () => {
     };
     store().setValue(PROVIDERS, "llm.providers.kimi.endpoints", { "openai-chat": endpoint });
     await act(async () => root.render(<LlmProvidersPage />));
+    await selectObjectRow("kimi");
     const disclosure = [...container.querySelectorAll("button")].find((node) => node.textContent === t("settings.entrypointProxy"))!;
     await act(async () => disclosure.click());
     const mode = disclosure.parentElement!.querySelector<HTMLSelectElement>("select")!;
@@ -390,6 +402,7 @@ describe("LlmProvidersPage", () => {
 
   it("adds an API endpoint while preserving the shared credential and existing endpoint", async () => {
     await act(async () => root.render(<LlmProvidersPage />));
+    await selectObjectRow("kimi");
     const mode = container.querySelector<HTMLSelectElement>(`select[aria-label="${t("settings.addApiMode")}"]`)!;
     await act(async () => { mode.value = "openai-responses"; mode.dispatchEvent(new Event("change", { bubbles: true })); });
     const url = container.querySelector<HTMLInputElement>('input[aria-label="openai-responses Base URL"]')!;
@@ -447,6 +460,7 @@ describe("LlmProvidersPage", () => {
       root.render(<LlmProvidersPage />);
     });
     await flush();
+    await selectObjectRow("kimi");
     expect(container.textContent).toContain("KIMI_API_KEY");
     expect(container.textContent).not.toContain("sk-");
 
@@ -762,6 +776,7 @@ describe("LlmTaskChainsPage", () => {
     store().setValue(MODELS_KIMI_SOURCE, "llm.models.kimi-next", { family: "Kimi", adapter: "kimi", providers: [] });
     const prior = draftOperations(store());
     await act(async () => root.render(<LlmTaskChainsPage />));
+    await selectObjectRow("default");
     const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="Model 1"]')!;
     expect(trigger.textContent).toBe("kimi-k2");
     expect(container.querySelector(`[aria-label="${t("settings.modelFamily")}"]`)).toBeNull();
@@ -786,6 +801,7 @@ describe("LlmTaskChainsPage", () => {
     store().createSource(source);
     store().setValue(source, "llm.models.qwen-latest", { family: "Qwen", adapter: "kimi", providers: [{ provider: "kimi", provider_model: "remote-qwen" }] });
     await act(async () => root.render(<LlmTaskChainsPage />));
+    await selectObjectRow("default");
     await act(async () => buttonByText(t("settings.addModel")).click());
     expect(modalModel("kimi-k2").disabled).toBe(true);
     await act(async () => modalModel("qwen-latest").click());
@@ -821,8 +837,7 @@ describe("LlmTaskChainsPage", () => {
       root.render(<LlmTaskChainsPage />);
     });
     await flush();
-
-    // Select the "default" chain (the only one) and move kimi-k2 down.
+    await selectObjectRow("default");
     const moveDown = container.querySelector(
       `button[aria-label="${t("settings.moveDown")}"]`,
     ) as HTMLButtonElement;
@@ -848,6 +863,7 @@ describe("LlmTaskChainsPage", () => {
       root.render(<LlmTaskChainsPage />);
     });
     await flush();
+    await selectObjectRow("default");
     expect(container.textContent).toContain(t("settings.usedBy"));
     expect(container.textContent).toContain("loop.cycle.phase1_task_profile");
   });

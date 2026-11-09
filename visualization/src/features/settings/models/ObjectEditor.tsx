@@ -95,8 +95,8 @@ export function ObjectEditorLayout({
   }, [focusPath, selected]);
   const visibleItems = items.filter((item) => `${item.id} ${item.group ?? ""}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return (
-    <div className="settings-object-layout min-h-full min-w-0">
-      <SettingsPicker kind="objects" suggestOpen={selected === null} label={selected ?? t("settings.selectObjectTitle", { title })}>{(close) => <aside className="min-h-0 overflow-y-auto border-r border-line bg-bg-sunken/25">
+    <div className="settings-object-layout min-h-full min-w-0" data-unselected={selected === null}>
+      <SettingsPicker kind="objects" label={selected ?? t("settings.selectObjectTitle", { title })}>{(close) => <aside className="min-h-0 overflow-y-auto border-r border-line bg-bg-sunken/25">
         <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2.5">
           <div className="min-w-0">
             <div className="text-[12px] font-semibold text-fg">{title}</div>

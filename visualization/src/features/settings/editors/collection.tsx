@@ -82,8 +82,8 @@ export function CollectionObjectEditor({
         title={collection.title}
         description={collection.description}
       >
-        <div className="settings-collection-layout">
-          <SettingsPicker kind="objects" suggestOpen={selected === null} label={selected ?? t("settings.selectEntry")}>{(close) => <CollectionList
+        <div className="settings-collection-layout" data-unselected={selected === null}>
+          <SettingsPicker kind="objects" label={selected ?? t("settings.selectEntry")}>{(close) => <CollectionList
             collection={collection}
             selected={selected}
             onSelect={(id) => { setSelected(id); close(); }}

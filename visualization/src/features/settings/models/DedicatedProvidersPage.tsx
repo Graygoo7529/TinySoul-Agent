@@ -79,8 +79,8 @@ export function DedicatedProvidersPage() {
       clearFocus();
       return;
     }
-    if (selected === null || !effective.some((entry) => entry.id === selected)) {
-      setSelected(effective[0]?.id ?? null);
+    if (selected !== null && !effective.some((item) => item.id === selected)) {
+      setSelected(null);
     }
   }, [effective, selected, focusPath, clearFocus]);
 

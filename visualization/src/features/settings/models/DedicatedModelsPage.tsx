@@ -147,8 +147,8 @@ function ServiceModelsTab() {
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   useEffect(() => {
-    if (selected === null || !effective.some((entry) => entry.id === selected)) {
-      setSelected(effective[0]?.id ?? null);
+    if (selected !== null && !effective.some((item) => item.id === selected)) {
+      setSelected(null);
     }
   }, [effective, selected]);
   const current = effective.find((entry) => entry.id === selected) ?? null;
@@ -509,8 +509,8 @@ function ServiceUsesTab() {
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   useEffect(() => {
-    if (selected === null || !effective.some((entry) => entry.id === selected)) {
-      setSelected(effective[0]?.id ?? null);
+    if (selected !== null && !effective.some((item) => item.id === selected)) {
+      setSelected(null);
     }
   }, [effective, selected]);
   const current = effective.find((entry) => entry.id === selected) ?? null;
