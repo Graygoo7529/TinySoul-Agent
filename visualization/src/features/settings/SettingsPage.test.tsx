@@ -15,7 +15,7 @@ import {
 } from "../../app/testing";
 import { useConfigDraftStore } from "./draft/store";
 import { useSettingsUiStore } from "./uiStore";
-import { SETTINGS_GROUPS, type SettingsGroupId } from "./pages";
+import { SETTINGS_GROUPS } from "./pages";
 import { SettingsPage } from "./SettingsPage";
 import { SettingsPlaceholderPage } from "./SettingsPlaceholderPage";
 
@@ -70,7 +70,6 @@ beforeEach(() => {
   useSettingsUiStore.setState({
     page: "overview",
     focusPath: null,
-    collapsedGroups: {} as Record<SettingsGroupId, boolean>,
   });
   endpoint = new FakeEndpoint();
   endpoint.get("/v2/config/catalog", () => jsonResponse(CATALOG));

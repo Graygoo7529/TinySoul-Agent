@@ -2,17 +2,52 @@ import { useI18n } from "../../i18n";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, Menu, X } from "lucide-react";
 
+import { pageIcon } from "./navIcons";
+import { useSettingsUiStore } from "./uiStore";
+
+/** Compact pages trigger: the current page's line icon (location at a
+ *  glance) with a faint menu hint below. */
+function PagesTriggerIcon() {
+  const page = useSettingsUiStore((s) => s.page);
+  const Icon = pageIcon(page);
+  return (
+    <span className="flex h-full w-full flex-col items-center justify-between py-2.5">
+      <Icon size={16} strokeWidth={1.75} className="text-accent" />
+      <Menu size={12} className="opacity-40" />
+    </span>
+  );
+}
+
+/** Object-list trigger icon: the current page's line icon — the list belongs
+ *  to the page you are on. */
+function TriggerIcon() {
+  const page = useSettingsUiStore((s) => s.page);
+  const Icon = pageIcon(page);
+  return <Icon size={15} strokeWidth={1.75} className="shrink-0 text-fg-faint" />;
+}
+
 /** One navigation list, persistent on wide layouts and a panel on compact layouts.
  * The editor remains a sibling, so opening/resizing never remounts its inputs. */
-export function SettingsPicker({ kind, label, children }: {
+export function SettingsPicker({ kind, label, suggestOpen = false, children }: {
   kind: "pages" | "objects";
   label: ReactNode;
+  /** Objects pickers: open the panel once on entry when nothing is selected
+      yet (compact layouts only — the trigger is only visible there). */
+  suggestOpen?: boolean;
   children: (close: () => void) => ReactNode;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  const suggested = useRef(false);
+  useEffect(() => {
+    if (!suggestOpen || suggested.current) return;
+    if (trigger.current && trigger.current.getClientRects().length > 0) {
+      suggested.current = true;
+      setOpen(true);
+    }
+  }, [suggestOpen]);
   const close = () => {
     setOpen(false);
     trigger.current?.focus();
@@ -42,7 +77,7 @@ export function SettingsPicker({ kind, label, children }: {
     <button ref={trigger} type="button" className="settings-picker-trigger focus-ring" aria-expanded={open} aria-haspopup="dialog"
       aria-label={kind === "pages" ? t("settings.nav.label") : undefined} title={kind === "pages" ? t("settings.nav.label") : undefined}
       onClick={() => setOpen(true)}>
-      {kind === "pages" ? <Menu size={18} /> : <><span className="min-w-0 flex-1 truncate text-left">{label}</span><ChevronDown size={14} /></>}
+      {kind === "pages" ? <PagesTriggerIcon /> : <><TriggerIcon /><span className="min-w-0 flex-1 truncate text-left">{label}</span><ChevronDown size={14} /></>}
     </button>
     {open && <button type="button" tabIndex={-1} aria-label={t("settings.closePicker")} className="settings-picker-backdrop" onClick={close} />}
     <div ref={panel} className="settings-picker-panel" role={open ? "dialog" : undefined} aria-modal={open || undefined}

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronRight, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 
 import { useI18n } from "../../i18n";
 import { Badge } from "../../components/ui/Badge";
@@ -13,6 +13,7 @@ import {
 } from "./pages";
 import { settingsGroupTitle, settingsTitle } from "./labels";
 import { useSettingsUiStore } from "./uiStore";
+import { pageIcon } from "./navIcons";
 import { SettingsPicker } from "./SettingsPicker";
 
 /**
@@ -25,8 +26,6 @@ export function SettingsNav() {
   const page = useSettingsUiStore((s) => s.page);
   const setPage = useSettingsUiStore((s) => s.setPage);
   const navigateTo = useSettingsUiStore((s) => s.navigateTo);
-  const collapsedGroups = useSettingsUiStore((s) => s.collapsedGroups);
-  const toggleGroup = useSettingsUiStore((s) => s.toggleGroup);
   const drafts = useConfigDraftStore((s) => s.drafts);
   const catalog = useConfigDraftStore((s) => s.catalog);
   const [query, setQuery] = useState("");
@@ -99,35 +98,27 @@ export function SettingsNav() {
             ))}
           </div>
         ) : (
-          SETTINGS_GROUPS.map((group) => {
-            const collapsed = collapsedGroups[group.id] === true;
-            return (
-              <div key={group.id} className="mb-1">
-                <button
-                  onClick={() => toggleGroup(group.id)}
-                  className="flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-left text-[11px] font-semibold tracking-wide text-fg-muted uppercase transition-colors hover:bg-hover"
-                >
-                  <ChevronRight
-                    size={11}
-                    className={`shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`}
-                  />
-                  <span className="truncate">{settingsGroupTitle(group)}</span>
-                </button>
-                {!collapsed &&
-                  group.pages.map((pageId) => {
+          SETTINGS_GROUPS.map((group) => (
+            <div key={group.id} className="mb-1">
+              <div className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-fg-faint">
+                {settingsGroupTitle(group)}
+              </div>
+              {group.pages.map((pageId) => {
                     const def = SETTINGS_PAGES[pageId];
                     const active = page === pageId;
                     const count = draftsPerPage.get(pageId) ?? 0;
+                    const Icon = pageIcon(pageId);
                     return (
                       <button
                         key={pageId}
                         onClick={() => { setPage(pageId); close(); }}
-                        className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 pl-6 text-left text-[12px] transition-colors ${
+                        className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors ${
                           active
                             ? "bg-active font-medium text-accent"
                             : "text-fg-muted hover:bg-hover hover:text-fg"
                         }`}
                       >
+                        <Icon size={14} strokeWidth={1.75} className={`shrink-0 ${active ? "" : "opacity-75"}`} />
                         <span className="min-w-0 flex-1 truncate">{settingsTitle(def)}</span>
                         {count > 0 && (
                           <Badge tone="accent" title={t("settings.nav.unsavedChanges", { count })}>
@@ -137,9 +128,8 @@ export function SettingsNav() {
                       </button>
                     );
                   })}
-              </div>
-            );
-          })
+            </div>
+          ))
         )}
       </div>
     </nav>}</SettingsPicker>

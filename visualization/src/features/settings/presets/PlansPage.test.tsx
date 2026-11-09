@@ -18,7 +18,6 @@ import {
 import type { Preset, PresetSummary } from "../../../api/v2/types";
 import { useConfigDraftStore } from "../draft/store";
 import { useSettingsUiStore } from "../uiStore";
-import type { SettingsGroupId } from "../pages";
 import { loadConfig } from "../applyController";
 import { PlansPage } from "./PlansPage";
 
@@ -95,7 +94,6 @@ beforeEach(async () => {
   useSettingsUiStore.setState({
     page: "plans",
     focusPath: null,
-    collapsedGroups: {} as Record<SettingsGroupId, boolean>,
   });
   endpoint = new FakeEndpoint();
   endpoint.get("/v2/config/catalog", () =>
