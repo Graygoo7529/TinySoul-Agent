@@ -669,7 +669,7 @@ export function ResponseView({ response }: { response: JsonObject }): ReactEleme
             open={answerOpen}
             onToggle={() => setAnswerOpen(!answerOpen)}
           >
-            <Markdown className="md-calm text-[12px]" origin={{ ref: "" }}>
+            <Markdown density="compact" origin={{ ref: "" }}>
               {answer}
             </Markdown>
           </Fold>

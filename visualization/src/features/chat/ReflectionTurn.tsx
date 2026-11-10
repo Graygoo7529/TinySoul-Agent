@@ -56,9 +56,9 @@ export function ReflectionTurn({ epoch, summary, projection, latest }: {
           <span className="text-[10px] text-fg-faint">{origin?.trigger === "scheduled" ? t("chat.reflection.automatic") : t("chat.reflection.manual")}</span>
         </div>
         {origin?.instructions_excerpt && (origin.truncated ? <details className="mt-1.5">
-          <summary className="cursor-pointer whitespace-pre-wrap">{origin.instructions_excerpt}…</summary>
-          <p className="mt-2 whitespace-pre-wrap">{origin.instructions ?? origin.instructions_excerpt}</p>
-        </details> : <p className="mt-1.5 whitespace-pre-wrap">{origin.instructions_excerpt}</p>)}
+          <summary className="cursor-pointer"><Markdown density="compact">{`${origin.instructions_excerpt}…`}</Markdown></summary>
+          <div className="mt-2"><Markdown density="compact">{origin.instructions ?? origin.instructions_excerpt}</Markdown></div>
+        </details> : <div className="mt-1.5"><Markdown density="compact">{origin.instructions_excerpt}</Markdown></div>)}
       </div>
     </div>
     <AgentRow>

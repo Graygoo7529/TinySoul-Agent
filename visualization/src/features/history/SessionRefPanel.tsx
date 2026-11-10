@@ -22,6 +22,7 @@ import {
 import type { DisclosurePage, JsonObject, JsonValue } from "../../api/v2/types";
 import { nextContinuation } from "../../api/v2/pagination";
 import { Badge } from "../../components/ui/Badge";
+import { Markdown } from "../../components/markdown/Markdown";
 import { Button } from "../../components/ui/Button";
 import { Collapsible } from "../../components/ui/Collapsible";
 import { JsonTree } from "../../components/ui/JsonTree";
@@ -319,11 +320,7 @@ function FactCard({
 
 function FactText({ text }: { text: string }) {
   if (text === "") return null;
-  return (
-    <div className="text-[13px] leading-5 break-words whitespace-pre-wrap">
-      {text}
-    </div>
-  );
+  return <Markdown density="compact">{text}</Markdown>;
 }
 
 function TurnHeaderCard({ item }: { item: JsonObject }) {
@@ -536,8 +533,8 @@ function AnnotationCard({
         </>
       )}
       {item.body !== "" && (
-        <div className="mt-1.5 text-[12px] leading-5 break-words whitespace-pre-wrap text-fg-muted">
-          {item.body}
+        <div className="mt-1.5 text-fg-muted">
+          <Markdown density="compact">{item.body}</Markdown>
         </div>
       )}
       {item.sourceRefs.length > 0 && (

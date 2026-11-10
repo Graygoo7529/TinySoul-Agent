@@ -309,7 +309,7 @@ function lowFrequencyGist(data: ActionGlimpseData): ReactElement | null | undefi
     return <div className="space-y-1">
       <ChipRow items={[{ text: t("chat.written"), tone: "green" }]} />
       {markdown !== null && markdown.trim() !== ""
-        ? <Markdown className="md-calm text-[11px]" origin={{ ref: "" }}>{markdownExcerpt(markdown)}</Markdown>
+        ? <Markdown density="compact" origin={{ ref: "" }}>{markdownExcerpt(markdown)}</Markdown>
         : ref !== null ? <div className="font-mono text-[11px] text-accent">{ref}</div> : null}
     </div>;
   }

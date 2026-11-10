@@ -46,14 +46,14 @@ describe("BlockFrame", () => {
         </BlockFrame>,
       );
     });
-    expect(container.querySelector("svg")).not.toBeNull();
+    expect(container.querySelector(".cb-frame svg[data-testid='diagram']")).not.toBeNull();
     const toggle = Array.from(
       container.querySelectorAll<HTMLButtonElement>(".cb-frame-toggle"),
     ).find((button) => button.textContent === "源码");
     expect(toggle).not.toBeUndefined();
     act(() => toggle?.click());
     expect(container.querySelector(".cb-frame-source code")?.textContent).toBe("flowchart LR");
-    expect(container.querySelector("svg")).toBeNull();
+    expect(container.querySelector(".cb-frame svg[data-testid='diagram']")).toBeNull();
   });
 
   it("keeps the source and the bounded error visible on failure", () => {

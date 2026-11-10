@@ -1,4 +1,5 @@
 import { t, useI18n } from "../../../i18n";
+import { CopyButton } from "../../ui/CopyButton";
 import { useState, type ReactNode } from "react";
 
 export type BlockStatus = "idle" | "queued" | "rendering" | "done" | "error";
@@ -91,9 +92,16 @@ export function BlockFrame({
               className="cb-frame-toggle"
               onClick={() => setView(view === "diagram" ? "source" : "diagram")}
             >
-              {view === "diagram" ? "源码" : "图"}
+              {view === "diagram" ? t("resources.viewSource") : t("resources.viewDiagram")}
             </button>
           )}
+          <CopyButton
+            label={t("resources.copySource")}
+            className="cb-frame-toggle"
+            text={() => `\`\`\`${label}
+${source}
+\`\`\``}
+          />
           {status === "error" && onRetry !== undefined && (
             <button type="button" className="cb-frame-toggle" onClick={onRetry}>
               {t("common.retry")}</button>

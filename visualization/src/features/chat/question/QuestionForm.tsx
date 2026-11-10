@@ -80,7 +80,7 @@ export function QuestionForm({
             className={`mt-0.5 shrink-0 ${mode === "active" ? "text-accent" : "text-fg-faint"}`}
           />
           <div className="min-w-0 flex-1">
-            {question.details && <Markdown origin={{ ref: "" }} className="mb-3 text-[13px]">{question.details}</Markdown>}
+            {question.details && <Markdown origin={{ ref: "" }} className="mb-3">{question.details}</Markdown>}
             <div className="text-[13px] font-medium">
               <Markdown
                 className="md-inline-question"

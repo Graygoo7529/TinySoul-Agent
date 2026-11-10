@@ -18,6 +18,7 @@ import rehypeKatex from "rehype-katex";
 import { resolveCodeBlock, type MarkdownOrigin } from "./codeBlockRegistry";
 import { MarkdownRenderContext, type MarkdownRenderContextValue } from "./origin";
 import { RegisteredCodeBlock } from "./CodeBlock";
+import { markdownFromSelection } from "./selectionCopy";
 import {
   MarkdownAnchor,
   MarkdownImage,
@@ -62,12 +63,15 @@ export function Markdown({
   children,
   className = "",
   origin,
+  density = "normal",
   ref,
 }: {
   children: string;
   className?: string;
   /** Reading context for interactive blocks and resourceRef routing. */
   origin?: MarkdownOrigin;
+  /** "compact" tightens size/weight/rhythm as one set for live/trace/panels. */
+  density?: "normal" | "compact";
   /** Forwarded to the .md-body root (e.g. truncation measurement). */
   ref?: Ref<HTMLDivElement>;
 }) {
@@ -87,7 +91,16 @@ export function Markdown({
     [view, resourceRef, day, turnId, homeView, children],
   );
   return (
-    <div ref={ref} className={`md-body ${className}`}>
+    <div
+      ref={ref}
+      className={`md-body ${density === "compact" ? "md-compact " : ""}${className}`}
+      onCopy={(event) => {
+        const markdown = markdownFromSelection(event.currentTarget);
+        if (markdown === null) return;
+        event.clipboardData.setData("text/plain", markdown);
+        event.preventDefault();
+      }}
+    >
       <MarkdownRenderContext.Provider value={context}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkMath]}

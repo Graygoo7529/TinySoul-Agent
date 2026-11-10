@@ -67,7 +67,7 @@ function ResourceCard({ item, expanded, onToggle, origin }: {
     </button>
     {expanded && <div className="border-t border-line/60 px-3 py-2">
       {body.day && <div className="mb-1 text-[10px] text-fg-faint">{body.day}</div>}
-      <Markdown origin={{ ...origin, ref: body.ref ?? origin.ref }} className="md-calm text-[12px]">{body.text}</Markdown>
+      <Markdown density="compact" origin={{ ...origin, ref: body.ref ?? origin.ref }}>{body.text}</Markdown>
     </div>}
   </article>;
 }

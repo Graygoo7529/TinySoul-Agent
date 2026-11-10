@@ -1,6 +1,7 @@
 import { registerCodeBlock, type CodeBlockRenderProps } from "../codeBlockRegistry";
 import { MermaidBlock } from "./MermaidBlock";
 import { TikZBlock } from "./TikZBlock";
+import { MathCodeBlock } from "./MathBlock";
 
 /**
  * Built-in code block registrations (plan §21.1): Mermaid diagrams under the
@@ -27,3 +28,4 @@ function TikZCodeBlock({ source }: CodeBlockRenderProps<string>) {
 
 registerCodeBlock(["mermaid", "flowchart"], { render: MermaidCodeBlock });
 registerCodeBlock("tikz", { render: TikZCodeBlock });
+registerCodeBlock("math", { render: MathCodeBlock });

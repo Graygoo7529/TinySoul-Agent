@@ -478,7 +478,7 @@ function PhaseCard({ phase, onOpenTask, onOpenAction, children }: {
         {reasoning && <div className="rounded-r-lg border-l-2 border-accent/40 bg-bg-sunken/60 px-3 py-2">
           <div className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold tracking-wide text-accent uppercase"><Brain size={10} /> {t("trace.reasoning")}</div>
           <div className={reasoningFull ? undefined : "line-clamp-3"}>
-            <Markdown className="md-calm text-[12px] text-fg-muted">{reasoning}</Markdown>
+            <Markdown density="compact" className="text-fg-muted">{reasoning}</Markdown>
           </div>
           <button type="button" onClick={() => setReasoningFull(!reasoningFull)}
             className="mt-0.5 text-[10.5px] text-fg-faint transition-colors hover:text-fg-muted">

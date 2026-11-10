@@ -113,7 +113,7 @@ function StepBody({ item }: { item: ActivityStepType }) {
   const content = item.content;
   switch (content.type) {
     case "thinking":
-      return <ActivityText text={content.text} textClassName="italic text-fg-muted" />;
+      return <ActivityText text={content.text} textClassName="thinking-md" />;
     case "domain_select":
       return <DomainSelectBody {...content} />;
     case "skill_mount":
@@ -175,7 +175,7 @@ function ActivityText({ text, prefix, textClassName = "text-fg-muted" }: {
       </button>
       {open && hasMore && (
         <div className="mt-1 rounded-lg bg-accent-soft/50 px-2.5 py-2">
-          <Markdown className="md-calm text-[12px] text-fg-muted">{text}</Markdown>
+          <Markdown className="thinking-md">{text}</Markdown>
         </div>
       )}
     </div>

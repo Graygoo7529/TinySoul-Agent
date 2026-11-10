@@ -82,7 +82,7 @@ export function AnalysisView({ action, result, params, nav }: ResultViewProps) {
               defaultOpen={narrative.text.length <= 3000}
               className="border-accent/20"
             >
-              <Markdown className="md-calm text-[12px]" origin={{ ref: "" }}>
+              <Markdown density="compact" origin={{ ref: "" }}>
                 {narrative.text}
               </Markdown>
             </Collapsible>

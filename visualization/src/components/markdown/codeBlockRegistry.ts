@@ -10,6 +10,16 @@ import type { ResourceOrigin } from "../../features/resources/reference";
  * content and an optional custom `fallback`. Unknown fences never reach the
  * registry and keep the default code rendering — arbitrary Markdown code is
  * never treated as executable script.
+ *
+ * Registering a new language (see builtinBlocks.tsx for the pattern):
+ * 1. Write a render component in `blocks/` receiving CodeBlockRenderProps;
+ *    `parsed` is the parse result (or the raw source when no parse declared).
+ * 2. `registerCodeBlock("lang", { render: YourBlock })` in builtinBlocks.tsx —
+ *    multiple aliases map to one renderer.
+ * 3. Declare `parse` when the fence body needs validation; a null/throw keeps
+ *    the source visible via the fallback instead of a broken rich block.
+ * 4. Streaming safety and viewport-gated heavy work stay inside the renderer;
+ *    the open tail of a streaming document never mounts rich rendering.
  */
 
 /** The theme renderers compile against (light/dark page theme). */

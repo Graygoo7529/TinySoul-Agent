@@ -264,7 +264,7 @@ function AgentReason({ text, origin, nested }: { text: string; origin: MarkdownO
       {!nested && <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-line text-fg-faint">
         <Bot size={14} />
       </div>}
-      <div className="thinking-md min-w-0 flex-1 px-1 py-1 text-[13px] leading-6 text-fg-faint italic">
+      <div className="thinking-md min-w-0 flex-1 px-1 py-1">
         <Markdown origin={origin}>{text}</Markdown>
       </div>
     </div>

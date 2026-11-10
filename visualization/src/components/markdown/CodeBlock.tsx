@@ -1,4 +1,6 @@
 import { useMemo, type ReactElement } from "react";
+import { t } from "../../i18n";
+import { CopyButton } from "../ui/CopyButton";
 import { useUiPrefs } from "../../store/uiPrefsStore";
 import type {
   CodeBlockFallbackProps,
@@ -16,11 +18,14 @@ export function PlainCodeBlock({
   language,
 }: CodeBlockFallbackProps): ReactElement {
   return (
-    <pre>
-      <code className={language ? `language-${language}` : undefined}>
-        {source}
-      </code>
-    </pre>
+    <div className="md-code-wrap">
+      <pre>
+        <code className={language ? `language-${language}` : undefined}>
+          {source}
+        </code>
+      </pre>
+      <CopyButton className="md-code-copy" label={t("common.copy")} text={() => source} />
+    </div>
   );
 }
 

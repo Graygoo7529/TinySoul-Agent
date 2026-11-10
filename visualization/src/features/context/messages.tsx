@@ -12,6 +12,7 @@ import type { ReactElement } from "react";
 import type { ContextMessage, JsonObject, JsonValue } from "../../api/v2/types";
 import { Badge } from "../../components/ui/Badge";
 import { JsonTree } from "../../components/ui/JsonTree";
+import { Markdown } from "../../components/markdown/Markdown";
 
 function isRecord(value: JsonValue): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -82,12 +83,7 @@ function MessageCard({ item }: { item: ContextMessage }): ReactElement {
       ) : (
         <>
           {view.texts.map((text, index) => (
-            <div
-              key={index}
-              className="text-[13px] leading-5 break-words whitespace-pre-wrap text-fg"
-            >
-              {text}
-            </div>
+            <Markdown key={index} density="compact">{text}</Markdown>
           ))}
           {view.extras.map((part, index) => (
             <JsonTree key={index} value={part} defaultExpanded={false} />

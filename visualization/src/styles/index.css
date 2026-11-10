@@ -920,6 +920,24 @@ input[type="range"].range-unset::-moz-range-thumb {
   font-weight: 500;
 }
 
+/* Compact markdown density for live/trace/panel surfaces: smaller, lighter,
+   and tightened as one set — never per-consumer font-size overrides. */
+.md-compact {
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 380;
+}
+.md-compact p { margin: 0.3em 0; }
+.md-compact h1, .md-compact h2, .md-compact h3, .md-compact h4 {
+  margin: 0.6em 0 0.3em;
+  font-weight: 500;
+}
+.md-compact ul, .md-compact ol { margin: 0.3em 0; padding-left: 1.3em; }
+.md-compact li { margin: 0.1em 0; }
+.md-compact pre { margin: 0.35em 0; }
+.md-compact table { margin: 0.35em 0; }
+.md-compact blockquote { margin: 0.3em 0; }
+
 /* ---- inline single-line markdown (the thinking slate preview): top-level
    blocks collapse into one line; emphasis is flattened (weights and
    italics inherit the slate's fine slanted style), links are inert,
@@ -981,8 +999,8 @@ input[type="range"].range-unset::-moz-range-thumb {
    (fine, bright, gently slanted); bold stays a restrained 500, *em* turns
    upright for contrast inside the slanted text, math stays upright ---- */
 .thinking-md {
-  font-size: 11.5px;
-  line-height: 20px;
+  font-size: 12px;
+  line-height: 1.55;
   font-weight: 380;
   color: var(--fg-muted);
   font-style: oblique 8deg;
@@ -1418,6 +1436,25 @@ pre.cb-frame-source {
   max-width: 100%;
   height: auto;
 }
+.cb-math {
+  padding: 14px 16px;
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+}
+
+/* Plain code block: hover-revealed copy control. */
+.md-code-wrap { position: relative; }
+.md-code-wrap .md-code-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  opacity: 0;
+  transition: opacity 0.12s;
+  background: color-mix(in srgb, var(--bg-elev) 82%, transparent);
+}
+.md-code-wrap:hover .md-code-copy { opacity: 1; }
+
 .cb-frame-controls {
   display: inline-flex;
   align-items: center;

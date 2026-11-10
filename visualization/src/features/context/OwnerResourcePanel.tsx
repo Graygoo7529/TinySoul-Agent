@@ -25,6 +25,7 @@ import type {
 import { hasApiCode } from "../../api/v2/errors";
 import { nextContinuation } from "../../api/v2/pagination";
 import { Badge } from "../../components/ui/Badge";
+import { Markdown } from "../../components/markdown/Markdown";
 import { Collapsible } from "../../components/ui/Collapsible";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { JsonTree } from "../../components/ui/JsonTree";
@@ -242,9 +243,7 @@ function OwnerContentReader({
             <div className="mb-1 truncate font-mono text-[11px] text-fg-faint">
               {item.ref}
             </div>
-            <div className="text-[13px] leading-5 break-words whitespace-pre-wrap">
-              {item.text}
-            </div>
+            <Markdown density="compact">{item.text}</Markdown>
           </div>
         ))}
         <ContextSequenceStatus
