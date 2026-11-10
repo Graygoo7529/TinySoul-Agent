@@ -4,30 +4,18 @@ A Tauri 2 + React + TypeScript + Vite desktop interface for TinySoul. It connect
 
 ## Development
 
-Requirements:
+For backend setup, login, and remote connections, see the shared startup guide: [English](../docs/intro/getting-started.en.md) / [简体中文](../docs/intro/getting-started.zh-CN.md).
 
-- Node.js 20+
-- pnpm
-- Rust 1.97+ (for Tauri)
-- `tinysoul` on PATH
+Desktop development requires Node.js 22.12+, pnpm, Rust stable (including Cargo), and the [Tauri system prerequisites](https://v2.tauri.app/start/prerequisites/). The backend can run locally or on another host; the frontend machine does not need `tinysoul` installed.
 
-Install dependencies:
+Run these commands from `visualization/` to install dependencies and open the desktop app:
 
 ```bash
-pnpm install
-```
-
-Run in development mode:
-
-```bash
+pnpm install --frozen-lockfile
 pnpm tauri dev
 ```
 
-Start TinySoul in a visible Terminal, then open the frontend:
-
-```bash
-tinysoul start --root <project-root> --mode normal
-```
+Start the backend separately using the startup guide. `pnpm dev` provides a browser preview without Rust; desktop-only behavior such as trace export differs there.
 
 In the frontend, enter `<host>:1430` (or an explicit HTTP URL) and the token
 from the backend project's `.auth` file. The client stores `{address, token}`

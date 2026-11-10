@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 420" width="920" height="420">
+  <defs>
+    <style>
+      .bg { fill: #FAF9F6; }
+      .lane { fill: #FFFFFF; stroke: #DCD9D0; stroke-width: 1.4; rx: 16; }
+      .phase-box { fill: #F4F3EF; stroke: #CFCBC2; stroke-width: 1.3; rx: 14; }
+      .phase-focal { fill: #E7F0FA; stroke: #7BA7D7; stroke-width: 1.5; rx: 14; }
+      .ctx-bar { fill: #F0F4F9; stroke: #B5C7E3; stroke-width: 1.3; rx: 12; }
+      .fb-bar { fill: #F9F2E7; stroke: #D8B98E; stroke-width: 1.3; rx: 12; }
+      .title { font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', sans-serif; font-size: 15px; font-weight: 600; fill: #1F2328; }
+      .sub { font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', sans-serif; font-size: 12.5px; font-weight: 400; fill: #4E5760; }
+      .badge { font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', sans-serif; font-size: 12px; font-weight: 500; fill: #2C5282; }
+      .badge-bg { fill: #DCEAFB; stroke: #A3C4E9; stroke-width: 1; rx: 8; }
+      .edge-label { font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', sans-serif; font-size: 12px; font-weight: 500; fill: #3B434B; }
+      .pill { fill: #EFECE6; stroke: #D0CCC4; stroke-width: 1; rx: 10; }
+      .arrow { fill: none; stroke: #4A5568; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow-head-c); }
+    </style>
+    <marker id="arrow-head-c" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 1.5 1.5 L 8.5 5 L 1.5 8.5" fill="none" stroke="#4A5568" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="920" height="420" rx="18"/>
+
+  <!-- Top Context Bar -->
+  <rect class="ctx-bar" x="36" y="26" width="848" height="62" rx="12"/>
+  <text class="title" x="460" y="51" text-anchor="middle">Context 语境装配 (Background · Trace · Working)</text>
+  <text class="sub" x="460" y="72" text-anchor="middle">每次模型调用前纯读取重新构造，保持信息角色清晰且支持渐进披露</text>
+
+  <!-- Down arrows from Context to Phases -->
+  <line class="arrow" x1="176" y1="88" x2="176" y2="128"/>
+  <line class="arrow" x1="460" y1="88" x2="460" y2="128"/>
+  <line class="arrow" x1="744" y1="128" x2="744" y2="88"/>
+
+  <!-- Phase 1 -->
+  <rect class="phase-box" x="36" y="134" width="256" height="168" rx="14"/>
+  <text class="title" x="164" y="164" text-anchor="middle">Phase 1 · 语境与选域</text>
+  <rect class="badge-bg" x="62" y="178" width="204" height="26" rx="8"/>
+  <text class="badge" x="164" y="195" text-anchor="middle">可见：语境控制工具 + 领域概览</text>
+  <text class="sub" x="164" y="228" text-anchor="middle">更新计划，按需载入或移出背景</text>
+  <text class="sub" x="164" y="250" text-anchor="middle">确定本轮需要启用的行动域</text>
+  <text class="sub" x="164" y="272" text-anchor="middle">输出：行动域及可选的行动意图</text>
+
+  <!-- Arrow P1 -> P2 -->
+  <line class="arrow" x1="292" y1="218" x2="326" y2="218"/>
+
+  <!-- Phase 2 -->
+  <rect class="phase-focal" x="332" y="134" width="256" height="168" rx="14"/>
+  <text class="title" x="460" y="164" text-anchor="middle">Phase 2 · 动作生成</text>
+  <rect class="badge-bg" x="358" y="178" width="204" height="26" rx="8"/>
+  <text class="badge" x="460" y="195" text-anchor="middle">可见：所选域 Skill + 域内工具</text>
+  <text class="sub" x="460" y="228" text-anchor="middle">按需挂载对应领域的操作指导</text>
+  <text class="sub" x="460" y="250" text-anchor="middle">可选择 Search、Inspect 等域内动作</text>
+  <text class="sub" x="460" y="272" text-anchor="middle">输出：经校验的结构化动作请求</text>
+
+  <!-- Arrow P2 -> P3 -->
+  <line class="arrow" x1="588" y1="218" x2="622" y2="218"/>
+
+  <!-- Phase 3 -->
+  <rect class="phase-box" x="628" y="134" width="256" height="168" rx="14"/>
+  <text class="title" x="756" y="164" text-anchor="middle">Phase 3 · 批次执行</text>
+  <rect class="badge-bg" x="654" y="178" width="204" height="26" rx="8"/>
+  <text class="badge" x="756" y="195" text-anchor="middle">执行：动作批次与后台任务监督</text>
+  <text class="sub" x="756" y="228" text-anchor="middle">执行所选动作，按需启动后台任务</text>
+  <text class="sub" x="756" y="250" text-anchor="middle">内部子调用可局部挂载动作级 Skill</text>
+  <text class="sub" x="756" y="272" text-anchor="middle">输出：真实执行事实与状态更新</text>
+
+  <!-- Bottom Feedback & Recovery Bar -->
+  <line class="arrow" x1="744" y1="302" x2="744" y2="330"/>
+  <line class="arrow" x1="176" y1="330" x2="176" y2="302"/>
+
+  <rect class="fb-bar" x="36" y="334" width="848" height="60" rx="12"/>
+  <text class="title" x="460" y="358" text-anchor="middle">分层反馈与下一轮演进</text>
+  <text class="sub" x="460" y="379" text-anchor="middle">参数或超时等局部问题作为反馈进入下一轮 Cycle 修正；不可恢复异常与预算耗尽由运行控制统一接管</text>
+</svg>
