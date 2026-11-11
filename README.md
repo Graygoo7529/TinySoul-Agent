@@ -1,5 +1,7 @@
 # TinySoul-Agent · 面向持续协作的个人 Agent
 
+![TinySoul](docs/assets/TinySoul-Agent.png)
+
 简体中文 · [English](docs/intro/README.en.md) · **[启动指南](docs/intro/getting-started.zh-CN.md)** · [Getting started](docs/intro/getting-started.en.md)
 
 TinySoul 是我在空闲时间通过 vibe coding 持续探索和打磨的个人 Agent 项目。初衷很朴素：把一件事情交给它之后，依然可以半途改主意、补材料；合上电脑离开一会儿，或者过几天再回来，也能看懂工作怎样一步步走到这里，接着往下做。
