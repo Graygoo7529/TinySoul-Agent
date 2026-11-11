@@ -15,12 +15,7 @@ import { useSettingsUiStore } from "../uiStore";
 import { ReadOnlyValue, SettingsPageBody } from "./draftCompositeControls";
 
 const PROCESS_FIELDS = [
-  "agent.interactive",
-  "agent.exit_commands",
-  "agent.stop_turn_commands",
   "agent.retained_outcomes",
-  "agent.output.mode",
-  "agent.output.max_model_detail_chars",
   "config.include",
   "config.env_file",
   "config.document_sets",

@@ -34,7 +34,7 @@ async def test_agent_builder_cleans_project_capability_staging_on_startup(
     (
         await standard_agent(root=tmp_path)
         .with_config_environment(config)
-        .with_agent_settings(AgentSettings(interactive=False))
+        .with_agent_settings(AgentSettings())
         .with_llm_runner(FakeLLM(()))
         .build()
         .build_runtime()
@@ -57,7 +57,7 @@ async def test_agent_builder_missing_agent_is_context_startup_failure(
         (
             await standard_agent(root=tmp_path)
             .with_config_environment(config)
-            .with_agent_settings(AgentSettings(interactive=False))
+            .with_agent_settings(AgentSettings())
             .with_llm_runner(FakeLLM(()))
             .build()
             .build_runtime()
@@ -142,7 +142,7 @@ async def test_agent_builder_maps_owned_startup_failure(
         (
             await standard_agent(root=tmp_path)
             .with_config_environment(config)
-            .with_agent_settings(AgentSettings(interactive=False))
+            .with_agent_settings(AgentSettings())
             .with_llm_runner(FakeLLM(()))
             .build()
             .build_runtime()
@@ -172,7 +172,7 @@ async def test_agent_builder_corrupt_manifest_is_workspace_startup_failure(
         (
             await standard_agent(root=tmp_path)
             .with_config_environment(config)
-            .with_agent_settings(AgentSettings(interactive=False))
+            .with_agent_settings(AgentSettings())
             .with_llm_runner(FakeLLM(()))
             .build()
             .build_runtime()
@@ -189,7 +189,7 @@ async def test_agent_builder_does_not_map_programming_errors_to_startup_failure(
     builder = (
         standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
-        .with_agent_settings(AgentSettings(interactive=False))
+        .with_agent_settings(AgentSettings())
         .with_llm_runner(FakeLLM(()))
     )
 
@@ -207,7 +207,7 @@ async def test_agent_builder_does_not_map_programming_errors_to_startup_failure(
 async def test_agent_builder_agent_config_error_is_agent_startup_failure(
     tmp_path: Path,
 ) -> None:
-    config = _test_config(tmp_path, {"agent.interactive": "bad"})
+    config = _test_config(tmp_path, {"agent.retained_outcomes": "bad"})
 
     with pytest.raises(RuntimeException) as raised:
         (
@@ -222,7 +222,7 @@ async def test_agent_builder_agent_config_error_is_agent_startup_failure(
     exc = raised.value
     assert exc.reason == RUNTIME_STARTUP_FAILED
     assert exc.payload["module"] == "agent"
-    assert exc.payload["key"] == "agent.interactive"
+    assert exc.payload["key"] == "agent.retained_outcomes"
 
 
 async def test_agent_builder_llm_config_error_is_llm_startup_failure(
@@ -234,7 +234,7 @@ async def test_agent_builder_llm_config_error_is_llm_startup_failure(
         (
             await standard_agent(root=tmp_path)
             .with_config_environment(config)
-            .with_agent_settings(AgentSettings(interactive=False))
+            .with_agent_settings(AgentSettings())
             .with_loop_settings(LoopSettings())
             .build()
             .build_runtime()

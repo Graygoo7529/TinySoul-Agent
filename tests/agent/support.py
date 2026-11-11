@@ -108,7 +108,7 @@ async def _create(
                 },
             )
         )
-        .with_agent_settings(AgentSettings(interactive=False))
+        .with_agent_settings(AgentSettings())
         .with_llm_runner(llm)
     )
     if clock is not None:
@@ -123,7 +123,7 @@ async def _create(
                 presentation=PresentationService(runtime.project_root),
                 settings=EndpointSettings(token="x" * 32),
                 events=EndpointEventBuffer(capacity=32, max_bytes=100000),
-                gateway=runtime.gateway,
+                commands=runtime.commands,
                 services=runtime.service_access,
                 config=runtime.configuration,
                 available=lambda: runtime.is_available,

@@ -1,7 +1,7 @@
 [[surface]]
 id = "behavior"
 title = "Behavior"
-description = "User Turn limits, application input behavior, output projection, and Action defaults."
+description = "User Turn limits and Action defaults."
 
 [[surface]]
 id = "reflection"
@@ -17,18 +17,6 @@ description = "External foundational services, project configuration sources, an
 id = "model_services"
 title = "Specialized Models"
 description = "Embedding and decision model providers, models, and logical uses."
-
-[[field_group]]
-id = "behavior.application"
-surface = "behavior"
-title = "Application"
-description = "Controls terminal input, command handling, and retained Program outcomes."
-
-[[field_group]]
-id = "behavior.output"
-surface = "behavior"
-title = "Output"
-description = "Controls terminal output projection and model-context display limits."
 
 [[field_group]]
 id = "behavior.user_turn"
@@ -79,59 +67,11 @@ title = "Uses"
 description = "Named capabilities selected by business consumers."
 
 [[field]]
-path = "agent.interactive"
-surface = "behavior"
-group = "behavior.application"
-title = "Interactive Terminal"
-description = "Starts the terminal input source when no Endpoint input source is configured."
-value_kind = "boolean"
-
-[[field]]
-path = "agent.exit_commands"
-surface = "behavior"
-group = "behavior.application"
-title = "Exit Commands"
-description = "Terminal command words that request Program exit."
-value_kind = "string_list"
-importance = "advanced"
-
-[[field]]
-path = "agent.stop_turn_commands"
-surface = "behavior"
-group = "behavior.application"
-title = "Stop Turn Commands"
-description = "Terminal command words that request cooperative cancellation of the active User Turn."
-value_kind = "string_list"
-importance = "advanced"
-
-[[field]]
 path = "agent.retained_outcomes"
 surface = "behavior"
-group = "behavior.application"
+group = "behavior.user_turn"
 title = "Retained Outcomes"
 description = "Number of completed Program outcomes retained in the process shell."
-value_kind = "integer"
-importance = "advanced"
-
-[[field]]
-path = "agent.output.mode"
-surface = "behavior"
-group = "behavior.output"
-title = "Output Detail"
-description = "Default terminal output projection level."
-value_kind = "enum"
-choices = [
-  { value = "normal", label = "Normal" },
-  { value = "verbose", label = "Verbose" },
-  { value = "model", label = "Model context" },
-]
-
-[[field]]
-path = "agent.output.max_model_detail_chars"
-surface = "behavior"
-group = "behavior.output"
-title = "Model Output Display Length"
-description = "Maximum model-context characters rendered by the terminal output sink."
 value_kind = "integer"
 importance = "advanced"
 

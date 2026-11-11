@@ -316,10 +316,7 @@ catalog value_kind = object，**整张 map 原子提交**；source_id 为 `proje
 
 | 路径 | 默认 | 只读原因 |
 | --- | --- | --- |
-| `agent.interactive` | true | 进程独有（CLI 交互模式） |
-| `agent.exit_commands` / `agent.stop_turn_commands` | ["exit","quit"] / ["stop","cancel"] | 进程独有 |
 | `agent.retained_outcomes` | 32 | 进程独有 |
-| `agent.output.mode` / `agent.output.max_model_detail_chars` | normal / 20480 | 进程独有 |
 | `config.include` / `config.env_file` / `config.document_sets` | 主文件声明 | 配置来源自身，进程独有 |
 | environment / overrides 两个 source | — | 进程环境与 CLI 覆盖不可经 endpoint 改写 |
 | `process_shell{host, port, instance_id}` | 当前监听 | Endpoint 监听不走配置文件；只读投影 |
@@ -370,7 +367,7 @@ Endpoint：`GET/POST /v2/config/presets`、`GET/PUT/DELETE /v2/config/presets/{i
 
 主对话（P01）、提问/追加/回复卡片（P02）、历史对话与 Session（P03）**不需要任何配置原语**：
 
-- 对话页的交互行为（新轮/追加/回复/补额/取消）由 API-02 与 TurnSnapshot 状态驱动，无配置项；`agent.interactive`、`exit_commands`、`stop_turn_commands` 等终端行为键是进程独有只读，不进入设置表单。
+- Conversation interaction uses API-02 and TurnSnapshot state; terminal input keys are not configuration and do not appear in the settings form.
 - 问题卡片协议（选项数上限 8、choice/text answer）由后端固定协议决定，不可配置。
 - 历史/Session 页只有读取分页；`session.max_background_chars` 在“数据与知识 → Context”编辑，`session.max_inspect_chars` 仍归“数据与知识 → Session”（§5.2），对话页自身不暴露。
 - 对话页唯一与配置相关的入口是运行方案快捷选择器（§19 / API-06/07），方案内容本身在设置中管理。

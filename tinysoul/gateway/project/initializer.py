@@ -164,7 +164,7 @@ class ProjectResetter:
         self,
         target: Path,
         *,
-        config_profile: ProjectConfigProfile = ProjectConfigProfile.DEVELOPMENT,
+        config_profile: ProjectConfigProfile = ProjectConfigProfile.STANDARD,
     ) -> ProjectResetOutcome:
         if not isinstance(target, Path):
             raise ProjectInitializationError("Project reset target must be a path")

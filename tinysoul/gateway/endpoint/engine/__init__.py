@@ -11,7 +11,7 @@ from ..events import EndpointEventBuffer
 from .configuration import EndpointConfigurationEngine
 from .context import EndpointEngineContext
 from .contracts import (
-    EndpointAgentIngress,
+    EndpointTurnCommands,
     EndpointConfigController,
     EndpointLifecycle,
     EndpointServices,
@@ -20,7 +20,7 @@ from .events import EndpointEventsEngine
 from .presentation import EndpointPresentationEngine
 from .reflection import EndpointReflectionEngine
 from .resources import EndpointResourcesEngine
-from .runtime import EndpointControlKind, EndpointRuntimeEngine
+from .runtime import EndpointRuntimeEngine
 from .workspace import EndpointWorkspaceEngine
 
 
@@ -32,7 +32,7 @@ class EndpointEngine:
         *,
         settings: EndpointSettings,
         events: EndpointEventBuffer,
-        gateway: EndpointAgentIngress,
+        commands: EndpointTurnCommands,
         services: EndpointServices,
         config: EndpointConfigController,
         presentation: PresentationService,
@@ -42,7 +42,7 @@ class EndpointEngine:
         context = EndpointEngineContext(
             settings=settings,
             events=events,
-            _gateway=gateway,
+            _commands=commands,
             _services=services,
             _config=config,
             _available=available,
@@ -63,12 +63,12 @@ class EndpointEngine:
     def bind(
         self,
         *,
-        gateway: EndpointAgentIngress,
+        commands: EndpointTurnCommands,
         services: EndpointServices,
         config: EndpointConfigController,
     ) -> None:
         """Switch the stable Endpoint facade to a new Agent generation."""
-        self._context.bind(gateway=gateway, services=services, config=config)
+        self._context.bind(commands=commands, services=services, config=config)
 
     def set_lifecycle(self, lifecycle: EndpointLifecycle | None) -> None:
         self._context.set_lifecycle(lifecycle)
@@ -88,7 +88,6 @@ class EndpointEngine:
 
 __all__ = [
     "EndpointConfigController",
-    "EndpointControlKind",
     "EndpointEngine",
     "EndpointLifecycle",
     "EndpointServices",

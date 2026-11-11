@@ -1,86 +1,23 @@
-"""App configuration models."""
+"""Process-level Agent configuration."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
-from typing import cast
+from dataclasses import dataclass
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
-from tinysoul.runtime import ObservationLevel
-
-
-@dataclass(frozen=True)
-class InputCommandSettings:
-    """Runtime input command words owned by the app layer."""
-
-    exit_commands: tuple[str, ...] = ("exit", "quit")
-    stop_turn_commands: tuple[str, ...] = ("stop", "cancel")
-
-    def __post_init__(self) -> None:
-        _validate_commands(self.exit_commands, key="agent.exit_commands")
-        _validate_commands(self.stop_turn_commands, key="agent.stop_turn_commands")
-
-
-@dataclass(frozen=True)
-class OutputSettings:
-    """Observation filtering and bounded model-detail rendering settings."""
-
-    mode: ObservationLevel = ObservationLevel.NORMAL
-    max_model_detail_chars: int = 20480
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.mode, ObservationLevel):
-            raise ConfigError(
-                "App output mode is invalid",
-                key="agent.output.mode",
-                value=self.mode,
-                expected="normal | verbose | model",
-            )
-        if (
-            isinstance(self.max_model_detail_chars, bool)
-            or not isinstance(self.max_model_detail_chars, int)
-            or self.max_model_detail_chars <= 0
-        ):
-            raise ConfigError(
-                "App output max_model_detail_chars must be positive",
-                key="agent.output.max_model_detail_chars",
-                value=self.max_model_detail_chars,
-                expected="positive int",
-            )
 
 
 @dataclass(frozen=True)
 class AgentSettings:
-    """Process-level TinySoul app settings."""
+    """Bounded retention for completed root requests."""
 
-    interactive: bool = True
-    input_commands: InputCommandSettings = field(default_factory=InputCommandSettings)
-    output: OutputSettings = field(default_factory=OutputSettings)
     retained_outcomes: int = 32
 
     def __post_init__(self) -> None:
-        if not isinstance(self.input_commands, InputCommandSettings):
+        if type(self.retained_outcomes) is not int or self.retained_outcomes <= 0:
             raise ConfigError(
-                "App input commands must be InputCommandSettings",
-                key="agent.input_commands",
-                value=type(self.input_commands).__name__,
-                expected="InputCommandSettings",
-            )
-        if not isinstance(self.output, OutputSettings):
-            raise ConfigError(
-                "App output settings must be OutputSettings",
-                key="agent.output",
-                value=type(self.output).__name__,
-                expected="OutputSettings",
-            )
-        if (
-            isinstance(self.retained_outcomes, bool)
-            or not isinstance(self.retained_outcomes, int)
-            or self.retained_outcomes <= 0
-        ):
-            raise ConfigError(
-                "App retained_outcomes must be positive",
+                "Agent retained_outcomes must be positive",
                 key="agent.retained_outcomes",
                 value=self.retained_outcomes,
                 expected="positive int",
@@ -88,174 +25,13 @@ class AgentSettings:
 
 
 def parse_agent_settings(tree: Mapping[str, object]) -> AgentSettings:
-    """Parse app settings from a dynamic configuration tree."""
-
-    reject_unknown_keys(
-        tree,
-        {
-            "interactive",
-            "exit_commands",
-            "stop_turn_commands",
-            "output",
-            "retained_outcomes",
-        },
-        key="agent",
-    )
-    return AgentSettings(
-        interactive=_optional_bool(
-            tree,
-            "interactive",
-            default=AgentSettings.interactive,
-        ),
-        input_commands=InputCommandSettings(
-            exit_commands=_optional_str_tuple(
-                tree,
-                "exit_commands",
-                default=InputCommandSettings.exit_commands,
-            ),
-            stop_turn_commands=_optional_str_tuple(
-                tree,
-                "stop_turn_commands",
-                default=InputCommandSettings.stop_turn_commands,
-            ),
-        ),
-        output=_parse_output_settings(tree.get("output")),
-        retained_outcomes=_optional_int(
-            tree,
-            "retained_outcomes",
-            default=AgentSettings.retained_outcomes,
-        ),
-    )
-
-
-def _parse_output_settings(value: object) -> OutputSettings:
-    if value is None:
-        return OutputSettings()
-    if not isinstance(value, Mapping):
+    reject_unknown_keys(tree, {"retained_outcomes"}, key="agent")
+    value = tree.get("retained_outcomes", AgentSettings.retained_outcomes)
+    if type(value) is not int:
         raise ConfigError(
-            "App output configuration must be a table",
-            key="agent.output",
+            "Agent retained_outcomes must be an integer",
+            key="agent.retained_outcomes",
             value=value,
-            expected="table",
+            expected="positive int",
         )
-    table = cast(Mapping[str, object], value)
-    reject_unknown_keys(table, {"mode", "max_model_detail_chars"}, key="agent.output")
-    raw_mode = table.get("mode", ObservationLevel.NORMAL.value)
-    if not isinstance(raw_mode, str):
-        raise ConfigError(
-            "App output mode must be a string",
-            key="agent.output.mode",
-            value=raw_mode,
-            expected="normal | verbose | model",
-        )
-    try:
-        mode = ObservationLevel(raw_mode)
-    except ValueError as exc:
-        raise ConfigError(
-            "App output mode is invalid",
-            key="agent.output.mode",
-            value=raw_mode,
-            expected="normal | verbose | model",
-        ) from exc
-    return OutputSettings(
-        mode=mode,
-        max_model_detail_chars=_optional_int(
-            table,
-            "max_model_detail_chars",
-            default=OutputSettings.max_model_detail_chars,
-            key_prefix="agent.output",
-        ),
-    )
-
-
-def _optional_bool(
-    tree: Mapping[str, object],
-    name: str,
-    *,
-    default: bool,
-) -> bool:
-    value = tree.get(name, default)
-    if not isinstance(value, bool):
-        raise ConfigError(
-            "App configuration value must be a boolean",
-            key=f"agent.{name}",
-            value=value,
-            expected="bool",
-        )
-    return value
-
-
-def _optional_int(
-    tree: Mapping[str, object],
-    name: str,
-    *,
-    default: int,
-    key_prefix: str = "agent",
-) -> int:
-    value = tree.get(name, default)
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ConfigError(
-            "App configuration value must be an integer",
-            key=f"{key_prefix}.{name}",
-            value=value,
-            expected="int",
-        )
-    return value
-
-
-def _optional_str_tuple(
-    tree: Mapping[str, object],
-    name: str,
-    *,
-    default: tuple[str, ...],
-) -> tuple[str, ...]:
-    value = tree.get(name)
-    if value is None:
-        return default
-    if isinstance(value, str):
-        return tuple(item.strip() for item in value.split(",") if item.strip())
-    if not isinstance(value, list):
-        raise ConfigError(
-            "App configuration value must be a list of strings",
-            key=f"agent.{name}",
-            value=value,
-            expected="list[str]",
-        )
-    result: list[str] = []
-    for item in value:
-        if not isinstance(item, str) or not item.strip():
-            raise ConfigError(
-                "App configuration value must contain non-empty strings",
-                key=f"agent.{name}",
-                value=value,
-                expected="list[str]",
-            )
-        result.append(item.strip())
-    return tuple(result)
-
-
-def _validate_commands(commands: tuple[str, ...], *, key: str) -> None:
-    if not commands:
-        raise ConfigError(
-            "App command list cannot be empty",
-            key=key,
-            value=[],
-            expected="non-empty list[str]",
-        )
-    seen: set[str] = set()
-    for command in commands:
-        if not isinstance(command, str) or not command.strip():
-            raise ConfigError(
-                "App command list must contain non-empty strings",
-                key=key,
-                value=list(commands),
-                expected="non-empty list[str]",
-            )
-        normalized = command.strip()
-        if normalized in seen:
-            raise ConfigError(
-                "App command list contains duplicate command",
-                key=key,
-                value=normalized,
-            )
-        seen.add(normalized)
+    return AgentSettings(retained_outcomes=value)

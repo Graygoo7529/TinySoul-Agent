@@ -38,7 +38,7 @@ async def test_agent_builder_mounts_endpoint_as_service_and_model_output_source(
     app = (
         await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
-        .with_agent_settings(AgentSettings(interactive=True))
+        .with_agent_settings(AgentSettings())
         .with_llm_runner(FakeLLM(()))
         .build()
         .build_runtime()
@@ -54,8 +54,8 @@ async def test_agent_builder_mounts_endpoint_as_service_and_model_output_source(
         async def stop(self) -> None:
             pass
 
-    assert app.input_sources == () and len(app.host_services) == 1
-    assert app.observations.mode.value == "model"
+    assert len(app.host_services) == 1
+    assert app.observations.enabled(ObservationLevel.MODEL)
     app.mount_service(ActivationGate())
     activating = asyncio.create_task(app.activate())
     try:
@@ -89,7 +89,7 @@ async def test_provider_activation_requires_credentials_and_accepts_configured_k
         .with_config_environment(
             ConfigEnvironment.from_project_root(project_root, env={})
         )
-        .with_agent_settings(AgentSettings(interactive=False))
+        .with_agent_settings(AgentSettings())
         .build()
         .build_runtime()
     )
@@ -218,7 +218,7 @@ async def test_enabled_provider_requires_credentials_on_startup(
             .with_config_environment(
                 ConfigEnvironment.from_project_root(project_root, env={})
             )
-            .with_agent_settings(AgentSettings(interactive=False))
+            .with_agent_settings(AgentSettings())
             .build()
             .build_runtime()
         )
@@ -238,7 +238,7 @@ async def test_endpoint_config_reload_rebuilds_generation_and_keeps_event_buffer
         .with_config_environment(
             ConfigEnvironment.from_project_root(project_root, env={})
         )
-        .with_agent_settings(AgentSettings(interactive=False))
+        .with_agent_settings(AgentSettings())
         .with_llm_runner(FakeLLM(()))
         .build()
         .build_runtime()
@@ -484,7 +484,7 @@ async def test_endpoint_reload_activates_saved_action_configuration(
         .with_config_environment(
             ConfigEnvironment.from_project_root(project_root, env={})
         )
-        .with_agent_settings(AgentSettings(interactive=False))
+        .with_agent_settings(AgentSettings())
         .with_llm_runner(FakeLLM(()))
         .build()
         .build_runtime()
@@ -564,7 +564,7 @@ async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_i
         .with_config_environment(
             ConfigEnvironment.from_project_root(project_root, env={})
         )
-        .with_agent_settings(AgentSettings(interactive=False))
+        .with_agent_settings(AgentSettings())
         .with_llm_runner(FakeLLM(()))
         .build()
         .build_runtime()
@@ -662,7 +662,7 @@ async def test_agent_workspace_mutation_reaches_endpoint_event_stream(
     app = (
         await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
-        .with_agent_settings(AgentSettings(interactive=False))
+        .with_agent_settings(AgentSettings())
         .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=2)))
         .with_llm_runner(
             FakeLLM(

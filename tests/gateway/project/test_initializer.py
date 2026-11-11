@@ -125,7 +125,7 @@ def test_cli_reset_recreates_development_project_and_preserves_env(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("old data", encoding="utf-8")
 
-    result = cli.main(["reset", str(root)])
+    result = cli.main(["reset", str(root), "--config-profile", "development"])
 
     captured = capsys.readouterr()
     assert result == 0
@@ -247,7 +247,7 @@ def test_cli_reset_rejects_project_held_by_running_instance(
     assert marker.read_text(encoding="utf-8") == "active"
 
 
-def test_cli_start_requires_auth_but_once_does_not(
+def test_cli_start_requires_auth(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -255,10 +255,11 @@ def test_cli_start_requires_auth_but_once_does_not(
     copy_initialized_project(root)
     (root / ".auth").unlink()
 
-    result = cli.main(["start", "--root", str(root)])
+    result = cli.main(["start", str(root)])
 
     assert result == 1
-    assert "auth file is missing" in capsys.readouterr().err
+    diagnostic = capsys.readouterr().err
+    assert ".auth" in diagnostic and "EndpointContractError" in diagnostic
 
 
 def _tree_snapshot(root: Path) -> dict[str, bytes]:

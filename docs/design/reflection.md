@@ -9,7 +9,7 @@ home、memory 子包分别准备情景与来源，turn 子包封装共享 Reflec
 
 `plugins/reflection` 编排 Home 与 Memory 的模型维护任务、维护可用性投影；`agent/lifecycle` 拥有日期决策；`plugins/archive` 协调确定性归档。Reflection 是同一个 Agent 的专门执行情景，由 Home/Memory TurnProfile 提供整理提示、语境与插件能力；它与 User Turn 同级，复用同一 Turn/Cycle/Phase 和 Action 内核，不写 User Session。普通对话不挂载 Reflection 提示、整理请求动作或专属持久写服务。
 
-Terminal、Endpoint 和定时来源只能提交 typed request。Agent 将 daily 触发拆成独立 Home 与前一日 Memory work；Memory 请求必须有明确 target_day。执行日始终是 Agent 持有的当前 CalendarDay，历史目标不修改执行日或当前工作区。
+SDK、Endpoint 和定时来源只能提交 typed request。Agent 将 daily 触发拆成独立 Home 与前一日 Memory work；Memory 请求必须有明确 target_day。执行日始终是 Agent 持有的当前 CalendarDay，历史目标不修改执行日或当前工作区。
 
 ReflectionScheduler 属于 Reflection 插件，使用注入的通用 DeadlineTimer 进行异步等待；environment 不导入 Reflection 请求或调度规则。到期请求保存 scheduled_day 与稳定身份，满载时保留同一请求，重试跨午夜也不改变原目标日。Trigger 经类型化提交端口安排根 work，`reflection.due` 事件仅供独立订阅观察，不因重复投递再生成请求。启动晚于当日计划时刻不补跑。来源随世代启动和关闭，日切暂停/恢复不重建其到期游标。
 

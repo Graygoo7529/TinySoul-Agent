@@ -16,12 +16,15 @@ pytestmark = pytest.mark.integration
 import httpx
 
 from tinysoul.gateway import cli
-from tinysoul.agent import AgentClosedError, UserTurnRequest
+from tinysoul.agent import Agent, AgentClosedError, UserTurnRequest
+from tinysoul.gateway.console import ConsoleMonitor
+from io import StringIO
 from tinysoul.agent.composition.assembly import AgentAssembly, AgentRuntime
 from tinysoul.agent.composition.builder import standard_agent
 from tinysoul.gateway.endpoint import EndpointHost, EndpointSettings
 from tinysoul.infra import ConfigEnvironment
 from tinysoul.runtime import ObservationEvent, ObservationLevel, RuntimeException
+from tinysoul.kernel.loop.turn import TurnOutcome
 from tests.support.project import copy_initialized_project
 
 
@@ -68,8 +71,7 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
                     root,
                     env={},
                     overrides={
-                        "agent.interactive": False,
-                        "reflection.schedule.enabled": False,
+                                                "reflection.schedule.enabled": False,
                         "workspace.watch.enabled": False,
                     },
                 )
@@ -84,7 +86,7 @@ async def test_cli_host_survives_http_restart_failure_and_uses_current_commands(
         return assembly
 
     definition = AgentAssembly(root, runtime_factory=factory)
-    application = asyncio.create_task(cli._run_application(definition, None, host))
+    application = asyncio.create_task(cli._run_application(definition, host, ConsoleMonitor(stream=StringIO())))
     try:
         for _ in range(500):
             if host.port > 0:
@@ -237,9 +239,8 @@ class _FakeProviderHandler(BaseHTTPRequestHandler):
         return
 
 
-def test_initialized_project_runs_cli_through_fake_openai_provider(
+async def test_initialized_project_runs_sdk_through_fake_openai_provider(
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost,::1")
@@ -250,11 +251,18 @@ def test_initialized_project_runs_cli_through_fake_openai_provider(
     with _fake_provider() as server:
         _configure_fake_provider(root, port=server.server_port)
 
-        result = cli.main(["start", "--root", str(root), "--once", "say hello"])
+        agent = await Agent.create(root, overrides={
+            "reflection.schedule.enabled": False, "workspace.watch.enabled": False,
+        })
+        try:
+            await agent.start()
+            handle = await agent.submit_turn(UserTurnRequest("say hello"))
+            result = await asyncio.wait_for(handle.wait(), 10)
+            assert isinstance(result.outcome, TurnOutcome) and result.outcome.output is not None
+            assert result.outcome.output.text == "hello from fake provider"
+        finally:
+            await agent.shutdown()
 
-    captured = capsys.readouterr()
-    assert result == 0, captured.err
-    assert "hello from fake provider" in captured.out
     assert len(server.requests) == 3
     assert all(request.get("model") == "fake-model" for request in server.requests)
     assert "response_format" not in server.requests[-1]

@@ -272,7 +272,7 @@ describe("event invalidation", () => {
 
     // A burst of invalidations within the debounce window collapses to one.
     socket.emitEvent("turn.phase", 53);
-    socket.emitEvent("agent.command.received", 54);
+    socket.emitEvent("turn.accepted", 54);
     socket.emitEvent("context.installed", 55);
     expect(endpoint.calls("/v2/status")).toHaveLength(0);
 

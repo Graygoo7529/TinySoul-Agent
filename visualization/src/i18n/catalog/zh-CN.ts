@@ -27,12 +27,7 @@ export const collectionText: Record<string, FieldText> = {
 
 export const fieldText: Record<string, FieldText> = {
   "llm.providers.*.cache_key_header": ["缓存路由 key 请求头", "把当前调用的 PromptCache.key 写入指定 HTTP 请求头；无 key 时省略。"],
-  "agent.interactive": ["终端交互", "未启用 Endpoint 时，是否接收终端输入。"],
-  "agent.exit_commands": ["退出命令", "在终端输入这些命令可退出 Agent。"],
-  "agent.stop_turn_commands": ["停止本轮命令", "在终端输入这些命令可取消当前 Turn。"],
   "agent.retained_outcomes": ["保留运行结果数", "在进程中保留的已完成请求结果数量。"],
-  "agent.output.mode": ["终端输出级别", "选择普通输出、详细过程或模型上下文。"],
-  "agent.output.max_model_detail_chars": ["模型上下文显示上限", "终端每次展示模型上下文的最大字符数。"],
   "loop.user.max_cycles": ["用户轮执行预算", "一次用户 Turn 可用的 Cycle 数量。"],
   "loop.cycle.phase1_task_profile": ["Phase 1 任务链", "用于更新语境并选择行动域。"],
   "loop.cycle.phase2_task_profile": ["Phase 2 任务链", "用于在已选行动域内生成 Action 调用。"],

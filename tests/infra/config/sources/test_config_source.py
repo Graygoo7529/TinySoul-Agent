@@ -49,10 +49,10 @@ def test_config_source_rejects_non_string_values_keys() -> None:
 
 
 def test_config_source_defaults_id_and_owns_values_mapping() -> None:
-    values = {"agent.interactive": True}
+    values = {"test.enabled": True}
     source = ConfigSource("source", values)
 
-    values["agent.interactive"] = False
+    values["test.enabled"] = False
 
     assert source.source_id == "source"
-    assert source.values == {"agent.interactive": True}
+    assert source.values == {"test.enabled": True}

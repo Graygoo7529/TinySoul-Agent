@@ -132,7 +132,13 @@ async function globalTeardown(): Promise<void> {
   const child = backend;
   backend = null;
   if (!child || child.exitCode !== null || child.signalCode !== null) return;
-  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  const exited = new Promise<void>((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resolve();
+      return;
+    }
+    child.once("exit", () => resolve());
+  });
   // EOF asks the harness to close its server and Agent, including on Windows
   // where killing only the venv launcher can leave its Python child alive.
   child.stdin?.end();

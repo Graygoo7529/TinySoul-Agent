@@ -13,23 +13,9 @@ def test_parse_agent_settings_defaults() -> None:
     assert settings == AgentSettings()
 
 
-def test_parse_agent_settings_commands() -> None:
-    settings = parse_agent_settings(
-        {
-            "interactive": False,
-            "exit_commands": ["bye"],
-            "stop_turn_commands": "halt,cancel",
-        }
-    )
-
-    assert settings.interactive is False
-    assert settings.input_commands.exit_commands == ("bye",)
-    assert settings.input_commands.stop_turn_commands == ("halt", "cancel")
-
-
-def test_parse_agent_settings_rejects_empty_commands() -> None:
+def test_parse_agent_settings_rejects_invalid_retention() -> None:
     with pytest.raises(ConfigError):
-        parse_agent_settings({"exit_commands": []})
+        parse_agent_settings({"retained_outcomes": 0})
 
 
 def test_parse_agent_settings_rejects_reflection_schedule() -> None:
@@ -37,9 +23,7 @@ def test_parse_agent_settings_rejects_reflection_schedule() -> None:
         parse_agent_settings({"scheduler": {"enabled": False}})
 
 
-def test_parse_agent_settings_uses_program_outcome_retention_name() -> None:
+def test_parse_agent_settings_retains_completed_outcomes() -> None:
     settings = parse_agent_settings({"retained_outcomes": 7})
 
     assert settings.retained_outcomes == 7
-    with pytest.raises(ConfigError, match="Unknown configuration key"):
-        parse_agent_settings({"retained_turn_outcomes": 7})

@@ -6,24 +6,18 @@ import asyncio
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from functools import partial
 from pathlib import Path
 from tinysoul.agent.commands import AgentCommands
-from ..dispatch.inputs import CommandReceipt
 
 from tinysoul.infra.concurrency import (
     AsyncResourceScope,
     CleanupDiagnostic,
-    JoinedOperations,
 )
 from tinysoul.infra.config import ConfigController
 from tinysoul.kernel.registration import ServiceRegistry
 
 from ..errors import AgentInvariantError
 from tinysoul.agent.dispatch.scheduler import AgentRunResult, RootScheduler
-from ..dispatch.inputs import InputDispatcher
-from tinysoul.environment.inputs import InputEvent, InputSource
-from ..dispatch.ingress import AgentIngress
 from ..observation.outputs import ObservationRouter
 from tinysoul.environment.services import EnvironmentService
 from tinysoul.runtime import RuntimeHandle
@@ -36,12 +30,9 @@ class AgentRuntime:
     """One active process runtime produced from an :class:`AgentAssembly`."""
 
     agent_runner: RootScheduler
-    input_dispatcher: InputDispatcher
-    gateway: AgentIngress
     commands: AgentCommands
     generation_handle: RuntimeHandle[AgentGeneration]
     configuration: ConfigController
-    input_sources: tuple[InputSource, ...] = field(default_factory=tuple)
     host_services: tuple[EnvironmentService, ...] = field(default_factory=tuple)
     observations: ObservationRouter = field(default_factory=ObservationRouter)
     resources: AsyncResourceScope = field(default_factory=AsyncResourceScope)
@@ -74,7 +65,6 @@ class AgentRuntime:
         self.service_access = AgentRuntimeServices(
             self.generation_handle, self.agent_runner, lambda: self._accepting
         )
-        object.__setattr__(self, "input_sources", tuple(self.input_sources))
         object.__setattr__(self, "host_services", tuple(self.host_services))
 
     async def activate(self) -> None:
@@ -82,8 +72,6 @@ class AgentRuntime:
             return
         started = self._sources
         self.resources.register("sources", started.close)
-        thread_sink = _ThreadInputSink(self.gateway, asyncio.get_running_loop())
-        operations = JoinedOperations()
         try:
             await self.agent_runner.prepare()
             await self.generation_handle.snapshot().generation.sources.start(self.commands.publish_internal)
@@ -91,10 +79,6 @@ class AgentRuntime:
             for index, service in enumerate(self.host_services):
                 await service.start()
                 started.register(f"service.{index}", service.stop)
-            for index, source in enumerate(self.input_sources):
-                await operations.run(partial(source.start, thread_sink))
-                started.register(f"input_source.{index}", partial(_stop_source, source))
-                operations.check_cancelled()
             self._activated = True
         except BaseException:
             self.stop_accepting()
@@ -112,19 +96,6 @@ class AgentRuntime:
             self.stop_accepting()
             await self._sources.close()
 
-    async def submit_input(self, text: str, *, source: str = "api") -> None:
-        await self.submit_event(InputEvent(text=text, source=source))
-
-    async def submit_event(self, event: InputEvent) -> None:
-        await self.gateway.submit_user_event(event)
-
-    async def submit_interactive_event(self, event: InputEvent) -> None:
-        """Submit a trusted local command line."""
-        await self.gateway.submit(event)
-
-    async def submit_user_input(self, text: str, *, source: str = "api") -> None:
-        await self.gateway.submit_user_input(text, source=source, metadata={})
-
     async def close(self) -> tuple[CleanupDiagnostic, ...]:
         """Release owned generations after all running work has returned."""
         self.stop_accepting()
@@ -140,25 +111,6 @@ class AgentRuntime:
         self._accepting = False
         self.agent_runner.stop_accepting()
         self.configuration.stop_accepting()
-
-
-async def _stop_source(source: InputSource) -> None:
-    # Source adapters may join an input/scheduler thread. The resource scope
-    # shields and joins this callback before returning to its cancelled caller.
-    await asyncio.to_thread(source.stop)
-
-
-class _ThreadInputSink:
-    """A reader thread waits for the real admission receipt on the Agent loop."""
-
-    def __init__(self, gateway: AgentIngress, loop: asyncio.AbstractEventLoop) -> None:
-        self._gateway = gateway
-        self._loop = loop
-
-    def submit(self, event: InputEvent) -> CommandReceipt:
-        return asyncio.run_coroutine_threadsafe(
-            self._gateway.submit(event), self._loop
-        ).result()
 
 
 @dataclass(frozen=True)

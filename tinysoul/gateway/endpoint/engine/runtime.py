@@ -2,29 +2,22 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
 from uuid import uuid4
 
 from tinysoul.agent.requests import UserTurnRequest
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.time import CalendarDay, CalendarDayError
 from tinysoul.kernel.interaction import QuestionAnswer
-from tinysoul.kernel.loop import LoopControlKind
 from tinysoul.kernel.loop.interaction.inbox import InboxReceipt
 from tinysoul.plugins.reflection import (
     ReflectionRequest,
     ReflectionScope,
     ReflectionTrigger,
 )
-from tinysoul.runtime import RuntimeException, RuntimeGatewayError
+from tinysoul.runtime import RuntimeException
 
 from ..errors import EndpointRequestError
 from .context import EndpointEngineContext
-
-
-class EndpointControlKind(StrEnum):
-    STOP_TURN = "stop_turn"
-    EXIT_PROGRAM = "exit_program"
 
 
 class EndpointRuntimeEngine:
@@ -46,7 +39,6 @@ class EndpointRuntimeEngine:
                 "latest_event_sequence": self._context.events.latest_sequence,
                 "event_journal": self._context.events.journal_status(),
             }
-        turn_scope = self._context.gateway.active_turn_scope
         runtime = self._context.services.runtime_status()
         active_day = runtime["active_day"]
         return {
@@ -55,7 +47,7 @@ class EndpointRuntimeEngine:
             "project_identity": self._context.settings.project_identity,
             "ready": True,
             "active_day": active_day,
-            "turn_active": turn_scope is not None,
+            "turn_active": runtime["active_request_id"] is not None,
             "runtime": runtime,
             "latest_event_sequence": self._context.events.latest_sequence,
             "event_journal": self._context.events.journal_status(),
@@ -72,34 +64,6 @@ class EndpointRuntimeEngine:
                 message="Agent generation could not be restarted.",
                 details={"reason": exc.reason},
             ) from exc
-
-    async def submit_user_input(
-        self,
-        text: str,
-        metadata: JsonObject,
-        *,
-        command_id: str = "",
-    ) -> JsonObject:
-        if not isinstance(text, str) or not text.strip():
-            raise EndpointRequestError(
-                status_code=422,
-                code="input.invalid",
-                message="Input text must be non-empty.",
-            )
-        try:
-            receipt = await self._context.gateway.submit_user_input(
-                text,
-                source="endpoint",
-                metadata=to_json_object(metadata),
-                command_id=command_id or None,
-            )
-        except RuntimeGatewayError as exc:
-            raise EndpointRequestError(
-                status_code=409,
-                code="input.rejected",
-                message=str(exc),
-            ) from exc
-        return receipt.to_json()
 
     async def create_request(
         self,
@@ -145,7 +109,7 @@ class EndpointRuntimeEngine:
                 metadata=metadata,
                 request_id=identity,
             )
-        handle = await self._context.gateway.commands.submit_turn(request)
+        handle = await self._context.commands.submit_turn(request)
         return {
             "accepted": True,
             "command_id": identity,
@@ -169,7 +133,7 @@ class EndpointRuntimeEngine:
     async def append_input(
         self, request_id: str, text: str, input_id: str
     ) -> JsonObject:
-        receipt = await self._context.gateway.commands.append_input(
+        receipt = await self._context.commands.append_input(
             request_id, text, input_id=input_id
         )
         return _receipt_json(receipt)
@@ -177,7 +141,7 @@ class EndpointRuntimeEngine:
     async def reply(
         self, request_id: str, question_id: str, answer: QuestionAnswer
     ) -> JsonObject:
-        receipt = await self._context.gateway.commands.reply(
+        receipt = await self._context.commands.reply(
             request_id, question_id, answer
         )
         return _receipt_json(receipt)
@@ -185,7 +149,7 @@ class EndpointRuntimeEngine:
     async def grant(
         self, request_id: str, budget_request_id: str, count: int
     ) -> JsonObject:
-        accepted = await self._context.gateway.commands.grant_cycles(
+        accepted = await self._context.commands.grant_cycles(
             request_id, budget_request_id, count
         )
         return {
@@ -195,7 +159,7 @@ class EndpointRuntimeEngine:
         }
 
     async def cancel(self, request_id: str) -> JsonObject:
-        accepted = await self._context.gateway.commands.cancel_request(request_id)
+        accepted = await self._context.commands.cancel_request(request_id)
         return {"request_id": request_id, "accepted": accepted}
 
     async def jobs(self, request_id: str) -> JsonObject:
@@ -213,35 +177,6 @@ class EndpointRuntimeEngine:
             )
         snapshot = await self._context.services.stop_job(request_id, job_id)
         return snapshot.to_json()
-
-    async def submit_control(
-        self,
-        kind: EndpointControlKind,
-        metadata: JsonObject,
-        *,
-        command_id: str = "",
-    ) -> JsonObject:
-        loop_kind = {
-            EndpointControlKind.STOP_TURN: LoopControlKind.STOP_TURN,
-            EndpointControlKind.EXIT_PROGRAM: LoopControlKind.EXIT_PROGRAM,
-        }[kind]
-        try:
-            receipt = await self._context.gateway.request_control(
-                loop_kind,
-                source="endpoint",
-                text=kind.value,
-                metadata={
-                    **to_json_object(metadata),
-                    **({"command_id": command_id} if command_id else {}),
-                },
-            )
-        except RuntimeGatewayError as exc:
-            raise EndpointRequestError(
-                status_code=409,
-                code="control.rejected",
-                message=str(exc),
-            ) from exc
-        return receipt.to_json()
 
 
 def _parse_target_day(kind: str, target_day: str) -> CalendarDay | None:

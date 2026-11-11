@@ -1,343 +1,210 @@
-"""TinySoul command-line entry points."""
+"""Project commands and the long-running TinySoul backend host."""
 
 from __future__ import annotations
-import asyncio
 
 import argparse
-from pathlib import Path
-import signal as signal_module
-import sys
-from tinysoul.agent import Agent, AgentState, UserTurnRequest
-from tinysoul.agent.commands import AgentCommands
-from tinysoul.agent.requests import ExitRequest
+import asyncio
 from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
+from pathlib import Path
+import signal
+import sys
 from types import FrameType
 
-from tinysoul.gateway.endpoint import (
+from tinysoul.agent import Agent, AgentState
+from tinysoul.agent.composition.assembly import AgentAssembly
+from tinysoul.agent.composition.builder import standard_agent
+from tinysoul.agent.errors import AgentError
+from tinysoul.agent.observation.outputs import ObservationRoute
+from tinysoul.infra import ConfigEnvironment, ConfigError
+from tinysoul.infra.json import JsonObject
+from tinysoul.runtime import ObservationLevel, RuntimeException
+
+from .console import ConsoleMode, ConsoleMonitor
+from .endpoint import (
     EndpointError,
     EndpointHost,
     EndpointLaunchSettings,
     EndpointSettings,
     load_endpoint_auth,
 )
-from tinysoul.infra import ConfigEnvironment, ConfigError
-from tinysoul.infra.json import JsonObject
-from tinysoul.kernel.loop import LoopControlKind
-from tinysoul.runtime import ObservationLevel, RuntimeException, RuntimeGatewayError
-
-from tinysoul.agent.composition.builder import AgentBuilder, standard_agent
-from tinysoul.agent.composition.assembly import AgentAssembly
-from tinysoul.agent.config import parse_agent_settings
-from tinysoul.agent.errors import AgentError
 from .errors import GatewayError
-from .project.initializer import (
-    ProjectConfigProfile,
-    ProjectInitializer,
-    ProjectResetter,
-)
+from .project.initializer import ProjectConfigProfile, ProjectInitializer, ProjectResetter
 from .project.instance import ProjectInstanceLease
-from .console import ConsoleOutputSink
-from tinysoul.environment.sources.terminal import TerminalInputSource
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = tuple(sys.argv[1:] if argv is None else argv)
-    if args and args[0] == "init":
-        return _init(args[1:])
-    if args and args[0] == "reset":
-        return _reset(args[1:])
-    if args and args[0] == "start":
-        return _start(args[1:])
     parser = argparse.ArgumentParser(prog="tinysoul")
-    parser.add_argument("command", choices=("start", "init", "reset"))
+    commands = parser.add_subparsers(dest="command", required=True)
+    for command, description in (
+        ("init", "Create a project from editable templates."),
+        ("start", "Start the backend; interact through the frontend or SDK."),
+        ("reset", "Clear project data and recreate templates, preserving .env and .auth."),
+    ):
+        sub = commands.add_parser(command, help=description, description=description)
+        if command == "reset":
+            sub.add_argument("directory", type=Path, help="existing project data directory")
+        else:
+            sub.add_argument("directory", nargs="?", type=Path, default=Path.cwd(),
+                             help="project data directory (default: current directory)")
+        if command == "start":
+            sub.add_argument("--console", type=ConsoleMode, choices=tuple(ConsoleMode),
+                             default=ConsoleMode.QUIET, help="terminal monitor (default: quiet)")
+        else:
+            sub.add_argument("--config-profile", type=ProjectConfigProfile,
+                             choices=tuple(ProjectConfigProfile), default=ProjectConfigProfile.STANDARD,
+                             help="project template (default: standard)")
     try:
-        parser.parse_args(args)
+        args = parser.parse_args(argv)
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else 2
-    return 2
-
-
-def _init(argv: Sequence[str]) -> int:
-    parser = argparse.ArgumentParser(
-        prog="tinysoul init",
-        description="Create a TinySoul project from packaged editable templates.",
-    )
-    parser.add_argument(
-        "directory",
-        nargs="?",
-        type=Path,
-        default=Path.cwd(),
-        help="new or empty project directory (default: current directory)",
-    )
-    parser.add_argument(
-        "--config-profile",
-        type=ProjectConfigProfile,
-        choices=tuple(ProjectConfigProfile),
-        default=ProjectConfigProfile.STANDARD,
-        help="initial configuration set: standard or development (default: standard)",
-    )
-    args = parser.parse_args(tuple(argv))
+    if args.command == "start":
+        return _start(args.directory, args.console)
     try:
-        outcome = ProjectInitializer().initialize(
-            args.directory,
-            config_profile=args.config_profile,
-        )
+        if args.command == "init":
+            outcome = ProjectInitializer().initialize(args.directory, config_profile=args.config_profile)
+            print(f"Initialized TinySoul project at {outcome.root} "
+                  f"(config profile: {outcome.config_profile.value}; .auth generated)")
+        else:
+            root = args.directory.expanduser().resolve()
+            with ProjectInstanceLease(root):
+                reset = ProjectResetter().reset(root, config_profile=args.config_profile)
+            env = ".env preserved" if reset.env_preserved else "no .env to preserve"
+            auth = ".auth preserved" if reset.auth_preserved else "no .auth to preserve"
+            print(f"Reset TinySoul project at {reset.root} "
+                  f"(config profile: {reset.config_profile.value}; {env}; {auth})")
     except GatewayError as exc:
         print(f"tinysoul: {exc}", file=sys.stderr)
         return 1
-    print(
-        f"Initialized TinySoul project at {outcome.root} "
-        f"(config profile: {outcome.config_profile.value}; .auth generated)"
-    )
     return 0
 
 
-def _reset(argv: Sequence[str]) -> int:
-    parser = argparse.ArgumentParser(
-        prog="tinysoul reset",
-        description=(
-            "Recreate a TinySoul project from packaged templates, clear all "
-            "project data, and preserve its local .env and .auth files."
-        ),
-    )
-    parser.add_argument(
-        "directory",
-        type=Path,
-        help="existing TinySoul project directory",
-    )
-    parser.add_argument(
-        "--config-profile",
-        type=ProjectConfigProfile,
-        choices=tuple(ProjectConfigProfile),
-        default=ProjectConfigProfile.DEVELOPMENT,
-        help=(
-            "replacement configuration set: standard or development "
-            "(default: development)"
-        ),
-    )
-    args = parser.parse_args(tuple(argv))
-    root = args.directory.expanduser().resolve()
-    try:
-        with ProjectInstanceLease(root):
-            outcome = ProjectResetter().reset(
-                root,
-                config_profile=args.config_profile,
-            )
-    except GatewayError as exc:
-        print(f"tinysoul: {exc}", file=sys.stderr)
-        return 1
-    env_status = ".env preserved" if outcome.env_preserved else "no .env to preserve"
-    auth_status = ".auth preserved" if outcome.auth_preserved else "no .auth to preserve"
-    print(
-        f"Reset TinySoul project at {outcome.root} "
-        f"(config profile: {outcome.config_profile.value}; "
-        f"{env_status}; {auth_status})"
-    )
-    return 0
-
-
-def _start(argv: Sequence[str]) -> int:
-    parser = argparse.ArgumentParser(
-        prog="tinysoul start",
-        description="Run TinySoul with Terminal input and the desktop Endpoint.",
-    )
-    parser.add_argument(
-        "--root",
-        type=Path,
-        default=Path.cwd(),
-        help="project root containing tinysoul.toml (default: current directory)",
-    )
-    parser.add_argument(
-        "--mode",
-        choices=tuple(level.value for level in ObservationLevel),
-        help="Terminal output detail: normal, verbose, or model",
-    )
-    parser.add_argument(
-        "--once",
-        metavar="TEXT",
-        help="run one User Turn without opening an interactive Endpoint",
-    )
-    args = parser.parse_args(tuple(argv))
-    root = args.root.resolve()
-    overrides: dict[str, object] = {
-        "agent.interactive": args.once is None,
-    }
-    if args.mode is not None:
-        overrides["agent.output.mode"] = args.mode
-    if args.once is not None:
-        overrides["reflection.schedule.enabled"] = False
-        overrides["workspace.watch.enabled"] = False
-
+def _start(directory: Path, mode: ConsoleMode) -> int:
+    root = directory.expanduser().resolve()
+    monitor = ConsoleMonitor(mode=mode)
+    monitor.report(f"backend starting project={root}")
+    preparing = "project lock"
     try:
         with ProjectInstanceLease(root) as lease:
-            config = ConfigEnvironment.from_project_root(root, overrides=overrides)
-            endpoint_host: EndpointHost | None = None
-            if args.once is None:
-                launch = config.load_section("endpoint", EndpointLaunchSettings)
-                auth = load_endpoint_auth(root)
-                endpoint_settings = EndpointSettings(
-                    host=launch.bind_host,
-                    port=launch.port,
-                    token=auth.token,
-                    instance_id=lease.identity.instance_id,
-                    project_identity=lease.identity.project_identity,
-                )
-                endpoint_host = EndpointHost(settings=endpoint_settings)
-
-            agent_settings = config.parse_section("agent", parse_agent_settings)
-            builder = (
-                    standard_agent(root)
-                    .with_config_environment(config)
-                    .with_agent_settings(agent_settings)
-                    .with_output_sink(
-                        ConsoleOutputSink(max_chars=agent_settings.output.max_model_detail_chars)
-                    )
-            )
-            if args.once is None:
-                builder = builder.with_input_source(
-                    TerminalInputSource(
-                        eof_command=agent_settings.input_commands.exit_commands[0]
-                    )
-                )
-            assembly = builder.build()
-
-            return asyncio.run(_run_application(assembly, args.once, endpoint_host))
+            preparing = "configuration"
+            config = ConfigEnvironment.from_project_root(root)
+            launch = config.load_section("endpoint", EndpointLaunchSettings)
+            preparing = ".auth"
+            auth = load_endpoint_auth(root)
+            preparing = "runtime"
+            host = EndpointHost(settings=EndpointSettings(
+                host=launch.bind_host, port=launch.port, token=auth.token,
+                instance_id=lease.identity.instance_id,
+                project_identity=lease.identity.project_identity,
+            ))
+            assembly = (standard_agent(root)
+                        .with_config_environment(config)
+                        .with_observation_route(ObservationRoute(monitor, ObservationLevel.VERBOSE))
+                        .build())
+            return asyncio.run(_run_application(assembly, host, monitor))
     except KeyboardInterrupt:
         return 130
-    except (
-        ConfigError,
-        EndpointError,
-        RuntimeException,
-        AgentError,
-        GatewayError,
-    ) as exc:
-        print(f"tinysoul: {exc}", file=sys.stderr)
+    except (ConfigError, EndpointError, RuntimeException, AgentError, GatewayError) as exc:
+        detail = f" key={exc.key}" if isinstance(exc, ConfigError) else ""
+        if isinstance(exc, RuntimeException):
+            detail = f" reason={exc.reason}"
+        monitor.report(f"backend failed while preparing {preparing} error={type(exc).__name__}{detail}")
         return 1
 
 
 async def _run_application(
-    assembly: AgentAssembly,
-    once: str | None,
-    endpoint_host: EndpointHost | None = None,
+    assembly: AgentAssembly, endpoint_host: EndpointHost, monitor: ConsoleMonitor,
 ) -> int:
     agent = await Agent.assemble(assembly)
-    if endpoint_host is not None:
-        endpoint_host.bind(agent.runtime)
-    if endpoint_host is not None:
-        endpoint_host.set_availability(lambda: agent.state is AgentState.RUNNING)
-    try:
-        await agent.start()
-        if endpoint_host is not None:
-            endpoint_host.set_lifecycle(_EndpointLifecycle(agent, endpoint_host))
-            await endpoint_host.start()
-            print(
-                "tinysoul: Endpoint listening at "
-                f"{endpoint_host.settings.host}:{endpoint_host.port} "
-                "(token source: .auth)"
-            )
-        if once is not None:
-            handle = await agent.submit_turn(UserTurnRequest(once, source="cli"))
-            result = await handle.wait()
-            code = (
-                0
-                if result.outcome is not None
-                and result.outcome.status.value == "answered"
-                else 1
-            )
-        else:
-            escalation = _SigintEscalation(lambda: agent.commands)
-            previous_handler = signal_module.signal(
-                signal_module.SIGINT, escalation.handle
-            )
-            try:
-                await agent.wait_for_exit()
-                code = 0
-            finally:
-                signal_module.signal(signal_module.SIGINT, previous_handler)
-    finally:
+    endpoint_host.bind(agent.runtime)
+    endpoint_host.set_availability(lambda: agent.state is AgentState.RUNNING)
+    stop = asyncio.Event()
+    with _ShutdownSignals(stop, monitor):
         try:
-            if endpoint_host is not None:
-                await endpoint_host.stop()
+            await agent.start()
+            endpoint_host.set_lifecycle(_EndpointLifecycle(agent, endpoint_host, monitor))
+            await endpoint_host.start()
+            monitor.report(f"backend ready listen={endpoint_host.settings.host}:{endpoint_host.port} auth=.auth")
+            _report_runtime(agent, monitor)
+            exited = asyncio.create_task(agent.wait_for_exit())
+            requested = asyncio.create_task(stop.wait())
+            try:
+                done, _ = await asyncio.wait((exited, requested), return_when=asyncio.FIRST_COMPLETED)
+                if exited in done:
+                    await exited
+                    monitor.report("agent run ended")
+            finally:
+                for waiter in (exited, requested):
+                    waiter.cancel()
+                await asyncio.gather(exited, requested, return_exceptions=True)
         finally:
-            # Agent shutdown remains mandatory even if the transport reports
-            # a stop failure; the transport error is allowed to propagate
-            # after the Agent has released its generation resources.
-            diagnostics = await agent.shutdown()
-        for item in diagnostics:
-            print(
-                f"tinysoul: cleanup failed: {item.resource} ({item.error_type})",
-                file=sys.stderr,
-            )
-    return 1 if diagnostics else code
+            monitor.report("backend stopping")
+            try:
+                await endpoint_host.stop()
+            finally:
+                diagnostics = await agent.shutdown()
+            for item in diagnostics:
+                monitor.report(f"cleanup failed resource={item.resource} error={item.error_type}")
+            monitor.report("backend stopped")
+    return 1 if diagnostics or monitor.failure is not None else 0
+
+
+def _report_runtime(agent: Agent, monitor: ConsoleMonitor) -> None:
+    runtime = agent.runtime_status()
+    monitor.report(f"agent running day={runtime['active_day']} generation={runtime['generation_id']}")
+    for source in agent.status().sources:
+        detail = f" error={source.error_type}" if source.error_type else ""
+        monitor.report(f"source {source.source} state={source.state.value}{detail}")
 
 
 class _EndpointLifecycle:
-    """Bridge the stable Endpoint host to the Agent SDK lifecycle."""
+    """Rebind the stable Endpoint after the SDK replaces its runtime."""
 
-    def __init__(self, agent: Agent, endpoint_host: EndpointHost | None = None) -> None:
+    def __init__(self, agent: Agent, endpoint_host: EndpointHost, monitor: ConsoleMonitor) -> None:
         self._agent = agent
         self._endpoint_host = endpoint_host
+        self._monitor = monitor
 
     async def restart(self) -> JsonObject:
-        diagnostics = await self._agent.restart()
-        if self._endpoint_host is not None:
-            self._endpoint_host.bind(self._agent.runtime)
+        self._monitor.report("agent restarting")
+        try:
+            diagnostics = await self._agent.restart()
+        except (RuntimeException, AgentError) as exc:
+            self._monitor.report(f"agent restart failed error={type(exc).__name__}")
+            raise
+        finally:
+            if self._agent.state is AgentState.RUNNING:
+                self._endpoint_host.bind(self._agent.runtime)
+        _report_runtime(self._agent, self._monitor)
+        for item in diagnostics:
+            self._monitor.report(f"cleanup failed resource={item.resource} error={item.error_type}")
         return {
             "accepted": True,
             "state": self._agent.state.value,
             "runtime": self._agent.runtime_status(),
-            "cleanup": [
-                {"resource": item.resource, "error_type": item.error_type}
-                for item in diagnostics
-            ],
+            "cleanup": [{"resource": item.resource, "error_type": item.error_type} for item in diagnostics],
         }
 
 
-class _SigintEscalation:
-    """Graded Ctrl-C handling for interactive runs.
+class _ShutdownSignals(AbstractContextManager):
+    """Signal the host once; business cancellation remains with Agent.shutdown."""
 
-    The first Ctrl-C stops the active Turn (or requests Program exit when
-    idle); the next one requests Program exit; a further press falls back
-    to a hard KeyboardInterrupt. Requests go through the same trusted
-    command gateway as Terminal and Endpoint input.
-    """
+    def __init__(self, stop: asyncio.Event, monitor: ConsoleMonitor) -> None:
+        self._stop = stop
+        self._monitor = monitor
+        self._previous: dict[int, Callable[[int, FrameType | None], object] | int | None] = {}
 
-    def __init__(self, commands: Callable[[], AgentCommands]) -> None:
-        self._commands = commands
-        self._stop_requested = False
-        self._exit_requested = False
+    def __enter__(self) -> _ShutdownSignals:
+        for kind in (signal.SIGINT, signal.SIGTERM):
+            self._previous[kind] = signal.signal(kind, self.handle)
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        for kind, handler in self._previous.items():
+            signal.signal(kind, handler)
 
     def handle(self, signum: int, frame: FrameType | None) -> None:
-        if self._exit_requested:
+        if self._stop.is_set():
             raise KeyboardInterrupt
-        try:
-            if not self._stop_requested and self._commands().active_turn is not None:
-                if self._request(LoopControlKind.STOP_TURN):
-                    self._stop_requested = True
-                    print(
-                        "tinysoul: stopping the current turn "
-                        "(press Ctrl-C again to exit)",
-                        file=sys.stderr,
-                    )
-                    return
-            self._exit_requested = True
-            if self._request(LoopControlKind.EXIT_PROGRAM):
-                print(
-                    "tinysoul: exiting (press Ctrl-C again to force quit)",
-                    file=sys.stderr,
-                )
-                return
-        except KeyboardInterrupt:
-            raise
-        except Exception:
-            pass
-        raise KeyboardInterrupt
-
-    def _request(self, kind: LoopControlKind) -> bool:
-        if kind is LoopControlKind.STOP_TURN:
-            active = self._commands().active_turn
-            return active is not None and active.request_cancel()
-        self._commands().request_exit(
-            ExitRequest(source="terminal.sigint", text=kind.value)
-        )
-        return True
+        self._monitor.report("backend shutdown requested (interrupt again to force quit)")
+        self._stop.set()

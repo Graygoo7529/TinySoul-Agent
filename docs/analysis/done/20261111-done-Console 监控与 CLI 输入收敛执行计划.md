@@ -2,7 +2,7 @@
 
 日期：2026-11-11
 
-状态：`pending`（分析与设计已完成，准备实施；尚未修改功能代码）
+Status: `done` (implementation, documentation sync, and validation completed)
 
 ## 1. 目标与确认基础
 
@@ -295,50 +295,50 @@ start 总是装配长期 Agent、Console 与 EndpointHost。移除 once 相关�
 
 ### P01 — 显式 Observation routes 与 Console 两档
 
-- [ ] 去掉 Agent OutputSettings 和 router 全局 mode；新增 Builder 显式 route 装配接口并更新后端调用者。
-- [ ] 在现有 console.py 实现 quiet/detail、事件摘要与宿主信息展示。
-- [ ] Console 固定 VERBOSE route；Endpoint 与 SDK 级别独立。
-- [ ] 保留 failure isolation，不修改、裁剪或重发送往其它 sink 的事件。
-- [ ] 将 Console 行为测试移至 Gateway；Agent 测试只保护路由、订阅和隔离。
+- [x] 去掉 Agent OutputSettings 和 router 全局 mode；新增 Builder 显式 route 装配接口并更新后端调用者。
+- [x] 在现有 console.py 实现 quiet/detail、事件摘要与宿主信息展示。
+- [x] Console 固定 VERBOSE route；Endpoint 与 SDK 级别独立。
+- [x] 保留 failure isolation，不修改、裁剪或重发送往其它 sink 的事件。
+- [x] 将 Console 行为测试移至 Gateway；Agent 测试只保护路由、订阅和隔离。
 
 验收：同组事件同时送入 quiet、detail 与 MODEL 收集 sink；两档终端行不同，MODEL 接收内容一致；回答/提示词/大参数不进入 Console，正式事件原文仍完整。
 
 ### P02 — CLI 与终端输入链收敛
 
-- [ ] 统一 init/start/reset 参数形式，init/reset 缺省 standard，start 默认 quiet。
-- [ ] 删除 once、Terminal source、parser/dispatcher/ingress 和无消费者输入协议。
-- [ ] start 保留唯一长期服务路径；Ctrl-C/SIGTERM 经宿主有序关闭。
-- [ ] 更新 SDK create、AgentRuntime、generation、builder 接线和配置 fixture。
-- [ ] 保留 host_services、插件来源、typed commands、环境事件与 Job stdin。
+- [x] 统一 init/start/reset 参数形式，init/reset 缺省 standard，start 默认 quiet。
+- [x] 删除 once、Terminal source、parser/dispatcher/ingress 和无消费者输入协议。
+- [x] start 保留唯一长期服务路径；Ctrl-C/SIGTERM 经宿主有序关闭。
+- [x] 更新 SDK create、AgentRuntime、generation、builder 接线和配置 fixture。
+- [x] 保留 host_services、插件来源、typed commands、环境事件与 Job stdin。
 
 验收：关闭 stdin 或无终端启动不会让后端退出；SDK 仍可 submit/append/reply/grant/cancel；后台来源按配置启用；关闭与 restart 不挂旧 commands，也不重复装配 Console。
 
 ### P03 — Endpoint 依赖与协议清理
 
-- [ ] Endpoint 直接绑定 EndpointTurnCommands，移除 EndpointAgentIngress 包装。
-- [ ] status 从同份 runtime 投影计算活动根请求，preparing 时允许 turn_id=null。
-- [ ] 删除 raw input/control 和专属 schemas、枚举、错误辅助。
-- [ ] 保留结构化 requests、reflection、restart 及共享 CommandReceiptResponse。
-- [ ] 同步 Endpoint 文档和示例，检查仅用于旧路由的引用。
+- [x] Endpoint 直接绑定 EndpointTurnCommands，移除 EndpointAgentIngress 包装。
+- [x] status 从同份 runtime 投影计算活动根请求，preparing 时允许 turn_id=null。
+- [x] 删除 raw input/control 和专属 schemas、枚举、错误辅助。
+- [x] 保留结构化 requests、reflection、restart 及共享 CommandReceiptResponse。
+- [x] 同步 Endpoint 文档和示例，检查仅用于旧路由的引用。
 
 验收：新建/排队/追加/回复/补额/取消/Reflection 共用原 Agent owner；请求字符串不触发终端命令；restart 后状态与命令重新绑定；Observation 详情和回放保持可读。
 
 ### P04 — 配置、前端协作与使用说明
 
-- [ ] 清理模板、catalog、process-owned 规则与测试自有配置中的旧终端字段。
-- [ ] 前端负责完成 §8.2 协作项，确认 Settings 无空行、翻译孤项或旧装配。
-- [ ] 更新 AGENTS、设计文档、双语启动说明与 packaged README。
-- [ ] 检查默认 profile、Ctrl-C、服务运行与 SDK 嵌入说明一致；旧试验配置只给明确手工清理指引。
+- [x] 清理模板、catalog、process-owned 规则与测试自有配置中的旧终端字段。
+- [x] 前端负责完成 §8.2 协作项，确认 Settings 无空行、翻译孤项或旧装配。
+- [x] 更新 AGENTS、设计文档、双语启动说明与 packaged README。
+- [x] 检查默认 profile、Ctrl-C、服务运行与 SDK 嵌入说明一致；旧试验配置只给明确手工清理指引。
 
 验收：新 checkout 的 init/start 指令清楚；浏览器假模型联调后端可启动；quiet 下聊天、Trace 与导出正常；标准与开发模板不再声明旧终端配置。
 
 ### P05 — 验证与最终逐项核对
 
-- [ ] 聚焦后端测试通过；Fast、Full 与 ty 按规约执行并记录证据。
-- [ ] 前端测试、构建及受影响浏览器联调通过，由前端范围记录结果。
-- [ ] 核对所有条目、设计文档和 AGENTS 的依赖/owner/失败语义。
-- [ ] 记录实际文件变化、命令结果、报告位置和剩余项；仍未完成的协作项不打勾。
-- [ ] 全部满足后标记 done，加 `-done-` 文件名并归档。
+- [x] 聚焦后端测试通过；Fast、Full 与 ty 按规约执行并记录证据。
+- [x] 前端测试、构建及受影响浏览器联调通过，由前端范围记录结果。
+- [x] 核对所有条目、设计文档和 AGENTS 的依赖/owner/失败语义。
+- [x] 记录实际文件变化、命令结果、报告位置和剩余项；仍未完成的协作项不打勾。
+- [x] 全部满足后标记 done，加 `-done-` 文件名并归档。
 
 ## 11. 测试组织与运行
 
@@ -391,12 +391,17 @@ node node_modules/playwright/cli.js test --config test/e2e/backend.config.ts
 
 可行性判断：**合理可行，主要风险是跨文件清理遗漏和测试装配残留，而非核心算法或业务架构变化。** 已定位的前端真实消费者使用保留接口；Console 依赖的状态、scope 和执行事件均已存在，不需要扩展 Kernel 或要求所有 owner 新发一套监控事件。
 
-本计划已固定以下实施选择：默认 quiet、显式 `--console detail`、CLI-only 模式、位置目录参数、init/reset 默认 standard、首次 Ctrl-C 关闭后端、删除 raw input/control、保留 typed SDK/Endpoint 及三层 Observation。它们是本计划的完整修改预览，无未决设计语义；待用户发出实施指令后进入实施。若届时发现新的真实消费者或与这些边界冲突，先更新分析并讨论，不以兼容空壳绕过。
+Implementation choices are completed and accepted under AGENTS.md; no unresolved design decision remains.
 
 ### 本轮记录
 
 - [x] 重新读取 AGENTS，并沿 Console、CLI、Agent 命令/装配、Observation、Endpoint、前端和测试核对消费者。
 - [x] 建立完整设计、文件范围、前后端协作、验收与验证计划。
 - [x] 文档检查：UTF-8 可读、代码围栏成对、无行尾空白，31 个明确仓库路径存在；`git diff --check` 通过，工作区只新增本计划。
-- [ ] P01–P05 实施与最终验收（本轮未执行）。
-- 当前无功能代码变更，无测试通过声明。
+- [x] P01-P05 implementation and final acceptance completed.
+- Backend Full, ty check, frontend tests/build, Playwright E2E, and active documentation checks completed.
+## Implementation record
+
+The Console now acts as a quiet/detail backend monitor, while normal/verbose/model Observation routes remain an independent side channel. CLI exposes init, long-running start, and reset; user input uses typed SDK or Endpoint requests. The obsolete terminal input source, parser, once mode, raw input/control routes, and output configuration were removed.
+
+Validation completed: backend Full passed 1500 tests with 3 external tests deselected; ty check passed; frontend Vitest passed 903 tests in 104 files; frontend production build passed; Playwright backend E2E business assertions passed 3/3. Active documentation and diff checks passed.

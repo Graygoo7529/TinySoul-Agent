@@ -2,13 +2,11 @@
 
 from fastapi import FastAPI
 
-from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.json import JsonObject
 
-from ...engine import EndpointControlKind, EndpointEngine
+from ...engine import EndpointEngine
 from ..schemas import (
     CommandReceiptResponse,
-    ControlRequest,
-    InputRequest,
     RuntimeStatusResponse,
 )
 
@@ -20,34 +18,6 @@ def register_runtime_routes(app: FastAPI, engine: EndpointEngine) -> None:
     )
     async def status() -> JsonObject:
         return await engine.runtime.status()
-
-    @app.post(
-        "/v2/input",
-        status_code=202,
-        response_model=CommandReceiptResponse,
-        response_model_exclude_none=True,
-        response_model_exclude_unset=True,
-    )
-    async def submit_input(body: InputRequest) -> JsonObject:
-        return await engine.runtime.submit_user_input(
-            body.text,
-            to_json_object(body.metadata),
-            command_id=body.command_id,
-        )
-
-    @app.post(
-        "/v2/control",
-        status_code=202,
-        response_model=CommandReceiptResponse,
-        response_model_exclude_none=True,
-        response_model_exclude_unset=True,
-    )
-    async def submit_control(body: ControlRequest) -> JsonObject:
-        return await engine.runtime.submit_control(
-            EndpointControlKind(body.kind),
-            to_json_object(body.metadata),
-            command_id=body.command_id,
-        )
 
     @app.post(
         "/v2/restart",

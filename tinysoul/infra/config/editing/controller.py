@@ -793,12 +793,7 @@ def _is_process_owned_key(key: str) -> bool:
     return (
         key == "config"
         or (key.startswith("config.") and key != "config.include")
-        or key == "agent.interactive"
         or key == "agent.retained_outcomes"
-        or key == "agent.output"
-        or key.startswith("agent.output.")
-        or key == "agent.exit_commands"
-        or key == "agent.stop_turn_commands"
     )
 
 

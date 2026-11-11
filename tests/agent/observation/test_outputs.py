@@ -1,13 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from io import StringIO
-import sys
 
 import pytest
 
-from tinysoul.gateway.errors import ConsoleOutputError
-from tinysoul.gateway.console import ConsoleOutputSink
 from tinysoul.agent.observation.outputs import ObservationRoute
 from tinysoul.agent.observation.outputs import ObservationRouter
 from tinysoul.runtime import ObservationEvent, ObservationLevel
@@ -32,18 +28,15 @@ class _FailingSink:
 
 @pytest.mark.parametrize(
     ("mode", "expected"),
-    (
-        (ObservationLevel.NORMAL, ("normal",)),
-        (ObservationLevel.VERBOSE, ("normal", "verbose")),
-        (ObservationLevel.MODEL, ("normal", "verbose", "model")),
-    ),
+    ((ObservationLevel.NORMAL, ("normal",)),
+     (ObservationLevel.VERBOSE, ("normal", "verbose")),
+     (ObservationLevel.MODEL, ("normal", "verbose", "model"))),
 )
-def test_observation_router_filters_three_output_levels(
-    mode: ObservationLevel,
-    expected: tuple[str, ...],
+def test_observation_router_filters_each_route_at_its_declared_level(
+    mode: ObservationLevel, expected: tuple[str, ...],
 ) -> None:
     sink = _RecordingSink()
-    router = ObservationRouter(mode=mode, sinks=(sink,))
+    router = ObservationRouter(routes=(ObservationRoute(sink, mode),))
 
     for level in ObservationLevel:
         router.emit(
@@ -60,10 +53,9 @@ def test_observation_router_filters_three_output_levels(
 def test_observation_router_isolates_and_reports_sink_failure() -> None:
     failing = _FailingSink()
     healthy = _RecordingSink()
-    router = ObservationRouter(
-        mode=ObservationLevel.NORMAL,
-        sinks=(failing, healthy),
-    )
+    router = ObservationRouter(routes=tuple(
+        ObservationRoute(sink, ObservationLevel.NORMAL) for sink in (failing, healthy)
+    ))
     event = ObservationEvent(
         name="turn.output",
         level=ObservationLevel.NORMAL,
@@ -84,7 +76,6 @@ def test_observation_router_filters_each_sink_independently() -> None:
     normal = _RecordingSink()
     model = _RecordingSink()
     router = ObservationRouter(
-        mode=ObservationLevel.MODEL,
         routes=(
             ObservationRoute(normal, ObservationLevel.NORMAL),
             ObservationRoute(model, ObservationLevel.MODEL),
@@ -113,81 +104,3 @@ def test_removing_route_keeps_failure_isolation_on_the_same_sink() -> None:
     assert failing.calls == 1
     assert first.events == [event]
     assert last.events == [event, event]
-
-
-def test_observation_router_broadcasts_command_and_reflection_feedback() -> None:
-    terminal = _RecordingSink()
-    endpoint = _RecordingSink()
-    router = ObservationRouter(
-        mode=ObservationLevel.MODEL,
-        routes=(
-            ObservationRoute(terminal, ObservationLevel.NORMAL),
-            ObservationRoute(endpoint, ObservationLevel.MODEL),
-        ),
-    )
-    for name in (
-        "agent.command.accepted",
-        "reflection.started",
-        "reflection.completed",
-    ):
-        router.emit(
-            ObservationEvent(
-                name=name,
-                level=ObservationLevel.NORMAL,
-                source="test",
-            )
-        )
-
-    assert [event.name for event in terminal.events] == [
-        event.name for event in endpoint.events
-    ]
-
-
-def test_console_sink_reserves_stdout_for_turn_output() -> None:
-    stdout = StringIO()
-    stderr = StringIO()
-    sink = ConsoleOutputSink(stdout=stdout, stderr=stderr)
-
-    sink.write(
-        ObservationEvent(
-            name="turn.output",
-            level=ObservationLevel.NORMAL,
-            source="loop.turn",
-            message="final",
-            payload={"text": "final answer"},
-        )
-    )
-    sink.write(
-        ObservationEvent(
-            name="llm.model.started",
-            level=ObservationLevel.VERBOSE,
-            source="llm.task",
-            message="started",
-            payload={"model_id": "model_a"},
-        )
-    )
-
-    assert stdout.getvalue() == "final answer\n"
-    assert "llm.model.started" in stderr.getvalue()
-    assert "model_a" in stderr.getvalue()
-
-
-def test_console_sink_resolves_default_streams_when_constructed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    stdout = StringIO()
-    stderr = StringIO()
-    monkeypatch.setattr(sys, "stdout", stdout)
-    monkeypatch.setattr(sys, "stderr", stderr)
-    sink = ConsoleOutputSink()
-
-    sink.write(
-        ObservationEvent(
-            name="turn.output",
-            level=ObservationLevel.NORMAL,
-            source="loop.turn",
-            payload={"text": "current stream"},
-        )
-    )
-
-    assert stdout.getvalue() == "current stream\n"

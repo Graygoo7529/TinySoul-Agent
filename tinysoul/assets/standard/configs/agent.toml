@@ -1,9 +1,2 @@
 [agent]
-interactive = true
-exit_commands = ["exit", "quit"]
-stop_turn_commands = ["stop", "cancel"]
 retained_outcomes = 32
-
-[agent.output]
-mode = "normal"
-max_model_detail_chars = 20480

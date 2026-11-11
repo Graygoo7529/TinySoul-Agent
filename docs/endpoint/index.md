@@ -15,8 +15,6 @@ Endpoint 是带 Bearer 鉴权的 HTTP/WebSocket 协议。除 `GET /v2/health` �
 | --- | --- | --- |
 | Health | `GET /v2/health` | 匿名进程探活 |
 | Runtime | `GET /v2/status` | 当前进程与 Runtime snapshot |
-| Runtime | `POST /v2/input` | 提交 User input |
-| Runtime | `POST /v2/control` | 提交 stop/exit control |
 | Runtime | `POST /v2/restart` | 请求宿主重建 Agent generation，保持 Endpoint instance |
 | Turn | `POST /v2/requests`、`GET /v2/requests`、`GET /v2/requests/{id}` | 结构化受理、有界句柄目录和 owner 状态/结果 |
 | Turn | `POST /v2/requests/{id}/input`、`reply`、`grant`、`cancel` | 指定 Turn 的输入与控制 |

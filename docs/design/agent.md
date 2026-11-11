@@ -36,9 +36,9 @@ Agent.wait_for_exit 等待根调度运行最终退出，跨越 generation restar
 
 User Session 插件同时取得只读服务和窄 SessionOrganizeService，后者仅供 core.session.organize 及段刷新；SDK SessionService 和 Reflection 继续只读。整理提交不增加根 work、隐藏模型任务或另一条完成管线，当前 Turn 仍由唯一 recorder 在收尾保存。
 
-Environment 提供输入适配、文件监听和定时等待；Reflection 到期规则由插件解释，经注入的类型化提交端口进入根队列。AgentIngress 解释可信终端命令和普通用户文本；InputCommandParser 纯解析，InputDispatcher 调用 AgentCommands。终端普通文本在空闲时提交 UserTurnRequest，活跃时追加到该 TurnInbox。Reflection 始终排入根队列。
+Environment provides file watching and scheduled waits; Reflection scheduling enters the root queue through typed ports. The Agent exposes typed SDK and Endpoint request paths; it no longer parses terminal text or owns a terminal input source.
 
-`/reply <question_id> <text>` 与 `/grant <request_id> <count>` 明确关联当前等待；普通追加作为新指示中断 INPUT/EVENT/TIMER 等待，保留原问题未答事实；它不伪造 reply，也不增加预算。取消、退出不排在普通输入后；退出停止后续根 work，取消当前 Turn 则保留后续请求。
+Structured requests create User or Reflection Turns and can append, reply, grant, or cancel through the Endpoint; each request carries its own identity and is routed into the owning TurnInbox.
 
 Runtime EventBus 只校验 envelope、保存有界幂等回执并投递。Agent EventRouter 将定向事件送到指定身份，过期目标不会回退给其他 Turn；无目标事件仅送声明订阅或当前等待匹配的 Turn，按 Turn 身份去重。topic/source 参与过滤，SDK publish 只使用 host 来源，不能冒充 owner 提交、reply、预算决定或 Job 终态。普通事件不隐式创建根 work。
 
@@ -74,7 +74,7 @@ SDK 的 TurnSnapshot 与 HTTP 使用同一投影，直接读取保留句柄及�
 
 ObservationRouter 按 normal/verbose/model 扇出到显式 sink，并提供有界 SDK 订阅。慢订阅得到 gap，不阻塞业务；单一 sink 或订阅编码失败关闭对应观察路径，记录有限错误类型。Observation 不参与提交、Trap 或控制流。
 
-CLI 在 gateway 显式挂载 Console、Terminal 与 EndpointHost。终端读取支持停止与线程回收；来源等待实际受理回执，不维持平行业务队列。HTTP 与 Agent 共用事件循环，宿主保留信号处理权。start --once 关闭定时来源、文件监听、交互输入和 HTTP，通过同一 SDK 队列执行一个 User Turn；只有正式回答返回成功退出码。
+CLI in gateway mounts Console and EndpointHost. Console is the backend runtime monitor: quiet/detail select terminal summaries independently from the normal/verbose/model Observation routes. HTTP and Agent share the event loop, and the host retains signal ownership. CLI exposes only init, long-running start, and reset; user input enters through typed SDK or Endpoint requests.
 
 normal 输出正式回答与重要运行边界；verbose 增加执行过程；model 展示真实模型输入和归一化输出。Console 有字符上限，Endpoint MODEL replay 面向可信客户端；图片字节和供应商私有推理不作为原始诊断输出。
 

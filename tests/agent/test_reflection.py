@@ -62,7 +62,7 @@ async def test_memory_reflection_revises_daily_from_fixed_target_sources(
                 root, env={}, overrides={"reflection.schedule.enabled": False}
             )
         )
-        .with_agent_settings(AgentSettings(interactive=False))
+        .with_agent_settings(AgentSettings())
         .with_calendar_clock(clock)
         .with_llm_runner(llm)
     )

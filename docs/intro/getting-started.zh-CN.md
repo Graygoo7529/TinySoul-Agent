@@ -59,16 +59,16 @@ uv run --locked --no-editable tinysoul init ../my-agent
 开发安装启动：
 
 ```sh
-uv run --locked --extra dev tinysoul start --root ../my-agent --mode normal
+uv run --locked --extra dev tinysoul start ../my-agent --console quiet
 ```
 
 标准安装启动：
 
 ```sh
-uv run --locked --no-editable tinysoul start --root ../my-agent --mode normal
+uv run --locked --no-editable tinysoul start ../my-agent --console quiet
 ```
 
-后端在终端中持续运行，同时提供前端连接入口。`--mode normal` 控制终端输出详略，可改为 `verbose` 或 `model`。只执行一次非交互任务时，可将它替换为 `--once "总结今天的工作"`；该模式不开放前端 Endpoint。
+后端会在终端持续运行，并提供前端连接入口。使用 `--console quiet` 查看简约状态，需要更多运行过程时改为 `--console detail`；Console 模式与前端 Observation 级别彼此独立。
 
 ## 4. 启动前端并登录
 

@@ -97,7 +97,7 @@ class EndpointHost:
             self._engine = EndpointEngine(
                 settings=self._settings,
                 events=events,
-                gateway=runtime.gateway,
+                commands=runtime.commands,
                 services=runtime.service_access,
                 config=runtime.configuration,
                 presentation=PresentationService(runtime.project_root),
@@ -108,7 +108,7 @@ class EndpointHost:
             )
         else:
             self._engine.bind(
-                gateway=runtime.gateway,
+                commands=runtime.commands,
                 services=runtime.service_access,
                 config=runtime.configuration,
             )

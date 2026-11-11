@@ -20,7 +20,6 @@ from tinysoul.agent.errors import (
     AgentServiceUnavailableError,
 )
 from tinysoul.agent.observation.outputs import ObservationRoute, ObservationRouter
-from tinysoul.environment.inputs import CommandReceipt
 from tinysoul.gateway.endpoint import (
     EndpointContractError,
     EndpointEngine,
@@ -42,7 +41,6 @@ from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.interaction import QuestionAnswer
 from tinysoul.kernel.jobs import JobSnapshot
-from tinysoul.kernel.loop import LoopControlKind
 from tinysoul.kernel.loop.interaction.inbox import InboxReceipt
 from tinysoul.kernel.registration import Service, ServiceRegistry
 from tinysoul.plugins.archive import DailyLifecycleCoordinator
@@ -223,30 +221,14 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     )
 
     response = client.post(
-        "/v2/input",
-        headers=_auth(),
-        json={
-            "text": "hello",
-            "metadata": {"client_id": "ui"},
-            "command_id": "command_ui",
-        },
+        "/v2/requests", headers=_auth(),
+        json={"kind": "user", "text": "hello", "metadata": {"client_id": "ui"},
+              "command_id": "command_ui"},
     )
     assert response.status_code == 202
-    assert response.json() == {
-        "accepted": True,
-        "command_id": "command_ui",
-        "kind": "user_turn",
-        "state": "queued",
-    }
+    assert response.json()["request_id"] == "command_ui"
+    assert response.json()["state"] == "queued"
     assert gateway.inputs == [("hello", "endpoint", {"client_id": "ui"})]
-
-    response = client.post(
-        "/v2/control",
-        headers=_auth(),
-        json={"kind": "exit_program"},
-    )
-    assert response.status_code == 202
-    assert gateway.controls[0][0] is LoopControlKind.EXIT_PROGRAM
 
     reflection = client.get("/v2/reflection", headers=_auth()).json()
     assert reflection["availability"]["checked_day"] == str(DAY)
@@ -1191,12 +1173,11 @@ def _engine(
     event_max_bytes: int = 1024 * 1024,
     websocket_heartbeat_seconds: float = 15.0,
     config: ConfigController | None = None,
-) -> tuple[EndpointEngine, _EndpointGateway, EndpointEventBuffer]:
+) -> tuple[EndpointEngine, _EndpointCommands, EndpointEventBuffer]:
     session = SessionEngine(SessionSettings(root=tmp_path / "session"))
     events = EndpointEventBuffer(capacity=32, max_bytes=event_max_bytes)
-    gateway = _EndpointGateway()
+    gateway = _EndpointCommands()
     observations = ObservationRouter(
-        mode=ObservationLevel.MODEL,
         routes=(
             ObservationRoute(sink=events, mode=ObservationLevel.MODEL),
             ObservationRoute(sink=gateway, mode=ObservationLevel.MODEL),
@@ -1230,7 +1211,7 @@ def _engine(
         presentation=PresentationService(tmp_path),
         settings=settings,
         events=events,
-        gateway=gateway,
+        commands=gateway,
         available=lambda: True,
         services=_EndpointServices(WorkspaceService(workspace)),
         config=config
@@ -1398,6 +1379,7 @@ class _EndpointServices:
         return {
             "generation_id": "test",
             "activity": "idle",
+            "active_request_id": None,
             "activation": "active",
             "active_day": str(DAY),
         }
@@ -1412,11 +1394,7 @@ class _EndpointServices:
 
 
 @dataclass
-class _EndpointGateway:
-    @property
-    def commands(self) -> _EndpointGateway:
-        return self
-
+class _EndpointCommands:
     async def submit_turn(
         self, request: UserTurnRequest | ReflectionRequest
     ) -> TurnHandle:
@@ -1447,69 +1425,10 @@ class _EndpointGateway:
         return False
 
     inputs: list[tuple[str, str, JsonObject]] = field(default_factory=list)
-    controls: list[tuple[LoopControlKind, str, str, JsonObject]] = field(
-        default_factory=list
-    )
     observed: list[ObservationEvent] = field(default_factory=list)
     reflection_requests: list[tuple[ReflectionScope, CalendarDay | None, str]] = field(
         default_factory=list
     )
-
-    @property
-    def active_turn_scope(self) -> RunScope | None:
-        return None
-
-    @property
-    def current_scope(self) -> RunScope:
-        return RunScope().push(RunLevel.AGENT, "program")
-
-    async def submit_user_input(
-        self,
-        text: str,
-        *,
-        source: str,
-        metadata: JsonObject,
-        command_id: str | None = None,
-    ) -> CommandReceipt:
-        self.inputs.append((text, source, metadata))
-        return CommandReceipt(True, command_id or "command_test", "user_turn", "queued")
-
-    async def request_control(
-        self,
-        kind: LoopControlKind,
-        *,
-        source: str,
-        text: str,
-        metadata: JsonObject,
-    ) -> CommandReceipt:
-        self.controls.append((kind, source, text, metadata))
-        return CommandReceipt(
-            True,
-            str(metadata.get("command_id", "command_test")),
-            kind.value,
-            "queued",
-        )
-
-    async def request_reflection(
-        self,
-        scope: ReflectionScope | str,
-        *,
-        target_day,
-        source: str,
-        metadata: JsonObject,
-        command_id: str | None = None,
-        instructions: str = "",
-    ) -> CommandReceipt:
-        typed_scope = (
-            scope if isinstance(scope, ReflectionScope) else ReflectionScope(scope)
-        )
-        self.reflection_requests.append((typed_scope, target_day, source))
-        return CommandReceipt(
-            True,
-            command_id or "command_reflection",
-            "reflection",
-            "queued",
-        )
 
     def write(self, event: ObservationEvent) -> None:
         self.observed.append(event)

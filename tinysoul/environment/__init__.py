@@ -1,1 +1,1 @@
-"""Explicit input sources and host lifecycle contracts."""
+"""File watching, timers and host lifecycle contracts."""

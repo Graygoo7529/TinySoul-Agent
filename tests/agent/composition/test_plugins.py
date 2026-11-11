@@ -67,7 +67,7 @@ async def test_three_scenarios_have_independent_policies_and_owner_services(
     app = await (
         standard_agent(root)
         .with_config_environment(config)
-        .with_agent_settings(AgentSettings(interactive=False))
+        .with_agent_settings(AgentSettings())
         .with_llm_runner(FakeLLM(()))
         .build()
         .build_runtime()
@@ -179,7 +179,7 @@ async def test_probe_plugin_composes_config_segment_action_event_sdk_and_restart
     assembly = (
         standard_agent(root)
         .with_config_environment(ConfigEnvironment.from_project_root(root, env={}))
-        .with_agent_settings(AgentSettings(interactive=False))
+        .with_agent_settings(AgentSettings())
         .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=3)))
         .with_llm_runner(llm)
         .use(plugin)

@@ -23,7 +23,7 @@ Each retains its owner's content and continuation semantics.
 
 客户端继续按 Runtime/Turn、Reflection、Events、Configuration 和 Workspace 分域。传输、Bearer、JSON/error 和 binary headers 集中处理。OpenAPI（需鉴权）提供请求 schema；运行语义分别见 [Runtime](runtime.md)、[Reflection](reflection.md) 和 [Events](events.md)。
 
-连接先检查 `/v2/health`、`/v2/status` 和 `protocol_version=2`，再用 status 中的运行身份维护本次会话。发起新对话使用 POST /v2/requests，保存回执中的 request_id；正式 turn_id 可在开始执行后才分配。追加指示、reply、grant 和 cancel 使用 request_id 路由。回复绑定 question_id，补额绑定 budget_request_id；两个请求可以同时待决，不能由 UI 自行合并为单一“恢复”命令。需要终端语法时才使用 /v2/input。
+The frontend always uses structured requests and does not depend on terminal command words.
 
 重连沿用本地保存的 address + token，并携带上次 instance_id 与 sequence 进行 replay，再读取 status 与活动 Turn；gap 或实例变化时重建事件派生视图并读取 Reflection/Workspace。通过 TurnSnapshot 恢复问题、预算、Job 和完成结果；不从流文本猜终态，也不因 WebSocket 断开取消 work。历史句柄淘汰的 404 只表示当前运行窗口已无法查询。显式 logout 清除本地目标和当前连接，不影响后端 Agent。
 

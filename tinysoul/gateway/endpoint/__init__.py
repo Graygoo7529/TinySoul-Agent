@@ -3,7 +3,6 @@
 from .auth import EndpointAuth, generated_auth_text, load_endpoint_auth
 from .config import EndpointLaunchSettings, EndpointSettings
 from .engine import (
-    EndpointControlKind,
     EndpointEngine,
     EndpointLifecycle,
 )
@@ -28,7 +27,6 @@ __all__ = [
     "EndpointContractError",
     "EndpointAuth",
     "generated_auth_text",
-    "EndpointControlKind",
     "EndpointEngine",
     "EndpointError",
     "EndpointEventBuffer",

@@ -12,7 +12,6 @@ from types import MappingProxyType
 from tinysoul.agent.dispatch.scheduler import RootScheduler
 from tinysoul.agent.runtime_bridge import RuntimeAgentBridge
 from tinysoul.agent.user import UserTurnBuilder
-from tinysoul.environment.inputs import InputSource
 from tinysoul.environment.sources.fswatch import FileWatcher
 from tinysoul.environment.sources.scheduler import DeadlineTimer
 from tinysoul.infra import InfraSettings, parse_infra_settings
@@ -116,8 +115,6 @@ from tinysoul.runtime import (
 from tinysoul.runtime.sources import RuntimeTimer, RuntimeWatcher
 
 from ..config import AgentSettings, parse_agent_settings
-from ..dispatch.ingress import AgentIngress
-from ..dispatch.inputs import InputCommandParser, InputDispatcher
 from ..errors import (
     AgentClosedError,
     AgentError,
@@ -128,7 +125,7 @@ from ..lifecycle.day import AgentDayCoordinator
 from ..lifecycle.generation import AgentConfigPlan, AgentGeneration
 from ..lifecycle.runtime_policy import build_agent_trap
 from ..lifecycle.sources import GenerationSources
-from ..observation.outputs import ObservationRoute, ObservationRouter, OutputSink
+from ..observation.outputs import ObservationRoute, ObservationRouter
 from .actions import CorePlugin, ProfileAssembly
 from .assembly import AgentAssembly, AgentRuntime
 
@@ -158,10 +155,8 @@ class AgentBuilder:
         self._calendar_clock: CalendarClock | None = None
         self._bus: SignalBus | None = None
         self._user_domain_skills: DomainSkillProvider | None = None
-        self._input_parser: InputCommandParser | None = None
-        self._input_sources: list[InputSource] = []
         self._user_turn_completion_handlers: list[TurnCompletionHandler] = []
-        self._output_sinks: list[OutputSink] = []
+        self._observation_routes: list[ObservationRoute] = []
         self._plugins: list[AgentPlugin] = []
 
     def with_loop_settings(self, settings: LoopSettings) -> "AgentBuilder":
@@ -208,14 +203,6 @@ class AgentBuilder:
         self._user_domain_skills = domain_skills
         return self
 
-    def with_input_parser(self, parser: InputCommandParser) -> "AgentBuilder":
-        self._input_parser = parser
-        return self
-
-    def with_input_source(self, source: InputSource) -> "AgentBuilder":
-        self._input_sources.append(source)
-        return self
-
     def with_user_turn_completion_handler(
         self,
         handler: TurnCompletionHandler,
@@ -223,8 +210,8 @@ class AgentBuilder:
         self._user_turn_completion_handlers.append(handler)
         return self
 
-    def with_output_sink(self, sink: OutputSink) -> "AgentBuilder":
-        self._output_sinks.append(sink)
+    def with_observation_route(self, route: ObservationRoute) -> "AgentBuilder":
+        self._observation_routes.append(route)
         return self
 
     def use(self, plugin: AgentPlugin) -> "AgentBuilder":
@@ -277,11 +264,10 @@ class AgentBuilder:
                 "The standard recipe is missing required owner services"
             )
         builder = copy.copy(self)
-        builder._input_sources = list(self._input_sources)
         builder._user_turn_completion_handlers = list(
             self._user_turn_completion_handlers
         )
-        builder._output_sinks = list(self._output_sinks)
+        builder._observation_routes = list(self._observation_routes)
         builder._plugins = list(definitions.plugins)
         config = self._config_env or ConfigEnvironment.from_project_root(self._root)
         builder._compile_config_plan(config, map_runtime_errors=True)
@@ -328,13 +314,7 @@ class AgentBuilder:
                 if self._agent_settings is not None
                 else self._build_agent_settings(config, agent_bridge)
             )
-            observations = ObservationRouter(
-                mode=agent_settings.output.mode,
-                routes=tuple(
-                    ObservationRoute(sink=sink, mode=agent_settings.output.mode)
-                    for sink in self._output_sinks
-                ),
-            )
+            observations = ObservationRouter(routes=tuple(self._observation_routes))
             bus = self._bus if self._bus is not None else SignalBus()
 
             async def submit_reflection(request: ReflectionRequest) -> bool:
@@ -353,8 +333,6 @@ class AgentBuilder:
             )
             user_turn = generation.user_turn
             reflection_engine = generation.reflection
-            workspace = generation.workspace
-            parser = generation.input_parser
             generation_handle = RuntimeHandle(generation)
             resources.register(
                 "generation", lambda: generation_handle.snapshot().generation.close()
@@ -379,23 +357,6 @@ class AgentBuilder:
                     generation_handle.snapshot().generation.sources.statuses
                 ),
             )
-            dispatcher = InputDispatcher(
-                parser=parser,
-                commands=commands,
-                observations=observations,
-                agent_scope=agent_runner.scope,
-                parser_provider=lambda: (
-                    generation_handle.snapshot().generation.input_parser
-                ),
-            )
-            gateway = AgentIngress(
-                dispatcher=dispatcher,
-                active_turn_scope=lambda: dispatcher.active_turn_scope,
-                agent_scope=agent_runner.scope,
-                commands=commands,
-            )
-            input_sources = tuple(self._input_sources)
-
             config_controller = ConfigController(
                 root=self._root,
                 environment=config,
@@ -439,9 +400,6 @@ class AgentBuilder:
                 generation_handle=generation_handle,
                 commands=commands,
                 agent_runner=agent_runner,
-                input_dispatcher=dispatcher,
-                gateway=gateway,
-                input_sources=input_sources,
                 observations=observations,
                 resources=resources,
             )
@@ -738,11 +696,6 @@ class AgentBuilder:
                 reflection=reflection.engine,
                 day=day,
                 workspace=workspace,
-                input_parser=(
-                    self._input_parser
-                    if self._input_parser is not None
-                    else InputCommandParser(agent_settings.input_commands)
-                ),
                 agent_settings=agent_settings,
                 reflection_settings=reflection_settings,
                 resources=resources,

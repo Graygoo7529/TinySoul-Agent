@@ -40,7 +40,6 @@ from .responses import (
     TurnListResponse,
     TurnResponse,
 )
-from .runtime import ControlRequest, InputRequest
 from .turns import (
     TurnCreateRequest,
     TurnGrantRequest,
@@ -67,9 +66,7 @@ __all__ = [
     "ConfigSetMutationRequest",
     "ContextMessagesResponse",
     "ContextOverviewResponse",
-    "ControlRequest",
     "HealthResponse",
-    "InputRequest",
     "InteractionPageResponse",
     "JobDetailResponse",
     "JobListResponse",

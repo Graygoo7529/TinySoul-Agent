@@ -59,16 +59,16 @@ The `standard` template disables model providers initially. Before chatting, add
 Start a development installation:
 
 ```sh
-uv run --locked --extra dev tinysoul start --root ../my-agent --mode normal
+uv run --locked --extra dev tinysoul start ../my-agent --console quiet
 ```
 
 Start a standard installation:
 
 ```sh
-uv run --locked --no-editable tinysoul start --root ../my-agent --mode normal
+uv run --locked --no-editable tinysoul start ../my-agent --console quiet
 ```
 
-The backend stays running in the terminal and exposes the frontend connection endpoint. `--mode normal` selects terminal output detail; alternatives are `verbose` and `model`. To run a single non-interactive task, replace it with `--once "Summarize today's work"`; that mode does not open the frontend Endpoint.
+The backend stays running in the terminal and exposes the frontend connection endpoint. `--console quiet` shows a short backend status; use `--console detail` for more runtime progress. Console mode is independent from the three frontend Observation levels.
 
 ## 4. Start the frontend and sign in
 
@@ -123,4 +123,4 @@ Stop the target backend and run this from outside its data directory:
 uv run --locked --extra dev tinysoul reset ../my-agent --config-profile standard
 ```
 
-**This preserves `.env` and `.auth` and replaces everything else**, including configuration, Home, Memory, conversations, Workspace, archives, and any `.git` inside the target. The command explicitly selects the standard template; reset defaults to development when `--config-profile` is omitted. Reset clears a test project; it is not a routine update or data migration command.
+**This preserves `.env` and `.auth` and replaces everything else**, including configuration, Home, Memory, conversations, Workspace, archives, and any `.git` inside the target. The command explicitly selects the standard template; reset defaults to standard when `--config-profile` is omitted. Reset clears a test project; it is not a routine update or data migration command.

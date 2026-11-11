@@ -44,7 +44,8 @@ from pathlib import Path
 
 from tinysoul.agent import Agent
 from tinysoul.agent.composition.builder import standard_agent
-from tinysoul.agent.config import AgentSettings, OutputSettings
+from tinysoul.agent.config import AgentSettings
+from tinysoul.agent.observation.outputs import ObservationRoute
 from tinysoul.gateway.endpoint import (
     EndpointASGIServer,
     EndpointEngine,
@@ -302,12 +303,9 @@ async def _serve(args: argparse.Namespace) -> int:
             )
         )
         .with_agent_settings(
-            AgentSettings(
-                interactive=False,
-                output=OutputSettings(mode=ObservationLevel.MODEL),
-            )
+            AgentSettings()
         )
-        .with_output_sink(events)
+        .with_observation_route(ObservationRoute(events, ObservationLevel.MODEL))
         .with_llm_runner(ScriptedLLM(events))
         .build()
     )
@@ -327,7 +325,7 @@ async def _serve(args: argparse.Namespace) -> int:
         presentation=PresentationService(runtime.project_root),
         settings=settings,
         events=events,
-        gateway=runtime.gateway,
+        commands=runtime.commands,
         services=runtime.service_access,
         config=runtime.configuration,
         available=lambda: runtime.is_available,

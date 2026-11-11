@@ -7,7 +7,7 @@ from ..config import EndpointSettings
 from ..events import EndpointEventBuffer
 from ..errors import EndpointRequestError
 from .contracts import (
-    EndpointAgentIngress,
+    EndpointTurnCommands,
     EndpointConfigController,
     EndpointLifecycle,
     EndpointServices,
@@ -18,22 +18,22 @@ from .contracts import (
 class EndpointEngineContext:
     settings: EndpointSettings
     events: EndpointEventBuffer
-    _gateway: EndpointAgentIngress | None
+    _commands: EndpointTurnCommands | None
     _services: EndpointServices | None
     _config: EndpointConfigController | None
     _available: Callable[[], bool]
     _lifecycle: EndpointLifecycle | None = None
 
     @property
-    def gateway(self) -> EndpointAgentIngress:
-        if self._gateway is None or not self.available:
+    def commands(self) -> EndpointTurnCommands:
+        if self._commands is None or not self.available:
             raise self._unavailable()
-        return self._gateway
+        return self._commands
 
     @property
     def bound(self) -> bool:
         return (
-            self._gateway is not None
+            self._commands is not None
             and self._services is not None
             and self._config is not None
         )
@@ -67,16 +67,16 @@ class EndpointEngineContext:
     def bind(
         self,
         *,
-        gateway: EndpointAgentIngress,
+        commands: EndpointTurnCommands,
         services: EndpointServices,
         config: EndpointConfigController,
     ) -> None:
-        self._gateway = gateway
+        self._commands = commands
         self._services = services
         self._config = config
 
     def unbind(self) -> None:
-        self._gateway = None
+        self._commands = None
         self._services = None
         self._config = None
 

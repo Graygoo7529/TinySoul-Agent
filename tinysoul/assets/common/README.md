@@ -16,7 +16,7 @@ TINYSOUL_ENDPOINT__BIND_HOST=127.0.0.1
 TINYSOUL_ENDPOINT__PORT=1430
 ```
 
-For a trusted remote host, set `BIND_HOST=0.0.0.0` and connect from the
+For a trusted remote host, set `TINYSOUL_ENDPOINT__BIND_HOST=0.0.0.0` and connect from the
 frontend using the host's reachable IP, port 1430, and the token from `.auth`.
 
 ## Standard
@@ -24,21 +24,15 @@ frontend using the host's reachable IP, port 1430, and the token from `.auth`.
 The standard profile starts with every LLM provider disabled, so the backend and frontend can run before credentials are configured:
 
 ```powershell
-tinysoul start --root . --mode normal
+tinysoul start . --console quiet
 ```
 
 The frontend uses the same address-plus-token form for local and remote
 connections. It remembers the pair on the client; **Log out** clears it and
-returns to the login form. `tinysoul start --once "..."` runs one CLI turn and
-does not require or open the Endpoint.
+returns to the login form. Console output is independent from frontend
+Observation levels; use `--console detail` when more runtime progress is useful.
 
 Use the frontend settings to add a credential and enable its provider, or edit `.env` and `configs/llm/providers.toml`. Enabling a provider without any non-empty declared credential is invalid and startup or configuration activation will fail with a configuration error.
-
-For one non-interactive turn:
-
-```powershell
-tinysoul start --root . --once "Summarize today's work"
-```
 
 ## Development
 
@@ -49,13 +43,13 @@ The development profile enables the repository maintainer's providers and capabi
 Add the required credentials to `.env` and install any enabled optional dependencies or host executables, then start the backend:
 
 ```powershell
-tinysoul start --root . --mode normal
+tinysoul start . --console quiet
 ```
 
 To rebuild this disposable development project, stop the backend and run the following command from its parent directory:
 
 ```powershell
-tinysoul reset my-agent-dev
+tinysoul reset my-agent-dev --config-profile development
 ```
 
 `reset` preserves `.env` and `.auth` and replaces everything else, including

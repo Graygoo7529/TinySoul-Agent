@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from tests.support.project import create_test_project
 from tinysoul.agent import Agent, HomeService
 from tinysoul.agent.composition.builder import standard_agent
-from tinysoul.agent.config import AgentSettings, OutputSettings
+from tinysoul.agent.observation.outputs import ObservationRoute
 from tinysoul.gateway.endpoint import (
     EndpointEngine,
     EndpointEventBuffer,
@@ -226,12 +226,7 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
                 },
             )
         )
-        .with_agent_settings(
-            AgentSettings(
-                interactive=False, output=OutputSettings(mode=ObservationLevel.VERBOSE)
-            )
-        )
-        .with_output_sink(events)
+        .with_observation_route(ObservationRoute(events, ObservationLevel.VERBOSE))
         .with_llm_runner(_ContractLLM())
         .build()
     )
@@ -241,7 +236,7 @@ async def collect_contract_responses(root: Path) -> dict[str, JsonObject]:
         presentation=PresentationService(runtime.project_root),
         settings=EndpointSettings(token="x" * 32),
         events=events,
-        gateway=runtime.gateway,
+        commands=runtime.commands,
         services=runtime.service_access,
         config=runtime.configuration,
         available=lambda: runtime.is_available,

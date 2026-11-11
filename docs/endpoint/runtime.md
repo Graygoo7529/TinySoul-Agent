@@ -55,8 +55,6 @@ Job 查询和停止经 Agent 服务进入 Job owner；返回 job_id、kind、sta
 
 待答项的 `kind` 当前为 `permission`。客户端应使用 `request_id` 和选项身份解释请求，不从问题文本推断权限种类；协议 session/RPC id 不进入此投影。
 
-## 终端式输入与控制
+## Structured input and control
 
-`POST /v2/input` 接受 text、command_id、metadata，保留明确的终端式输入语义：空闲时新建 User Turn，活动时追加，且支持本地命令语法。需要固定身份/排队语义的客户端使用上述结构化 Turn 接口。该入口返回原有 CommandReceipt；满载为 accepted=false、state=full。
-
-`POST /v2/control` 接受 stop_turn 或 exit_program，经共享 Agent 命令门面执行。前者取消活动根 Turn，保留排队请求；后者停止受理、取消当前与排队工作。Endpoint 不自行终止进程；关闭 WebSocket 或前端窗口不提交退出控制。
+Input and control use structured requests: POST /v2/requests creates User or Reflection Turns; append, reply, grant, and cancel use request subroutes. Endpoint does not parse terminal command words or stop the process. Closing a WebSocket or frontend window does not change backend lifecycle.

@@ -13,16 +13,10 @@ from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.time import CalendarDay
 from tinysoul.kernel.interaction import QuestionAnswer
 from tinysoul.kernel.jobs import JobSnapshot
-from tinysoul.kernel.loop import LoopControlKind
 from tinysoul.kernel.loop.interaction.inbox import InboxReceipt
 from tinysoul.kernel.registration import ServiceRegistry
 from tinysoul.plugins.reflection import ReflectionRequest
 from tinysoul.plugins.workspace.inspection.models import WorkspaceBlobRead
-from tinysoul.runtime import RunScope
-
-
-class EndpointCommandReceipt(Protocol):
-    def to_json(self) -> JsonObject: ...
 
 
 class EndpointLifecycle(Protocol):
@@ -173,32 +167,6 @@ class EndpointTurnCommands(Protocol):
     ) -> bool: ...
 
     async def cancel_request(self, request_id: str) -> bool: ...
-
-
-class EndpointAgentIngress(Protocol):
-    @property
-    def commands(self) -> EndpointTurnCommands: ...
-
-    @property
-    def active_turn_scope(self) -> RunScope | None: ...
-
-    async def submit_user_input(
-        self,
-        text: str,
-        *,
-        source: str,
-        metadata: JsonObject,
-        command_id: str | None = None,
-    ) -> EndpointCommandReceipt: ...
-
-    async def request_control(
-        self,
-        kind: LoopControlKind,
-        *,
-        source: str,
-        text: str,
-        metadata: JsonObject,
-    ) -> EndpointCommandReceipt: ...
 
 
 class EndpointConfigController(Protocol):

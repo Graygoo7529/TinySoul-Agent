@@ -430,7 +430,6 @@ function routeEvent(epoch: number, event: ObservationEvent): void {
   }
   if (
     name.startsWith("turn.") ||
-    name.startsWith("agent.command.") ||
     name === "context.installed"
   ) {
     if (TERMINAL_TURN_EVENTS.has(name)) conversationTerminalSeen = true;

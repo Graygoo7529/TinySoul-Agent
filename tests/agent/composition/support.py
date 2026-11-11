@@ -342,8 +342,7 @@ def _test_config(
     agent_path.parent.mkdir(parents=True, exist_ok=True)
     agent_path.write_text("# Test Agent\n", encoding="utf-8")
     values: dict[str, object] = {
-        "agent.interactive": False,
-        "home.root": str(home_root),
+                "home.root": str(home_root),
         "home.runtime_root": str(tmp_path / "runtime" / "home"),
         "memory.root": str(tmp_path / "memory"),
         "session.root": str(tmp_path / "runtime" / "session"),

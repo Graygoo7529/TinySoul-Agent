@@ -34,7 +34,6 @@ function makeCatalog(): Record<string, unknown> {
     field_groups: [],
     collections: [],
     fields: [
-      field("agent.interactive", "boolean"),
       field("context.system_text", "string"),
       field("context.journal", "string"),
     ],
@@ -47,7 +46,6 @@ function makeSaved(): Configuration {
     string,
     { value: JsonValue; source: string; writable: boolean }
   > = {
-    "agent.interactive": { value: true, source: "process", writable: false },
     "context.system_text": {
       value: "You are TinySoul.",
       source: MAIN_SOURCE,
@@ -74,7 +72,7 @@ function makeSaved(): Configuration {
         path: "",
         exists: true,
         writable: false,
-        values: { "agent.interactive": true },
+        values: {},
       },
     ],
     fields: Object.fromEntries(
@@ -137,7 +135,7 @@ describe("SystemPage", () => {
       root.render(<SystemPage />);
     });
     await flush();
-    const row = container.querySelector('[data-field-path="agent.interactive"]');
+    const row = container.querySelector('[data-field-path="agent.retained_outcomes"]');
     expect(row).not.toBeNull();
     expect(row!.textContent).toContain(t("settings.readOnly"));
     expect(row!.querySelector("[role='switch']")).toBeNull();

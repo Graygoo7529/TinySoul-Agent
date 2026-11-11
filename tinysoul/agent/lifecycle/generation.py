@@ -30,7 +30,6 @@ from tinysoul.plugins.reflection import ReflectionEngine, ReflectionSettings
 from tinysoul.plugins.workspace import WorkspaceEngine
 
 from ..config import AgentSettings
-from ..dispatch.inputs import InputCommandParser
 from .day import AgentDayCoordinator
 from .sources import GenerationSources
 
@@ -65,7 +64,6 @@ class AgentGeneration:
     day: AgentDayCoordinator
     workspace: WorkspaceEngine
     jobs: JobControl
-    input_parser: InputCommandParser
     agent_settings: AgentSettings
     reflection_settings: ReflectionSettings
     resources: AsyncResourceScope = field(default_factory=AsyncResourceScope)

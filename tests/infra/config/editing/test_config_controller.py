@@ -590,9 +590,9 @@ async def test_process_owned_configuration_is_read_only(tmp_path: Path) -> None:
         ),
         ConfigMutation(
             source_id="dotenv",
-            path="TINYSOUL_AGENT__INTERACTIVE",
+            path="TINYSOUL_AGENT__RETAINED_OUTCOMES",
             op="set",
-            value="false",
+            value="12",
         ),
     ):
         with pytest.raises(ConfigError, match="read-only"):

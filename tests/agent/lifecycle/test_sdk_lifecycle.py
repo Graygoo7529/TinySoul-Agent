@@ -92,8 +92,7 @@ async def test_failed_start_settles_requests_accepted_by_sources(
                 root,
                 env={},
                 overrides={
-                    "agent.interactive": False,
-                    "reflection.schedule.enabled": False,
+                                        "reflection.schedule.enabled": False,
                     "workspace.watch.enabled": False,
                 },
             )

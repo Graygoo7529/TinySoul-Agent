@@ -245,7 +245,7 @@ Home 引用、effective overlay 和来源归属由 Home owner 解释，Infra 不
 
 ## Reflection
 
-Home Reflection 是 `tinysoul.plugins.reflection.home` 拥有的自治任务。它由 ReflectionEngine 计划，通过独立 Reflection Turn 在完整 Background/Session/Workspace 情景中逐项处理 runtime Home diff。scheduler、Terminal 和 Endpoint 只投递 ReflectionRequest，不直接调用 Home；手动与定时触发使用同一任务路径，不等待人工审批。
+Home Reflection 是 `tinysoul.plugins.reflection.home` 拥有的自治任务。它由 ReflectionEngine 计划，通过独立 Reflection Turn 在完整 Background/Session/Workspace 情景中逐项处理 runtime Home diff。scheduler、SDK 和 Endpoint 只投递 ReflectionRequest，不直接调用 Home；手动与定时触发使用同一任务路径，不等待人工审批。
 
 ### Home Reflection
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -18,18 +17,13 @@ from tinysoul.kernel.registration import (
     PluginTurnResource,
     TurnResourceStage,
 )
-from tinysoul.agent.config import AgentSettings
-from tinysoul.environment.inputs import InputEvent
-from tinysoul.environment.inputs import InputSink
 from tinysoul.agent.composition.builder import standard_agent
-from tinysoul.kernel.loop import LoopSettings, TurnSettings
 from tinysoul.kernel.loop.phases import LLMRunner
 from tinysoul.llm.adapter.registry import ProviderRegistry
 from tinysoul.llm.protocol.messages import MessageStack, UserMessage
 from tinysoul.llm.protocol.requests import CallSettings, ModelContextOverflowPolicy, TaskCall
 from tests.llm.execution.support import FakeProvider
 from tinysoul.plugins.reflection import ReflectionAvailability
-from tinysoul.runtime import RuntimeTransferAction, RunLevel
 from tests.agent.composition.support import FakeLLM, _test_config
 
 
@@ -111,204 +105,66 @@ async def test_turn_resources_release_jobs_before_sessions_and_synchronization()
 
 
 @dataclass
-class _SubmittingSource:
-    events: tuple[InputEvent, ...]
-    started: int = 0
-    stopped: int = 0
-    submitted: list[InputEvent] = field(default_factory=list)
-
-    def start(self, sink: InputSink) -> None:
-        self.started += 1
-        for event in self.events:
-            sink.submit(event)
-            self.submitted.append(event)
-
-    def stop(self) -> None:
-        self.stopped += 1
-
-
-@dataclass
-class _FailingStartSource:
-    started: int = 0
-
-    def start(self, sink: InputSink) -> None:
-        self.started += 1
-        raise RuntimeError("start failed")
-
-    def stop(self) -> None:
-        raise AssertionError("failed start source should not be stopped")
-
-
-@dataclass
-class _FailingStopSource(_SubmittingSource):
-    def stop(self) -> None:
-        self.stopped += 1
-        raise RuntimeError("stop failed")
-
-
-@dataclass
 class _RecordingService:
     started: int = 0
     stopped: int = 0
+    fail_start: bool = False
+    fail_stop: bool = False
 
     async def start(self) -> None:
         self.started += 1
+        if self.fail_start:
+            raise RuntimeError("start failed")
 
     async def stop(self) -> None:
         self.stopped += 1
-
-
-@dataclass
-class _AvailabilityAwareService(_RecordingService):
-    availability: Callable[[], ReflectionAvailability] | None = None
-    availability_existed_at_start: bool = False
-
-    async def start(self) -> None:
-        await super().start()
-        assert self.availability is not None
-        self.availability_existed_at_start = isinstance(
-            self.availability(), ReflectionAvailability
-        )
+        if self.fail_stop:
+            raise RuntimeError("stop failed")
 
 
 @pytest.mark.integration
-async def test_tinysoul_agent_starts_and_stops_input_sources(tmp_path: Path) -> None:
-    source = _SubmittingSource((InputEvent("exit", source="unit"),))
-    app = (
-        await standard_agent(root=tmp_path)
-        .with_config_environment(_test_config(tmp_path))
-        .with_agent_settings(AgentSettings(interactive=False))
-        .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=1)))
-        .with_llm_runner(FakeLLM(()))
-        .with_input_source(source)
-        .build()
-        .build_runtime()
-    )
-
-    outcome = await app.run()
-
-    assert source.started == 1
-    assert source.stopped == 1
-    assert [event.text for event in source.submitted] == ["exit"]
-    assert outcome.transfer is not None
-    assert outcome.transfer.action is RuntimeTransferAction.END
-    assert outcome.transfer.target.level is RunLevel.AGENT
-
-
-@pytest.mark.integration
-async def test_tinysoul_agent_starts_services_before_inputs_and_stops_them(
-    tmp_path: Path,
-) -> None:
+async def test_host_services_start_after_preparation_and_close(tmp_path: Path) -> None:
+    app = await (standard_agent(tmp_path)
+                 .with_config_environment(_test_config(tmp_path))
+                 .with_llm_runner(FakeLLM(())).build().build_runtime())
     service = _RecordingService()
-    source = _SubmittingSource((InputEvent("exit", source="unit"),))
-    built = (
-        await standard_agent(root=tmp_path)
-        .with_config_environment(_test_config(tmp_path))
-        .with_agent_settings(AgentSettings(interactive=False))
-        .with_llm_runner(FakeLLM(()))
-        .with_input_source(source)
-        .build()
-        .build_runtime()
-    )
-    app = replace(built, host_services=(service,))
-
-    await app.run()
-
-    assert service.started == 1
-    assert source.started == 1
-    assert source.stopped == 1
+    app.mount_service(service)
+    try:
+        await app.activate()
+        availability = app.generation_handle.snapshot().generation.reflection.availability()
+        assert isinstance(availability, ReflectionAvailability)
+        assert service.started == 1 and app.is_available
+    finally:
+        await app.close()
     assert service.stopped == 1
 
 
 @pytest.mark.integration
-async def test_tinysoul_agent_prepares_availability_before_starting_services(
-    tmp_path: Path,
-) -> None:
-    service = _AvailabilityAwareService()
-    source = _SubmittingSource((InputEvent("exit", source="unit"),))
-    built = (
-        await standard_agent(root=tmp_path)
-        .with_config_environment(_test_config(tmp_path))
-        .with_agent_settings(AgentSettings(interactive=False))
-        .with_llm_runner(FakeLLM(()))
-        .with_input_source(source)
-        .build()
-        .build_runtime()
-    )
-    service.availability = (
-        built.generation_handle.snapshot().generation.reflection.availability
-    )
-    app = replace(built, host_services=(service,))
-
-    await app.run()
-
-    assert service.availability_existed_at_start is True
+async def test_host_service_start_failure_closes_started_services(tmp_path: Path) -> None:
+    app = await (standard_agent(tmp_path)
+                 .with_config_environment(_test_config(tmp_path))
+                 .with_llm_runner(FakeLLM(())).build().build_runtime())
+    first, failing = _RecordingService(), _RecordingService(fail_start=True)
+    app.mount_service(first)
+    app.mount_service(failing)
+    try:
+        with pytest.raises(RuntimeError, match="start failed"):
+            await app.activate()
+        assert not app.is_available
+        assert first.stopped == 1 and failing.stopped == 0
+    finally:
+        await app.close()
 
 
 @pytest.mark.integration
-async def test_tinysoul_agent_stops_started_sources_when_later_start_fails(
-    tmp_path: Path,
-) -> None:
-    first = _SubmittingSource(())
-    failing = _FailingStartSource()
-    app = (
-        await standard_agent(root=tmp_path)
-        .with_config_environment(_test_config(tmp_path))
-        .with_agent_settings(AgentSettings(interactive=False))
-        .with_llm_runner(FakeLLM(()))
-        .with_input_source(first)
-        .with_input_source(failing)
-        .build()
-        .build_runtime()
-    )
-
-    with pytest.raises(RuntimeError, match="start failed"):
-        await app.run()
-
-    assert first.started == 1
-    assert first.stopped == 1
-    assert failing.started == 1
-
-
-@pytest.mark.integration
-async def test_tinysoul_agent_attempts_all_source_stops_and_reports_failure(
-    tmp_path: Path,
-) -> None:
-    failing = _FailingStopSource((InputEvent("exit", source="unit"),))
-    second = _SubmittingSource(())
-    app = (
-        await standard_agent(root=tmp_path)
-        .with_config_environment(_test_config(tmp_path))
-        .with_agent_settings(AgentSettings(interactive=False))
-        .with_llm_runner(FakeLLM(()))
-        .with_input_source(failing)
-        .with_input_source(second)
-        .build()
-        .build_runtime()
-    )
-
-    await app.run()
+async def test_host_service_cleanup_collects_failure_and_continues(tmp_path: Path) -> None:
+    app = await (standard_agent(tmp_path)
+                 .with_config_environment(_test_config(tmp_path))
+                 .with_llm_runner(FakeLLM(())).build().build_runtime())
+    first, failing = _RecordingService(), _RecordingService(fail_stop=True)
+    app.mount_service(first)
+    app.mount_service(failing)
+    await app.activate()
     diagnostics = await app.close()
-    assert len(diagnostics) == 1 and diagnostics[0].error_type == "RuntimeError"
-
-    assert failing.stopped == 1
-    assert second.stopped == 1
-
-
-@pytest.mark.integration
-async def test_tinysoul_agent_submit_event_uses_dispatcher(tmp_path: Path) -> None:
-    app = (
-        await standard_agent(root=tmp_path)
-        .with_config_environment(_test_config(tmp_path))
-        .with_agent_settings(AgentSettings(interactive=False))
-        .with_llm_runner(FakeLLM(()))
-        .build()
-        .build_runtime()
-    )
-
-    await app.submit_event(InputEvent("exit", source="unit"))
-    outcome = await app.run()
-
-    assert outcome.transfer is not None
-    assert outcome.transfer.action is RuntimeTransferAction.END
-    assert outcome.transfer.target.level is RunLevel.AGENT
+    assert first.stopped == failing.stopped == 1
+    assert any(item.error_type == "RuntimeError" for item in diagnostics)

@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from pypdf import PdfWriter
 from tinysoul.agent.composition.builder import standard_agent
+from tinysoul.agent.requests import ExitRequest
 from tinysoul.agent.config import AgentSettings
 from tinysoul.kernel.loop import (
     LoopControlKind,
@@ -88,7 +89,7 @@ async def test_agent_builder_run_once_answers_with_real_action_and_context(
     app = (
         await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
-        .with_agent_settings(AgentSettings(interactive=False))
+        .with_agent_settings(AgentSettings())
         .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=2)))
         .with_user_turn_completion_handler(recorder)
         .with_llm_runner(llm)
@@ -130,7 +131,7 @@ async def test_agent_builder_runs_resource_conversion_through_real_action_chain(
     app = (
         await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
-        .with_agent_settings(AgentSettings(interactive=False))
+        .with_agent_settings(AgentSettings())
         .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=2)))
         .with_llm_runner(
             FakeLLM(
@@ -203,7 +204,7 @@ async def test_agent_builder_cycle_limit_suspends_until_explicit_decision(
     app = (
         await standard_agent(root=tmp_path)
         .with_config_environment(config)
-        .with_agent_settings(AgentSettings(interactive=False))
+        .with_agent_settings(AgentSettings())
         .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=1)))
         .with_llm_runner(
             FakeLLM(
@@ -259,13 +260,13 @@ async def test_agent_runner_idle_exit_ends_program(tmp_path: Path) -> None:
     app = (
         await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
-        .with_agent_settings(AgentSettings(interactive=False))
+        .with_agent_settings(AgentSettings())
         .with_llm_runner(FakeLLM(()))
         .build()
         .build_runtime()
     )
 
-    await app.submit_input("exit")
+    app.commands.request_exit(ExitRequest())
     outcome = await app.run()
 
     assert outcome.turns == ()
@@ -302,7 +303,7 @@ async def test_turn_runner_ignores_stop_control_without_turn_scope(
     app = (
         await standard_agent(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
-        .with_agent_settings(AgentSettings(interactive=False))
+        .with_agent_settings(AgentSettings())
         .with_signal_bus(bus)
         .with_llm_runner(llm)
         .build()

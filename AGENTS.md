@@ -8,7 +8,7 @@
 
 ### 执行模型
 
-Agent 是嵌入式运行门面与根 work 的唯一调度者，拥有类型化请求队列、运行世代、环境事件路由和日期协调。SDK、Terminal、HTTP 与定时来源共用该入口，不各自维护执行状态机。
+Agent 是嵌入式运行门面与根 work 的唯一调度者，拥有类型化请求队列、运行世代、环境事件路由和日期协调。SDK、Endpoint 与定时来源共用该入口，不各自维护执行状态机。
 
 用户轮/User Turn：从用户输入开始，到对应执行收敛为回答、等待用户、停止、耗尽、取消或失败。一个 Turn 可以包含多次 Cycle、LLM Task 和 Action，接受期间追加输入或明确回复；结束一轮不宣告整体多轮目标完成。
 
@@ -121,7 +121,7 @@ SDK 服务绑定运行世代，日级服务同时绑定 CalendarDay；切换后�
 - `plugins/capabilities`：Web、资源、ACP subagent、MCP expand 等外围能力。可以持有 Agent 生命周期管理的 I/O 资源与派生目录，不另建调度器或与核心 owner 平行的持久事实。
 - `environment`：输入适配、Workspace 文件监听和通用定时等待，通过注入端口协作；不解释 Reflection 业务策略。
 - `agent`：SDK、根队列、世代装配、事件路由、服务 lease 和日协调；不复制内核。
-- `gateway`：CLI、Terminal、Endpoint 和项目命令。PresentationService 独立管理项目共享展示配置与资产，保存不触发 Agent generation 激活。Endpoint 负责鉴权、协议映射及 Observation replay，不拥有业务状态、退出权或任意文件 API。
+- `gateway`：CLI、Console、Endpoint 和项目命令。PresentationService 独立管理项目共享展示配置与资产，保存不触发 Agent generation 激活。Endpoint 负责鉴权、协议映射及 Observation replay，不拥有业务状态、退出权或任意文件 API。
 
 ### 关键协作语义
 

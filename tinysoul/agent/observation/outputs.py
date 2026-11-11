@@ -43,30 +43,14 @@ class ObservationRouter:
     def __init__(
         self,
         *,
-        mode: ObservationLevel = ObservationLevel.NORMAL,
-        sinks: tuple[OutputSink, ...] = (),
         routes: tuple[ObservationRoute, ...] = (),
     ) -> None:
-        if not isinstance(mode, ObservationLevel):
-            raise AgentContractError(
-                "ObservationRouter.mode must be an ObservationLevel"
-            )
-        self._mode = mode
-        self._routes = (
-            *(ObservationRoute(sink=sink, mode=mode) for sink in sinks),
-            *tuple(routes),
-        )
+        self._routes = tuple(routes)
         self._disabled: set[int] = set()
         self._failures: list[CleanupDiagnostic] = []
         self._subscriptions_disabled = False
         self._lock = RLock()
         self.subscriptions = ObservationSubscriptions()
-
-    @property
-    def mode(self) -> ObservationLevel:
-        return max(
-            (self._mode, *(route.mode for route in self._routes)), key=_level_rank
-        )
 
     def add_route(self, route: ObservationRoute) -> None:
         with self._lock:

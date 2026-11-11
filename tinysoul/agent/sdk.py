@@ -89,10 +89,8 @@ class Agent:
         from tinysoul.infra.config import ConfigEnvironment
 
         project_root = Path(root).resolve()
-        config_overrides = {"agent.interactive": False, **dict(overrides or {})}
-
         config = ConfigEnvironment.from_project_root(
-            project_root, overrides=config_overrides
+            project_root, overrides=overrides
         )
         assembly = standard_agent(project_root).with_config_environment(config).build()
         return await cls.assemble(
