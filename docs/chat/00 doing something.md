@@ -2,14 +2,10 @@
 
 
 ## Doing
-- 用 openrouter：hakimi4、gpt l6、deepseek 和 grok；全面真实 api 测试
-- gpt luna6 opencode 验证 其图片输入、JSON、工具调用、推理回放、缓存创建和命中等
 - 检查 skill meta 在 context 中的呈现和 skill top/reference 正确加载
-- Observation 级别，只设置 normal/verbose，避免烦复的配置
-- 扁平目录结构：此外，可以考虑的是，当前 tinysoul 下几个大模块 agent/kernel/environment 等划分非常合理，不过模块内部目录结构可能有些扁平，可以考虑划分更多有层次地子包维护管理
-- 调试输出：梳理终端的调试输出，可考虑仅用两种模式（normal/verbose），前端作为主要交互界面，后端控制台输出可以呈现更多、更结构化、更可读的运行时状态便于了解和调试（类似系统 gateway 的终端监控）
 
- 
+
+
 ## WorkSpace
 - workspace action & context 段检查，摘要
 - workspace 完整读取；analyse 和 read；write 和 compose（phase2 决策是否需要 phase3 继续撰写）；phase3 生成的内容作为 action result 返回（可以类似 inspect 的效果返回预览和续接）；
