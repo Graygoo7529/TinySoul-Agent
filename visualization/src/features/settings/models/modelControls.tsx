@@ -308,6 +308,9 @@ export function OrderableRow({
   const { t } = useI18n();
   /** Insertion edge under the pointer while a reorder drag crosses this row. */
   const [edge, setEdge] = useState<"before" | "after" | null>(null);
+  /** The whole row becomes draggable while the grip is held — a bigger, more
+      forgiving drag surface than the grip alone. */
+  const [handleHeld, setHandleHeld] = useState(false);
 
   // dragend/drop bubble to the document from the drag source; either means a
   // stale insertion line must clear (drop outside, Esc cancel, drop elsewhere).
@@ -324,6 +327,12 @@ export function OrderableRow({
 
   return (
     <div
+      draggable={!disabled && handleHeld}
+      onDragStart={(event) => {
+        event.dataTransfer.setData(REORDER_MIME, String(index));
+        event.dataTransfer.effectAllowed = "move";
+      }}
+      onDragEnd={() => setHandleHeld(false)}
       onDragOver={(event) => {
         if (!event.dataTransfer.types.includes(REORDER_MIME)) return;
         event.preventDefault();
@@ -348,15 +357,15 @@ export function OrderableRow({
       aria-label={ariaLabel}
     >
       <span
-        draggable={!disabled}
         role="button"
         aria-label={t("settings.dragToReorder")}
         title={t("settings.dragToReorder")}
-        onDragStart={(event) => {
-          event.dataTransfer.setData(REORDER_MIME, String(index));
-          event.dataTransfer.effectAllowed = "move";
+        onPointerDown={() => {
+          if (!disabled) setHandleHeld(true);
         }}
-        className={`shrink-0 select-none rounded px-0.5 py-1 ${
+        onPointerUp={() => setHandleHeld(false)}
+        onPointerCancel={() => setHandleHeld(false)}
+        className={`shrink-0 touch-none select-none rounded px-1 py-1.5 ${
           disabled
             ? "text-fg-faint/50"
             : "cursor-grab text-fg-faint transition-colors hover:bg-hover hover:text-fg active:cursor-grabbing"

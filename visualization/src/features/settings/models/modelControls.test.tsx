@@ -68,17 +68,22 @@ describe("OrderableRow drag", () => {
   });
 
   const row = () => host.querySelector<HTMLDivElement>(".settings-orderable-row")!;
-  const grip = () => host.querySelector<HTMLElement>("[draggable]")!;
+  const grip = () => host.querySelector<HTMLElement>("[role=\"button\"]")!;
 
-  it("keeps the row body undraggable and only the grip draggable", () => {
-    expect(row().getAttribute("draggable")).toBeNull();
-    expect(grip()).not.toBeNull();
-    expect(grip().getAttribute("draggable")).toBe("true");
+  it("keeps the row undraggable until the grip is held", async () => {
+    expect(row().getAttribute("draggable")).toBe("false");
+    await act(async () => {
+      grip().dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    });
+    expect(row().getAttribute("draggable")).toBe("true");
   });
 
   it("marks the drag with the reorder MIME and not text/plain", async () => {
+    await act(async () => {
+      grip().dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    });
     const event = dragEvent("dragstart");
-    await act(async () => void grip().dispatchEvent(event));
+    await act(async () => void row().dispatchEvent(event));
     const dt = (event as unknown as { dataTransfer: { types: string[] } }).dataTransfer;
     expect(dt.types).toContain(MIME);
     expect(dt.types).not.toContain("text/plain");
