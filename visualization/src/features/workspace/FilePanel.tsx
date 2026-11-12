@@ -171,8 +171,6 @@ export function FilePanel({
               </Badge>
             ))}
             <span>{record.kind}</span>
-            <span>·</span>
-            <span>{formatSize(record.size)}</span>
             {typeLabel !== null && (
               <>
                 <span>·</span>
@@ -184,6 +182,8 @@ export function FilePanel({
                 </span>
               </>
             )}
+            <span>·</span>
+            <span>{formatSize(record.size)}</span>
             {dirty && <Badge tone="accent">{t("workspace.edited")}</Badge>}
           </div>
           {record.description !== "" && (

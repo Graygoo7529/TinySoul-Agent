@@ -429,12 +429,6 @@ function TreeNodeRow({
           {tag}
         </Badge>
       ))}
-      {/* Secondary info yields when the row is crowded with tags. */}
-      {node.record !== null && tags.length <= 2 && (
-        <span className="shrink-0 font-mono text-[10px] text-fg-faint">
-          {formatSize(node.record.size)}
-        </span>
-      )}
     </button>
   );
 }

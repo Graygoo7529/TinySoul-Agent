@@ -802,7 +802,7 @@ describe("WorkspacePage upload entry", () => {
 // ---------------------------------------------------------------------------
 
 describe("WorkspacePage tree row facts", () => {
-  it("shows file size inline and the modified time in the row tooltip", async () => {
+  it("keeps rows free of size text and shows the modified time in the row tooltip", async () => {
     endpoint.get("/v2/workspace/manifest", () =>
       jsonResponse(manifest(ACTIVE, [
         textRecord("notes/a.md", { size: 128, mtime_ns: 1759968000 * 1e9 }),
@@ -812,12 +812,11 @@ describe("WorkspacePage tree row facts", () => {
     );
     await renderPage();
     const aRow = fileRow("notes/a.md");
-    expect(aRow.textContent).toContain("128 B");
+    expect(aRow.textContent).not.toContain("128 B");
     expect(aRow.title).toContain("notes/a.md");
     expect(aRow.title).toContain(formatDateTime(1759968000));
     const bigRow = fileRow("big.json");
-    expect(bigRow.textContent).toContain("18.0 KB");
-    // More than two tags: the size yields instead of breaking the row.
+    expect(bigRow.textContent).not.toContain("18.0 KB");
     const crowdedRow = fileRow("crowded.md");
     expect(crowdedRow.textContent).toContain("pinned");
     expect(crowdedRow.textContent).not.toContain("999 B");

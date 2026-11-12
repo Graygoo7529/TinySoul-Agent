@@ -28,6 +28,7 @@ export function MarkdownEditor({
     extensions,
     content: value,
     contentType: "markdown",
+    autofocus: "start",
     onUpdate: ({ editor: current }) => {
       onChange(current.getMarkdown());
     },

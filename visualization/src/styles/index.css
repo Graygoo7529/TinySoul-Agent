@@ -840,6 +840,13 @@ input[type="range"].range-unset::-moz-range-thumb {
   padding-left: 1.5em;
   margin: 0.5em 0;
 }
+/* Tailwind preflight strips list-style globally; markdown lists restore it. */
+.md-body ul:not(.contains-task-list) { list-style: disc; }
+.md-body ol { list-style: decimal; }
+.md-body ul:not(.contains-task-list) ul { list-style: circle; }
+.md-body ul:not(.contains-task-list) ul ul { list-style: square; }
+.md-body .contains-task-list { list-style: none; padding-left: 1.1em; }
+.md-body .contains-task-list input[type="checkbox"] { margin-right: 0.4em; }
 .md-body li {
   margin: 0.25em 0;
 }
@@ -1672,10 +1679,18 @@ body {
 }
 
 /* ---- WYSIWYG markdown editor (workspace) ---- */
-.md-editor-host { height: 100%; min-height: 0; }
+.md-editor-host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .md-editor {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  cursor: text;
   outline: none;
   padding: 16px 22px;
   font-size: 14px;
@@ -1694,8 +1709,15 @@ body {
 .md-editor h3 { font-size: 1.05em; margin: 0.9em 0 0.3em; }
 .md-editor h4 { font-size: 1em; margin: 0.8em 0 0.3em; }
 .md-editor ul, .md-editor ol { padding-left: 1.4em; margin: 0.5em 0; }
+.md-editor ul:not([data-type="taskList"]) { list-style: disc; }
+.md-editor ol { list-style: decimal; }
+.md-editor ul:not([data-type="taskList"]) ul { list-style: circle; }
+.md-editor ul:not([data-type="taskList"]) ul ul { list-style: square; }
+.md-editor ul[data-type="taskList"] { list-style: none; padding-left: 0.2em; }
+.md-editor ul[data-type="taskList"] li { display: flex; gap: 0.4em; align-items: baseline; }
+.md-editor ul[data-type="taskList"] li > label { user-select: none; }
 .md-editor li { margin: 0.22em 0; }
-.md-editor li::marker { color: var(--fg-faint); }
+.md-editor li::marker { color: var(--fg-muted); }
 .md-editor pre {
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -1718,6 +1740,7 @@ body {
   color: var(--fg-muted);
 }
 .md-editor hr { border-color: var(--line); margin: 1em 0; }
+.md-body ul > li::marker { color: var(--fg-muted); }
 .md-editor table { margin: 0.6em 0; }
 .md-editor .ProseMirror-selectednode {
   outline: 1.5px solid var(--accent-soft);
