@@ -108,7 +108,7 @@ export const workspaceMessages = {
   "workspace.createFile": "创建文件",
   "workspace.createFolder": "创建文件夹",
   "workspace.editorEdit": "编辑",
-  "workspace.editorSplit": "分栏",
   "workspace.editorPreview": "预览",
+  "workspace.editorSource": "源码",
   "workspace.rendered": "渲染视图"
 } as const;

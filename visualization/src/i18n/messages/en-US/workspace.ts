@@ -108,7 +108,7 @@ export const workspaceMessages = {
   "workspace.createFile": "Create file",
   "workspace.createFolder": "Create folder",
   "workspace.editorEdit": "Edit",
-  "workspace.editorSplit": "Split",
   "workspace.editorPreview": "Preview",
+  "workspace.editorSource": "Source",
   "workspace.rendered": "Rendered"
 } as const;

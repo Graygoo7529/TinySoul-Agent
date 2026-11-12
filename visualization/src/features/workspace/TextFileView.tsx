@@ -30,6 +30,7 @@ import {
 
 import type { WorkspaceResourceRecord } from "../../api/v2/types";
 import { Markdown } from "../../components/markdown/Markdown";
+import { MarkdownEditor } from "../../components/markdown/editor/MarkdownEditor";
 import { Button } from "../../components/ui/Button";
 import { Tabs } from "../../components/ui/Tabs";
 import { useAppStore } from "../../store/appStore";
@@ -39,7 +40,7 @@ import { useWorkspacePage, workspaceDraftKey } from "./store";
 import type { WorkspaceMutations } from "./mutations";
 import { useWorkspaceText } from "./useWorkspaceText";
 
-type EditorView = "edit" | "split" | "preview";
+type EditorView = "edit" | "preview" | "source";
 
 export function TextFileView({
   ref,
@@ -80,7 +81,7 @@ export function TextFileView({
     record.suffix === ".md" ||
     record.suffix === ".markdown";
   const [sourceView, setSourceView] = useState(false);
-  const [editorView, setEditorView] = useState<EditorView>("split");
+  const [editorView, setEditorView] = useState<EditorView>("edit");
   const targetLines = useMemo(() => parseLineFragment(fragment), [fragment]);
   const lines = useMemo(() => text.text.split("\n"), [text.text]);
 
@@ -157,8 +158,8 @@ export function TextFileView({
               <Tabs<EditorView>
                 items={[
                   { value: "edit", label: t("workspace.editorEdit") },
-                  { value: "split", label: t("workspace.editorSplit") },
                   { value: "preview", label: t("workspace.editorPreview") },
+                  { value: "source", label: t("workspace.editorSource") },
                 ]}
                 value={editorView}
                 onChange={setEditorView}
@@ -241,7 +242,7 @@ export function TextFileView({
         </div>
       ) : editing ? (
         <div className="flex min-h-0 flex-1">
-          {(!isMarkdown || editorView !== "preview") && (
+          {(!isMarkdown || editorView === "source") && (
             <textarea
               value={draft}
               onChange={(event) => setDraft(draftKey, event.target.value)}
@@ -256,8 +257,16 @@ export function TextFileView({
               className="min-h-0 min-w-0 flex-1 resize-none bg-bg px-4 py-3 font-mono text-[12.5px] leading-5 text-fg outline-none"
             />
           )}
-          {isMarkdown && editorView !== "edit" && (
-            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto border-l border-line px-4 py-3">
+          {isMarkdown && editorView === "edit" && (
+            <MarkdownEditor
+              value={draft}
+              onChange={(markdown) => setDraft(draftKey, markdown)}
+              onSaveShortcut={() => void save()}
+              ariaLabel={t("workspace.fileEditor")}
+            />
+          )}
+          {isMarkdown && editorView === "preview" && (
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-3">
               <Markdown origin={markdownOrigin}>{draft}</Markdown>
             </div>
           )}

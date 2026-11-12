@@ -19,12 +19,15 @@ export function PlainCodeBlock({
 }: CodeBlockFallbackProps): ReactElement {
   return (
     <div className="md-code-wrap">
+      <div className="md-code-head">
+        <span className="md-code-lang">{language ?? ""}</span>
+        <CopyButton className="md-code-copy" label={t("common.copy")} text={() => source} />
+      </div>
       <pre>
         <code className={language ? `language-${language}` : undefined}>
           {source}
         </code>
       </pre>
-      <CopyButton className="md-code-copy" label={t("common.copy")} text={() => source} />
     </div>
   );
 }

@@ -273,6 +273,10 @@ describe("WorkspacePage editing", () => {
     });
     const reads = endpoint.calls("/v2/workspace/resource");
     expect(reads.some((request) => queryOf(request, "full") === "true")).toBe(true);
+    // Markdown files open in the WYSIWYG editor; drive source mode for the textarea.
+    await act(async () => {
+      buttonByText(t("workspace.editorSource")).click();
+    });
     const editor = container.querySelector("textarea");
     expect(editor).not.toBeNull();
     expect(editor?.value).toBe("full text here");
@@ -468,6 +472,9 @@ describe("WorkspacePage external changes", () => {
     });
     await act(async () => {
       buttonByText(t("common.edit")).click();
+    });
+    await act(async () => {
+      buttonByText(t("workspace.editorSource")).click();
     });
     expect(container.querySelector("textarea")?.value).toBe("original");
 

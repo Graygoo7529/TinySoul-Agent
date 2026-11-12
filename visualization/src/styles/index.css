@@ -1443,17 +1443,45 @@ pre.cb-frame-source {
   overflow-x: auto;
 }
 
-/* Plain code block: hover-revealed copy control. */
-.md-code-wrap { position: relative; }
-.md-code-wrap .md-code-copy {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  opacity: 0;
-  transition: opacity 0.12s;
-  background: color-mix(in srgb, var(--bg-elev) 82%, transparent);
+/* Framed code/json blocks: the border carries the block identity, the body
+   stays on the surface color instead of a contrasting fill. */
+.md-code-wrap {
+  position: relative;
+  margin: 0.6em 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  overflow: hidden;
 }
-.md-code-wrap:hover .md-code-copy { opacity: 1; }
+.md-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 8px 2px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-sunken);
+}
+.md-code-lang {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 10px;
+  color: var(--fg-faint);
+  min-height: 12px;
+}
+.md-code-copy { flex-shrink: 0; }
+.md-code-wrap pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 10px 12px;
+}
+/* JSON rich view inside the same frame; the tree loses its own card chrome. */
+.md-json-view .json-tree {
+  border: 0;
+  background: transparent;
+  padding: 6px 8px;
+  font-size: 11.5px;
+}
 
 .cb-frame-controls {
   display: inline-flex;
@@ -1641,4 +1669,64 @@ body {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1),
               0 0 0 1px rgba(var(--accent-rgb), 0.4),
               0 0 16px rgba(var(--accent-rgb), 0.15);
+}
+
+/* ---- WYSIWYG markdown editor (workspace) ---- */
+.md-editor-host { height: 100%; min-height: 0; }
+.md-editor {
+  height: 100%;
+  overflow-y: auto;
+  outline: none;
+  padding: 16px 22px;
+  font-size: 14px;
+  line-height: 1.72;
+  letter-spacing: 0.003em;
+  max-width: 72ch;
+}
+.md-editor p { margin: 0.55em 0; }
+.md-editor h1, .md-editor h2, .md-editor h3, .md-editor h4 {
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: 0;
+}
+.md-editor h1 { font-size: 1.3em; margin: 0.8em 0 0.45em; }
+.md-editor h2 { font-size: 1.21em; margin: 0.7em 0 0.4em; }
+.md-editor h3 { font-size: 1.05em; margin: 0.9em 0 0.3em; }
+.md-editor h4 { font-size: 1em; margin: 0.8em 0 0.3em; }
+.md-editor ul, .md-editor ol { padding-left: 1.4em; margin: 0.5em 0; }
+.md-editor li { margin: 0.22em 0; }
+.md-editor li::marker { color: var(--fg-faint); }
+.md-editor pre {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: transparent;
+  padding: 10px 12px;
+  margin: 0.6em 0;
+  overflow-x: auto;
+}
+.md-editor pre code {
+  background: transparent;
+  padding: 0;
+  color: var(--fg);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.md-editor blockquote {
+  border-left: 2px solid var(--line-strong);
+  padding-left: 12px;
+  margin: 0.6em 0;
+  color: var(--fg-muted);
+}
+.md-editor hr { border-color: var(--line); margin: 1em 0; }
+.md-editor table { margin: 0.6em 0; }
+.md-editor .ProseMirror-selectednode {
+  outline: 1.5px solid var(--accent-soft);
+  outline-offset: 2px;
+}
+.md-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--fg-faint);
+  float: left;
+  height: 0;
+  pointer-events: none;
 }
