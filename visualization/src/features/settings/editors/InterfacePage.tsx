@@ -1,9 +1,20 @@
-import { useI18n } from "../../../i18n";
+import { useI18n, message, resolveText, effectiveLocale, type UiText } from "../../../i18n";
 /** Shared project interface settings, saved independently of Agent configuration. */
 
 import { useEffect, useState, type ReactNode } from "react";
 
 import { SectionCard } from "../../../components/ui/Card";
+import { Badge } from "../../../components/ui/Badge";
+import { Button } from "../../../components/ui/Button";
+import { isTauri } from "@tauri-apps/api/core";
+import {
+  chooseDataDir,
+  listLocal,
+  localStoreState,
+  openDataDir,
+  subscribeLocalStore,
+  type LocalStoreState,
+} from "../../../app/localStore/localStore";
 import { useConnectionStore } from "../../../store/connectionStore";
 import {
   FONT_SIZE_RANGE,
@@ -193,6 +204,9 @@ export function InterfacePage() {
           >{t("settings.resetProjectInterfaceDefaults")}</button>
         </div>
       </fieldset>
+
+      <LocalDataSection />
+
       <PresentationAssets />
     </SettingsPageBody>
   );
@@ -350,16 +364,117 @@ function PreferenceSwitch({
       role="switch"
       aria-checked={on}
       onClick={() => onChange(!on)}
-      className={`relative w-10 shrink-0 rounded-full transition-colors ${
+      className={`relative h-5.5 w-10 shrink-0 rounded-full transition-colors focus-ring ${
         on ? "bg-accent" : "bg-line-strong"
       }`}
-      style={{ height: 22 }}
     >
       <span
-        className={`absolute top-0.5 h-[18px] w-[18px] rounded-full bg-white shadow transition-transform ${
-          on ? "translate-x-[19px]" : "translate-x-0.5"
+        className={`absolute left-0 top-0.5 h-4.5 w-4.5 rounded-full bg-white shadow transition-transform ${
+          on ? "translate-x-5" : "translate-x-0.5"
         }`}
       />
     </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Local data directory
+// ---------------------------------------------------------------------------
+
+/** Local data directory section: where this device's frontend data lives
+ *  (connection profile, UI state), with open/change affordances. The browser
+ *  case is labeled honestly as browser storage. */
+function LocalDataSection() {
+  const { t } = useI18n();
+  const [store, setStore] = useState<LocalStoreState>(() => localStoreState());
+  const [keys, setKeys] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<UiText | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(
+    () =>
+      subscribeLocalStore(() => {
+        setStore(localStoreState());
+        void listLocal().then(setKeys);
+      }),
+    [],
+  );
+  useEffect(() => {
+    void listLocal().then(setKeys);
+  }, [store]);
+
+  const choose = async () => {
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      const result = await chooseDataDir();
+      if (result.kind === "loaded") {
+        window.location.reload();
+        return;
+      }
+      if (result.kind === "copied") {
+        setNote(message("settings.localDataCopied", { count: result.keys }));
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SectionCard
+      title={t("settings.localData")}
+      description={t("settings.localDataDescription")}
+      actions={
+        store.mode === "tauri" ? (
+          <Badge tone="green">{t("settings.localDataEnabled")}</Badge>
+        ) : (
+          <Badge tone="yellow">{t("settings.localDataBrowserMode")}</Badge>
+        )
+      }
+    >
+      <div className="space-y-2 text-[12.5px]">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="text-fg">{t("settings.localDataCurrentDir")}</div>
+            <div className="mt-0.5 text-[11px] text-fg-faint">
+              {store.mode === "tauri" ? t("settings.localDataAtomic") : t("settings.localDataBrowserHint")}
+            </div>
+          </div>
+          <div className="max-w-full truncate font-mono text-[11.5px] text-fg-muted">
+            {store.dir ?? t("settings.localDataBrowserMode")}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-fg">{t("settings.localDataSaved")}</div>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-fg-faint">{t("settings.localDataItemsCount", { count: keys.length })}</span>
+            {isTauri() && store.mode === "tauri" && (
+              <Button variant="ghost" size="xs" onClick={() => void openDataDir()}>
+                {t("settings.localDataOpen")}
+              </Button>
+            )}
+            {isTauri() && (
+              <Button variant="ghost" size="xs" loading={busy} onClick={() => void choose()}>
+                {store.mode === "tauri" ? t("settings.localDataChange") : t("settings.localDataChoose")}
+              </Button>
+            )}
+          </div>
+        </div>
+        {!isTauri() && (
+          <div className="text-[11px] text-fg-faint">{t("settings.localDataDesktopHint")}</div>
+        )}
+        {isTauri() && (
+          <div className="text-[11px] text-fg-faint">{t("settings.localDataChooseHint")}</div>
+        )}
+        {note !== null && <div className="text-[11px] text-success">{resolveText(note, effectiveLocale())}</div>}
+        {error !== null && (
+          <div className="text-[11px] text-danger">{t("settings.localDataChooseFailed", { detail: error })}</div>
+        )}
+      </div>
+    </SectionCard>
   );
 }

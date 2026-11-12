@@ -1,3 +1,5 @@
+import { readLocal, removeLocal, writeLocal } from "./localStore/localStore";
+
 /** Client-local connection target storage and Tauri capability detection. */
 
 export interface ConnectTarget {
@@ -23,7 +25,7 @@ interface StoredConnection {
 /** Read the persisted connection target. */
 export function loadStoredBrowserTarget(): ConnectTarget | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = readLocal(STORAGE_KEY);
     if (!raw) return null;
     const value = JSON.parse(raw) as StoredConnection;
     if (typeof value.address === "string" && value.address.trim() &&
@@ -38,7 +40,7 @@ export function loadStoredBrowserTarget(): ConnectTarget | null {
 
 export function storeBrowserTarget(target: ConnectTarget): void {
   try {
-    localStorage.setItem(
+    void writeLocal(
       STORAGE_KEY,
       JSON.stringify({ address: target.address, token: target.token }),
     );
@@ -49,7 +51,7 @@ export function storeBrowserTarget(target: ConnectTarget): void {
 
 export function clearStoredBrowserTarget(): void {
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    void removeLocal(STORAGE_KEY);
   } catch {
     // ignore
   }

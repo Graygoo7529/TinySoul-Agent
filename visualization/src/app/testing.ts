@@ -397,9 +397,11 @@ export function wireConnectedStores(
 
 /** Drop all module/store state between behavior tests. */
 export function resetAppStores(): void {
+  resetLocalStoreForTests();
   useUiPrefsStore.setState(initialUiPrefsState());
   useConnectionStore.getState().reset();
   useTurnStore.getState().reset();
   useAppStore.setState({ toasts: [] });
 }
+import { resetLocalStoreForTests } from "./localStore/localStore";
 import { initialUiPrefsState, useUiPrefsStore } from "../store/uiPrefsStore";

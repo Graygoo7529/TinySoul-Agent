@@ -8,7 +8,8 @@
  */
 
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { readLocal, removeLocal, writeLocal } from "../app/localStore/localStore";
+import { createJSONStorage, persist } from "zustand/middleware";
 
 import type { AppTab } from "../types";
 import { randomId } from "../utils/randomId";
@@ -78,6 +79,15 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: "tinysoul-ui-state",
+      storage: createJSONStorage(() => ({
+        getItem: (name) => readLocal(name),
+        setItem: (name, value) => {
+          void writeLocal(name, value);
+        },
+        removeItem: (name) => {
+          void removeLocal(name);
+        },
+      })),
       partialize: (state) => ({
         activeTab: normalizePersistedActiveTab(state.activeTab),
       }),

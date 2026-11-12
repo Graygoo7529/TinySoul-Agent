@@ -1,3 +1,5 @@
+mod local_store;
+
 use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
@@ -87,7 +89,15 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![write_export_archive])
+        .invoke_handler(tauri::generate_handler![
+            write_export_archive,
+            local_store::local_store_state,
+            local_store::local_store_set_dir,
+            local_store::local_store_read,
+            local_store::local_store_write,
+            local_store::local_store_list,
+            local_store::local_store_remove,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running TinySoul visualization");
 }

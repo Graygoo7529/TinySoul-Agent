@@ -6,10 +6,12 @@ import {
   loadStoredBrowserTarget,
   storeBrowserTarget,
 } from "./discovery";
+import { resetLocalStoreForTests } from "./localStore/localStore";
 
 const STORAGE_KEY = "tinysoul-web-connection";
 
 beforeEach(() => {
+  resetLocalStoreForTests();
   localStorage.clear();
 });
 
@@ -27,7 +29,7 @@ describe("browser target persistence", () => {
       address: "https://example.test:9443",
       token: "tok-2",
     });
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({
+    expect(loadStoredBrowserTarget()).toEqual({
       address: "https://example.test:9443",
       token: "tok-2",
     });
@@ -37,7 +39,6 @@ describe("browser target persistence", () => {
     storeBrowserTarget({ address: "127.0.0.1:1430", token: "tok-1" });
     clearStoredBrowserTarget();
     expect(loadStoredBrowserTarget()).toBeNull();
-    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
   it("returns null when nothing is stored", () => {

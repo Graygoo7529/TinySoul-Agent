@@ -7,6 +7,7 @@ import { useTurnStore } from "../store/turnStore";
 import { useAppStore } from "../store/appStore";
 import { resolveText } from "../i18n";
 import { useUiPrefsStore } from "../store/uiPrefsStore";
+import { loadStoredBrowserTarget } from "./discovery";
 import presentationFixture from "../../test/fixtures/contracts/presentation-config.json";
 import { resetTurnController } from "../features/chat/turnController";
 import {
@@ -120,9 +121,10 @@ describe("handshake", () => {
     expect(useTurnStore.getState().sessionTurns).toEqual([]);
 
     // The browser target is persisted for the next startup.
-    expect(
-      JSON.parse(localStorage.getItem("tinysoul-web-connection")!),
-    ).toEqual({ address: TARGET.address, token: TARGET.token });
+    expect(loadStoredBrowserTarget()).toEqual({
+      address: TARGET.address,
+      token: TARGET.token,
+    });
 
     // The observation stream opens against the ws base and authenticates
     // with the handshake cursor and instance identity.
@@ -222,9 +224,10 @@ describe("handshake", () => {
     expect(connection.phase).toBe("connected");
     expect(connection.info?.instanceId).toBe("instance_B");
     expect(connection.eventCursor).toBe(99);
-    expect(
-      JSON.parse(localStorage.getItem("tinysoul-web-connection")!),
-    ).toEqual({ address: "http://10.0.0.2:1430", token: "token-b" });
+    expect(loadStoredBrowserTarget()).toEqual({
+      address: "http://10.0.0.2:1430",
+      token: "token-b",
+    });
     // Only B opened a stream.
     expect(MockEventsSocket.instances).toHaveLength(1);
     expect(MockEventsSocket.instances[0]!.url).toBe(
@@ -526,11 +529,11 @@ describe("disconnect and restart", () => {
   it("logout disconnects and clears the saved target", async () => {
     const { ok } = await connectIdle();
     expect(ok).toBe(true);
-    expect(localStorage.getItem("tinysoul-web-connection")).not.toBeNull();
+    expect(loadStoredBrowserTarget()).not.toBeNull();
 
     logout();
 
-    expect(localStorage.getItem("tinysoul-web-connection")).toBeNull();
+    expect(loadStoredBrowserTarget()).toBeNull();
     expect(useConnectionStore.getState().phase).toBe("idle");
   });
 
