@@ -1,11 +1,6 @@
 ## 联调和轨迹优化
 
 
-## Doing
-- 检查 skill meta 在 context 中的呈现和 skill top/reference 正确加载
-
-
-
 ## WorkSpace
 - workspace action & context 段检查，摘要
 - workspace 完整读取；analyse 和 read；write 和 compose（phase2 决策是否需要 phase3 继续撰写）；phase3 生成的内容作为 action result 返回（可以类似 inspect 的效果返回预览和续接）；
@@ -29,9 +24,12 @@
 
 
 ## Agent Behavior
+- 表情包
+- 简约回应
 - 检查 core ask/reply：补充回答如何进入 turn trace；是否允许同时选择选项 + 补充回答；补充回答有气泡；
 - 加入 core idle 动作，运行跳过本轮执行
-- core 行动：发散方案 redirect / scout（research and exploration）、决策、reason、review、知识供应和对照
+- 默认带有 core domain
+- core 行动：发散方案 redirect / scout（research and exploration）、决策、reason、review、知识供应和对照、建议、判断“战略性反向”
 - core 行动：中间叙事（运行中回答）
 
 
