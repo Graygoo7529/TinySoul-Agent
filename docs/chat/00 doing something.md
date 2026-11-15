@@ -21,6 +21,7 @@
 - 综合考虑 context 段、哪些触发压缩、哪些值得完整保留、summary 生成与存放等等；
 - Plan 模式，Plan 段：跨 turn 保存的 milestone，寄存器/关键状态/核心任务
 - 提示现有 user 为 system；system 改进
+- 上下文段占用情况（参考 delta）以及手动触发压缩
 
 
 ## Agent Behavior
