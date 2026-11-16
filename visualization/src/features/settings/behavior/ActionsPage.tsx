@@ -456,7 +456,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
               value={maxOutputTokens}
               min={optionRules.max_output_tokens.minimum ?? 1}
               disabled={readOnly}
-onCommit={(next) => commitLlmTask({ maxOutputTokens: next })}
+              onCommit={(next) => commitLlmTask({ maxOutputTokens: next })}
             />
           )}
         {implementation === "decision" &&
@@ -466,6 +466,7 @@ onCommit={(next) => commitLlmTask({ maxOutputTokens: next })}
               description={t("settings.thresholdDefaultHint")}
               value={relevanceThreshold}
               min={optionRules.relevance_threshold.minimum ?? 0}
+              max={optionRules.relevance_threshold.maximum ?? undefined}
               disabled={readOnly}
               onCommit={(next) => commitDecision({ relevanceThreshold: next })}
             />
@@ -658,6 +659,7 @@ function OptionalNumberRow({
   description,
   value,
   min,
+  max,
   disabled,
   onCommit,
 }: {
@@ -665,6 +667,7 @@ function OptionalNumberRow({
   description?: string;
   value: number | null;
   min: number;
+  max?: number;
   disabled: boolean;
   onCommit: (next: number | null) => void;
 }) {
@@ -683,7 +686,11 @@ function OptionalNumberRow({
       return;
     }
     const parsed = Number(trimmed);
-    if (!Number.isInteger(parsed) || parsed < min) {
+    if (
+      !Number.isInteger(parsed) ||
+      parsed < min ||
+      (max !== undefined && parsed > max)
+    ) {
       setInvalid(true);
       return;
     }
@@ -699,6 +706,7 @@ function OptionalNumberRow({
         <input
           aria-label={label}
           inputMode="numeric"
+          max={max}
           placeholder={t("common.unset")}
           className={`${inputClass} font-mono ${invalid ? "border-danger" : ""}`}
           value={text}

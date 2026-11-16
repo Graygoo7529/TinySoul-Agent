@@ -730,6 +730,15 @@ describe("ActionsPage", () => {
       target: { use: "decision_default" },
       options: { relevance_threshold: 0 },
     });
+
+    const beforeInvalid = value;
+    await act(async () => {
+      setInputValue(threshold, "4");
+      pressEnter(threshold);
+    });
+    await flush();
+    expect(threshold.className).toContain("border-danger");
+    expect(lastSetValue()).toEqual(beforeInvalid);
   });
 
   it("opening the page stages nothing and never shows a false pending badge", async () => {

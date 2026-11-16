@@ -1,10 +1,10 @@
 # Action 模型绑定编辑一致性执行计划
 
-日期：2026-11-15  
-状态：done（2026-11-15 全部实施完成，门禁全绿，逐项核对通过）  
+日期：2026-11-15
+状态：done（2026-11-16 完成收尾校正，门禁全绿，逐项核对通过）
 核对基线：`369a0f09`；编写计划前工作树干净。
 
-依据：[AGENTS.md](../../AGENTS.md)、[Action 设计](../design/action.md#模型用途)、[Infra 配置设计](../design/infra.md#统一配置链路)、[Settings 设计](../../visualization/docs/design/settings.md)、[配置覆盖清单](../../visualization/docs/design/config-coverage.md#32-action-模型用途--actionmodelsbindings)。
+依据：[AGENTS.md](../../../AGENTS.md)、[Action 设计](../../design/action.md#模型用途)、[Infra 配置设计](../../design/infra.md#统一配置链路)、[Settings 设计](../../../visualization/docs/design/settings.md)、[配置覆盖清单](../../../visualization/docs/design/config-coverage.md#32-action-模型用途--actionmodelsbindings)。
 
 ## 1. 目标与改动预览
 
@@ -106,11 +106,11 @@
 
 复用页面现有 `OptionalNumberRow`，按两个真实消费者补充可选最大值、单位与可访问标签：输出上限显示 tokens，阈值无单位；范围使用当前 `modelUse.options` 投影。清空移除该字段，后续编辑不会重新填入运行值或前端默认数值。
 
-中英文补充简短说明“留空使用默认阈值”及对应英文，使用稳定 message ID。默认阈值不进入翻译字典，也不通过新增 Endpoint 字段复制到表单。
+中英文补充简短说明“留空使用默认阈值”及对应英文，使用稳定 message ID。默认阈值不进入翻译字典，也不通过新增 Endpoint 字段复制到表单。输入范围同时使用 catalog 的最小值和最大值，避免明显超限值进入草稿。
 
 ### 3.4 差异提示比较同类事实
 
-草稿状态继续与 saved 绑定比较。待应用差异按 consumer 比较有效编辑配置与 `state.active.fields[action.models.bindings]` 中的配置条目；两者使用相同的绑定解码与空值表达。实际运行绑定仍从 `modelUse.binding` 只读显示。
+草稿状态继续与 saved 绑定比较；行为页的待应用提示表示本地草稿相对保存快照的变化。实际运行绑定仍从 `modelUse.binding` 只读显示，Settings 总览继续负责展示 saved 与 active 的整体待激活状态。
 
 这样，后端展开默认值不会造成虚假的待应用提示，明确清除配置也不会被运行值遮蔽。用户显式设置了与默认相同的数字，仍是一次合理的配置修改。复用已有 saved/active 快照，不增加状态存储或前端默认值解析器。
 
@@ -226,6 +226,8 @@ uv run --locked --extra dev ty check
 
 方案可在现有模块内完成。后端已经提供实现约束、配置快照和统一应用链路；前端已有草稿集合、consumer 定位、可选数字输入及双语文案设施。主要工作是收紧编辑类型、修正数据来源与提交方式，并补上此前遗漏的交互测试。
 
+2026-11-16 收尾校正：`OptionalNumberRow` 现接收 catalog 声明的最大值，decision 阈值超出 `0..3` 时在前端标记为无效且不写入草稿；归档后的本地链接已按新目录层级修正。当前复核聚焦测试为 30 项，前端全量 912 项，后端 Full 1500 项，`ty check` 与构建均通过。
+
 实现时需要关注的交接点是：联合类型迁移后的所有提交调用点、数字控件的空值/单位，以及原始配置与运行默认值的区别。上述设计已明确这些语义，目前没有需要维护者另行决定的架构事项。
 
-当前完成：P1–P4 全部实施完毕。实施要点：`bindingsModel.ts` 的 BindingDraftValue 改为按实现判别的联合类型，encodeBinding 按分支构造 target/options（空对象省略、0 阈值保留）；`ActionsPage.tsx` 的 ModelUseEditor 由完整 saved+draft 条目驱动（运行投影只读、不回填），实现切换建立干净分支，decision 阈值改可清空 OptionalNumberRow 并补双语“留空使用默认阈值”说明，待应用徽标按草稿 vs 保存快照同形态比较。验证证据：models.test.ts 新增未设置值/零阈值编码形态断言（13 项通过）；BehaviorPages.test.tsx 新增四条主线交互用例（改链只提交 llm_task 字段且保留其他 consumer、清空上限不再回填、切换 decision 无残留、打开页面不产生草稿且无虚假待应用提示；共 32 项通过）；一次性契约核对脚本（.local-test/binding-contract-check.py）将前端编码候选交给真实 parse_action_settings + ModelUseRegistry 六条全过（含旧错误形态被拒的对照证据）；后端既有 tests/kernel/action 25 项通过。门禁：前端 tsc 零错误、vitest 105 文件 912 用例全绿、build 通过；仓库 scripts/test.ps1 -Suite Full 1500 项通过；scripts/typecheck.ps1 全过。文档：config-coverage.md §3.2 补绑定编辑语义段（consumer 数量改动态声明），settings.md 行为页条目同步。
+当前完成：P1–P4 全部实施完毕。实施要点：`bindingsModel.ts` 的 BindingDraftValue 改为按实现判别的联合类型，encodeBinding 按分支构造 target/options（空对象省略、0 阈值保留）；`ActionsPage.tsx` 的 ModelUseEditor 由完整 saved+draft 条目驱动（运行投影只读、不回填），实现切换建立干净分支，decision 阈值改可清空 OptionalNumberRow 并补双语“留空使用默认阈值”说明，待应用徽标按草稿 vs 保存快照同形态比较。验证证据：models.test.ts 新增未设置值/零阈值编码形态断言（13 项通过）；BehaviorPages.test.tsx 新增四条主线交互用例（改链只提交 llm_task 字段且保留其他 consumer、清空上限不再回填、切换 decision 无残留、打开页面不产生草稿且无虚假待应用提示；共 30 项通过）；一次性契约核对脚本（.local-test/binding-contract-check.py）将前端编码候选交给真实 parse_action_settings + ModelUseRegistry 六条全过（含旧错误形态被拒的对照证据）；后端既有 tests/kernel/action 25 项通过。门禁：前端 tsc 零错误、vitest 105 文件 912 用例全绿、build 通过；仓库 scripts/test.ps1 -Suite Full 1500 项通过；scripts/typecheck.ps1 全过。文档：config-coverage.md §3.2 补绑定编辑语义段（consumer 数量改动态声明），settings.md 行为页条目同步。
