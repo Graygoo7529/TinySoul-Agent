@@ -26,18 +26,30 @@ export type BindingImplementation =
   | "decision"
   | "embedding_similarity";
 
-/** The wire shape staged for one consumer. */
-export interface BindingDraftValue {
-  implementation: BindingImplementation;
-  /** llm_task target (task chain id). */
-  taskProfile?: string;
-  /** decision target (logical use id). */
-  use?: string;
-  /** llm_task option. */
-  maxOutputTokens?: number;
-  /** decision option (0..3). */
-  relevanceThreshold?: number;
-}
+/**
+ * Editing shapes per implementation — the union mirrors the backend
+ * ModelImplementation contract: each branch carries only its own target and
+ * option fields, so an edit can never smuggle foreign options across the
+ * submit boundary. An unset optional is `undefined` and simply omitted from
+ * the wire; a picked target is required only at owner validation, never
+ * while the form is still being filled.
+ */
+export type BindingDraftValue =
+  | {
+      implementation: "llm_task";
+      /** Task chain id; undefined until one is picked. */
+      taskProfile?: string;
+      /** Optional; omitted when unset — the chain's own limit applies. */
+      maxOutputTokens?: number;
+    }
+  | {
+      implementation: "decision";
+      /** Logical use id; undefined until one is picked. */
+      use?: string;
+      /** Optional; omitted when unset — the owner default applies. 0 is valid. */
+      relevanceThreshold?: number;
+    }
+  | { implementation: "embedding_similarity" };
 
 /** One effective binding entry (draft overlaid on the saved atom). */
 export interface BindingEntryView {
@@ -121,7 +133,9 @@ export function bindingsWriteSource(): string | null {
   return atomWriteSource(BINDINGS_PATH, BINDINGS_FALLBACK_SOURCE);
 }
 
-/** Serialize one binding entry in the wire shape (`action.models.bindings[]`). */
+/** Serialize one binding entry: target/options are built once per branch, so
+ *  foreign fields can never cross the submit boundary; empty objects are
+ *  omitted rather than staged. */
 export function encodeBinding(
   consumer: string,
   draft: BindingDraftValue,
@@ -130,21 +144,22 @@ export function encodeBinding(
     consumer,
     implementation: draft.implementation,
   };
+  if (draft.implementation === "embedding_similarity") return entry;
   const target: Record<string, JsonValue> = {};
-  if (draft.implementation === "llm_task" && draft.taskProfile !== undefined) {
-    target.task_profile = draft.taskProfile;
-  }
-  if (draft.implementation === "decision" && draft.use !== undefined) {
-    target.use = draft.use;
+  const options: Record<string, JsonValue> = {};
+  if (draft.implementation === "llm_task") {
+    if (draft.taskProfile !== undefined) target.task_profile = draft.taskProfile;
+    if (draft.maxOutputTokens !== undefined) {
+      options.max_output_tokens = draft.maxOutputTokens;
+    }
+  } else {
+    if (draft.use !== undefined) target.use = draft.use;
+    // 0 is a valid explicit threshold; only `undefined` means unset.
+    if (draft.relevanceThreshold !== undefined) {
+      options.relevance_threshold = draft.relevanceThreshold;
+    }
   }
   if (Object.keys(target).length > 0) entry.target = target;
-  const options: Record<string, JsonValue> = {};
-  if (draft.maxOutputTokens !== undefined) {
-    options.max_output_tokens = draft.maxOutputTokens;
-  }
-  if (draft.relevanceThreshold !== undefined) {
-    options.relevance_threshold = draft.relevanceThreshold;
-  }
   if (Object.keys(options).length > 0) entry.options = options;
   return entry;
 }

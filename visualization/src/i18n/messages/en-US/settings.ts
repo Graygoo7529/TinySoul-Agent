@@ -462,6 +462,7 @@ export const settingsMessages = {
   "settings.localDataChooseFailed": "Switch failed: {detail}",
   "settings.imagesLabel": "Images",
   "settings.segmentCount": "segments",
+  "settings.thresholdDefaultHint": "Leave empty to use the default threshold",
   "settings.restoreDefault": "Restore default",
   "settings.inheritDefault": "Inherit default",
   "settings.sliderUnset": "Not set",

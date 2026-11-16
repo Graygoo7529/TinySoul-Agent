@@ -130,12 +130,14 @@ catalog value_kind 为 object_list，三个数组**各自整体提交**；UI 按
 
 catalog value_kind = object_list，**整数组提交**；source_id 为 `project:configs/action/routing.toml`。每条绑定：
 
-- `consumer`：代码声明的固定集合，模板共 15 个：`core.reason.generate`、`core.answer.generate`、`workspace.compose.generate`、`workspace.describe.generate`、`workspace.analyze.generate`，以及五个 Search Action（home/memory/core.context/expand/workspace）各自的 `.search.select` 与 `.search.rerank`。
+- `consumer`：代码声明的固定集合（生成类用途与各 Search Action 的 select/rerank，数量以代码声明为准）。
 - `implementation`：llm_task / decision / embedding_similarity。各 consumer 允许的集合由代码声明：LLM 生成类仅 llm_task；select/rerank 支持 llm_task 与 decision；home/memory 的 rerank 额外支持 embedding_similarity。
 - `target`：`{task_profile = <llm.tasks id>}` 或 `{use = <infra.model_services.uses id>}`。
 - `options`：按实现类型，`max_output_tokens`（LLM）或 `relevance_threshold` 0..3（decision model select）。
 
 每 consumer 的实际 implementations/options 约束/embedding_owner/当前 binding 从 `GET /v2/config/actions` 的 `model_uses` 读取；scenario 切换只改能力视图，同一 consumer 只有一份草稿。
+
+**绑定编辑语义**（2026-11-15 起）：前端编辑值按实现分支表达（判别联合），提交时按分支构造 `target/options`——其它实现的字段不会穿过提交边界；可选项留空即在 JSON 中省略（`max_output_tokens` 沿用任务链自身限制，`relevance_threshold` 由后端解释默认值），数字 0 是合法显式阈值；编辑值由完整 saved+draft 条目决定，运行投影只读展示、不回填表单；"待应用"状态按草稿与保存快照的同形态比较得出，后端展开的默认值不制造虚假差异。切换实现即建立干净新分支（目标待选、可选项未设置）；编辑中允许目标暂未选择，完整配置的引用校验由 apply 时 owner 承担。
 
 ### 3.3 Search 策略 —— `action.retrieval`
 

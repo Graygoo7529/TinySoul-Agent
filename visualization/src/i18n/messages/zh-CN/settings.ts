@@ -462,6 +462,7 @@ export const settingsMessages = {
   "settings.localDataChooseFailed": "切换失败：{detail}",
   "settings.imagesLabel": "图像",
   "settings.segmentCount": "个语境段",
+  "settings.thresholdDefaultHint": "留空使用默认阈值",
   "settings.restoreDefault": "恢复默认",
   "settings.inheritDefault": "继承默认",
   "settings.sliderUnset": "未设置",

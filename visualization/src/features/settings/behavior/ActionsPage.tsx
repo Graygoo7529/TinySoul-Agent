@@ -24,13 +24,12 @@ import { domainColorToken } from "../../../components/trace/chips";
 import { Button, IconButton } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { JsonTree } from "../../../components/ui/JsonTree";
-import { isFieldDraft, isPlainRecord, jsonDeepEqual } from "../draft/model";
+import { isFieldDraft, isPlainRecord } from "../draft/model";
 import { useConfigDraftStore, type ConfigDraftState } from "../draft/store";
 import { projectCollection } from "../models/collectionDrafts";
 import {
   FieldRow,
   FieldSection,
-  NumberInput,
   SelectInput,
   inputClass,
   type SelectOption,
@@ -43,7 +42,7 @@ import {
   embeddingOwnerUsePath,
   stageBinding,
   withdrawBinding,
-  type BindingDraftValue,
+  type BindingImplementation,
 } from "./bindingsModel";
 import {
   unavailableReasonText,
@@ -332,51 +331,57 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
   const writeSource = bindingsWriteSource();
   const readOnly = writeSource === null;
 
-  // The editor binds the saved configuration (draft-aware); the projection's
-  // binding is the running generation's, shown as a hint when it differs.
-  const implementation =
-    entry?.implementation ??
-    modelUse.binding?.implementation ??
-    modelUse.implementations[0] ??
-    "";
-  const taskProfile = entry?.taskProfile ?? modelUse.binding?.taskProfile ?? null;
-  const logicalUse = entry?.use ?? modelUse.binding?.use ?? null;
+  // Editor values come from the complete saved+draft entry; the running
+  // projection is display-only and never back-fills the form. With no entry
+  // the editor shows the unconfigured state (first allowed implementation as
+  // the form start, targets empty) — merely opening the page stages nothing.
+  const implementation = entry?.implementation ?? modelUse.implementations[0] ?? "";
+  const taskProfile =
+    entry !== null && entry.implementation === "llm_task" ? entry.taskProfile : null;
+  const logicalUse =
+    entry !== null && entry.implementation === "decision" ? entry.use : null;
   const maxOutputTokens =
-    entry?.maxOutputTokens ?? modelUse.binding?.maxOutputTokens ?? null;
+    entry !== null && entry.implementation === "llm_task" ? entry.maxOutputTokens : null;
   const relevanceThreshold =
-    entry?.relevanceThreshold ?? modelUse.binding?.relevanceThreshold ?? 2;
+    entry !== null && entry.implementation === "decision"
+      ? entry.relevanceThreshold
+      : null;
 
-  const runningDiffers =
-    modelUse.binding !== null &&
-    entry !== null &&
-    !jsonDeepEqual(
-      {
-        implementation: entry.implementation,
-        task_profile: entry.taskProfile,
-        use: entry.use,
-        max_output_tokens: entry.maxOutputTokens,
-        relevance_threshold: entry.relevanceThreshold,
-      },
-      {
-        implementation: modelUse.binding.implementation,
-        task_profile: modelUse.binding.taskProfile,
-        use: modelUse.binding.use,
-        max_output_tokens: modelUse.binding.maxOutputTokens,
-        relevance_threshold: modelUse.binding.relevanceThreshold,
-      },
-    );
+  // Pending means the draft differs from the saved atom (same wire shape);
+  // the runtime-expanded binding is never part of that comparison.
+  const pending = entry !== null && entry.status !== "saved";
 
-  const commit = (draft: BindingDraftValue) => {
-    stageBinding(modelUse.consumer, draft);
+  // Branch commits carry the branch's current values, so same-implementation
+  // edits keep applicable options; switching implementations starts a clean
+  // branch (target re-picked, options unset — no per-implementation form
+  // history is cached to back-fill).
+  const commitImplementation = (next: BindingImplementation) => {
+    stageBinding(modelUse.consumer, { implementation: next });
   };
-  const commitPatch = (patch: Partial<BindingDraftValue>) => {
-    commit({
-      implementation: implementation as BindingDraftValue["implementation"],
-      taskProfile: taskProfile ?? undefined,
-      use: logicalUse ?? undefined,
-      maxOutputTokens: maxOutputTokens ?? undefined,
-      relevanceThreshold,
-      ...patch,
+  const commitLlmTask = (patch: {
+    taskProfile?: string;
+    maxOutputTokens?: number | null;
+  }) => {
+    stageBinding(modelUse.consumer, {
+      implementation: "llm_task",
+      taskProfile: patch.taskProfile ?? taskProfile ?? undefined,
+      maxOutputTokens:
+        patch.maxOutputTokens === null
+          ? undefined
+          : (patch.maxOutputTokens ?? maxOutputTokens ?? undefined),
+    });
+  };
+  const commitDecision = (patch: {
+    use?: string;
+    relevanceThreshold?: number | null;
+  }) => {
+    stageBinding(modelUse.consumer, {
+      implementation: "decision",
+      use: patch.use ?? logicalUse ?? undefined,
+      relevanceThreshold:
+        patch.relevanceThreshold === null
+          ? undefined
+          : (patch.relevanceThreshold ?? relevanceThreshold ?? undefined),
     });
   };
 
@@ -419,20 +424,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
             label: item,
           }))}
           onChange={(value) => {
-            const next = value as BindingDraftValue["implementation"];
-            commit({
-              implementation: next,
-              taskProfile:
-                next === "llm_task" ? (taskProfile ?? undefined) : undefined,
-              use:
-                next === "decision"
-                  ? (logicalUse ?? undefined)
-                  : undefined,
-              maxOutputTokens:
-                next === "llm_task" ? (maxOutputTokens ?? undefined) : undefined,
-              relevanceThreshold:
-                next === "decision" ? relevanceThreshold : undefined,
-            });
+            commitImplementation(value as BindingImplementation);
           }}
         />
 
@@ -441,7 +433,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
             consumer={modelUse.consumer}
             value={taskProfile}
             disabled={readOnly}
-            onCommit={(next) => commitPatch({ taskProfile: next })}
+            onCommit={(next) => commitLlmTask({ taskProfile: next })}
           />
         )}
         {implementation === "decision" && (
@@ -449,7 +441,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
             consumer={modelUse.consumer}
             value={logicalUse}
             disabled={readOnly}
-            onCommit={(next) => commitPatch({ use: next })}
+            onCommit={(next) => commitDecision({ use: next })}
           />
         )}
         {implementation === "embedding_similarity" && (
@@ -464,25 +456,19 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
               value={maxOutputTokens}
               min={optionRules.max_output_tokens.minimum ?? 1}
               disabled={readOnly}
-              onCommit={(next) =>
-                commitPatch({ maxOutputTokens: next ?? undefined })
-              }
+onCommit={(next) => commitLlmTask({ maxOutputTokens: next })}
             />
           )}
         {implementation === "decision" &&
           optionRules.relevance_threshold !== undefined && (
-            <>
-              <span className="text-[11px] text-fg-muted">{t("settings.relevanceThreshold")}</span>
-              <NumberInput
-                ariaLabel={t("settings.consumerRelevance", { consumer: modelUse.consumer })}
-                value={relevanceThreshold}
-                integer
-                min={optionRules.relevance_threshold.minimum ?? 0}
-                max={optionRules.relevance_threshold.maximum ?? 3}
-                disabled={readOnly}
-                onCommit={(next) => commitPatch({ relevanceThreshold: next })}
-              />
-            </>
+            <OptionalNumberRow
+              label={t("settings.relevanceThreshold")}
+              description={t("settings.thresholdDefaultHint")}
+              value={relevanceThreshold}
+              min={optionRules.relevance_threshold.minimum ?? 0}
+              disabled={readOnly}
+              onCommit={(next) => commitDecision({ relevanceThreshold: next })}
+            />
           )}
       </div>
 
@@ -490,7 +476,7 @@ function ModelUseEditor({ modelUse }: { modelUse: ModelUseView }) {
         modelUse.operation === "rerank" && (
           <div className="mt-2 text-[10.5px] text-fg-faint">{t("settings.similarityRerankingCannotReadTheCurrentContextTheResolved")}</div>
         )}
-      {runningDiffers && modelUse.binding !== null && (
+      {pending && modelUse.binding !== null && (
         <div className="mt-2 text-[10.5px] text-fg-faint">
           {t("settings.runningValue")}{" "}
           {bindingLabel(

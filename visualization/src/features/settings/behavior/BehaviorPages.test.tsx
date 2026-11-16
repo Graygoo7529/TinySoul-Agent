@@ -197,6 +197,27 @@ function makeSaved(): Configuration {
 // Actions projection fixture (GET /v2/config/actions?scenario=)
 // ---------------------------------------------------------------------------
 
+/** Variant fixture: the select consumer's runtime binding is decision with
+ * the owner default threshold expanded (simulating backend expansion). */
+function actionsViewExpandedThreshold(scenario: string): Record<string, unknown> {
+  const view = actionsView(scenario) as {
+    actions: { id: string; model_uses?: { consumer: string; binding: unknown }[] }[];
+  };
+  for (const action of view.actions) {
+    for (const modelUse of action.model_uses ?? []) {
+      if (modelUse.consumer === "home.search.select") {
+        modelUse.binding = {
+          consumer: "home.search.select",
+          implementation: "decision",
+          target: { use: "decision_default" },
+          options: { relevance_threshold: 2 },
+        };
+      }
+    }
+  }
+  return view as unknown as Record<string, unknown>;
+}
+
 function actionsView(scenario: string): Record<string, unknown> {
   const searchAction = {
     id: "home.search",
@@ -344,6 +365,18 @@ const store = () => useConfigDraftStore.getState();
 let endpoint: FakeEndpoint;
 let container: HTMLDivElement;
 let root: Root;
+
+/** Re-apply snapshots with custom bindings as *saved* state (never staged). */
+function applySavedBindings(bindings: Record<string, JsonValue>[]): void {
+  const saved = makeSaved();
+  saved.fields["action.models.bindings"] = { value: bindings, source: ROUTING, writable: true };
+  store().applySnapshots({
+    saved,
+    active: { ...saved, view: "active", generation_id: "gen_active" },
+    catalogRaw: makeCatalog(),
+    presets: [],
+  });
+}
 
 async function flush(): Promise<void> {
   await act(async () => {
@@ -565,8 +598,159 @@ describe("ActionsPage", () => {
       consumer: "home.search.select",
       implementation: "decision",
       target: { use: "decision_default" },
-      options: { relevance_threshold: 2 },
     });
+  });
+
+  it("picking another task chain stages only the llm_task fields and keeps the other consumer", async () => {
+    await renderAndSelect("home.search");
+
+    const chain = container.querySelector(
+      `select[aria-label="${t("settings.consumerTaskChain", { consumer: "home.search.select" })}"]`,
+    ) as HTMLSelectElement;
+    await act(async () => {
+      setSelectValue(chain, "vision");
+    });
+    await flush();
+
+    const operations = draftOperations(store());
+    expect(operations).toHaveLength(1);
+    const value = operations[0]?.op === "set" ? operations[0].value : [];
+    expect(Array.isArray(value) ? value[0] : null).toEqual({
+      consumer: "home.search.select",
+      implementation: "llm_task",
+      target: { task_profile: "vision" },
+    });
+    expect(Array.isArray(value) ? value[1] : null).toEqual(SAVED_BINDINGS[1]);
+  });
+
+  it("a cleared output cap stays cleared through later edits", async () => {
+    applySavedBindings([
+      {
+        consumer: "home.search.select",
+        implementation: "llm_task",
+        target: { task_profile: "default" },
+        options: { max_output_tokens: 4096 },
+      },
+      SAVED_BINDINGS[1],
+    ]);
+    await renderAndSelect("home.search");
+
+    const cap = container.querySelector(
+      `input[aria-label="${t("settings.maxOutputTokens")}"]`,
+    ) as HTMLInputElement;
+    expect(cap.value).toBe("4096");
+    await act(async () => {
+      setInputValue(cap, "");
+      pressEnter(cap);
+    });
+    await flush();
+
+    // Clearing alone drops the option; editing the chain afterwards does not
+    // refill it from the running projection.
+    const chain = container.querySelector(
+      `select[aria-label="${t("settings.consumerTaskChain", { consumer: "home.search.select" })}"]`,
+    ) as HTMLSelectElement;
+    await act(async () => {
+      setSelectValue(chain, "vision");
+    });
+    await flush();
+
+    const capAfter = container.querySelector(
+      `input[aria-label="${t("settings.maxOutputTokens")}"]`,
+    ) as HTMLInputElement;
+    expect(capAfter.value).toBe("");
+    const sets = draftOperations(store()).filter((op) => op.op === "set");
+    const value = sets[sets.length - 1]?.value ?? [];
+    expect(Array.isArray(value) ? value[0] : null).toEqual({
+      consumer: "home.search.select",
+      implementation: "llm_task",
+      target: { task_profile: "vision" },
+    });
+  });
+
+  it("switching to decision starts a clean branch; an explicit 0 threshold survives", async () => {
+    applySavedBindings([
+      {
+        consumer: "home.search.select",
+        implementation: "llm_task",
+        target: { task_profile: "default" },
+        options: { max_output_tokens: 4096 },
+      },
+      SAVED_BINDINGS[1],
+    ]);
+    await renderAndSelect("home.search");
+
+    const implementation = container.querySelector(
+      `select[aria-label="${t("settings.consumerImplementation", { consumer: "home.search.select" })}"]`,
+    ) as HTMLSelectElement;
+    await act(async () => {
+      setSelectValue(implementation, "decision");
+    });
+    await flush();
+
+    const lastSetValue = () => {
+      const sets = draftOperations(store()).filter((op) => op.op === "set");
+      return sets[sets.length - 1]?.value ?? [];
+    };
+    let value = lastSetValue();
+    // The new branch carries no llm_task leftovers.
+    expect(Array.isArray(value) ? value[0] : null).toEqual({
+      consumer: "home.search.select",
+      implementation: "decision",
+    });
+
+    const use = container.querySelector(
+      `select[aria-label="${t("settings.consumerDecisionUse", { consumer: "home.search.select" })}"]`,
+    ) as HTMLSelectElement;
+    await act(async () => {
+      setSelectValue(use, "decision_default");
+    });
+    await flush();
+    value = lastSetValue();
+    // An unset threshold is omitted — the owner default applies.
+    expect(Array.isArray(value) ? value[0] : null).toEqual({
+      consumer: "home.search.select",
+      implementation: "decision",
+      target: { use: "decision_default" },
+    });
+
+    const threshold = container.querySelector(
+      `input[aria-label="${t("settings.relevanceThreshold")}"]`,
+    ) as HTMLInputElement;
+    await act(async () => {
+      setInputValue(threshold, "0");
+      pressEnter(threshold);
+    });
+    await flush();
+    value = lastSetValue();
+    // 0 is a valid explicit threshold and is not discarded as empty.
+    expect(Array.isArray(value) ? value[0] : null).toEqual({
+      consumer: "home.search.select",
+      implementation: "decision",
+      target: { use: "decision_default" },
+      options: { relevance_threshold: 0 },
+    });
+  });
+
+  it("opening the page stages nothing and never shows a false pending badge", async () => {
+    // Saved decision binding without a threshold; the running projection has
+    // the owner default expanded — that expansion is not a pending change.
+    applySavedBindings([
+      {
+        consumer: "home.search.select",
+        implementation: "decision",
+        target: { use: "decision_default" },
+      },
+      SAVED_BINDINGS[1],
+    ]);
+    endpoint.get("/v2/config/actions", (request) =>
+      jsonResponse(actionsViewExpandedThreshold(queryOf(request, "scenario") ?? "user")),
+    );
+    await renderAndSelect("home.search");
+
+    expect(draftOperations(store())).toEqual([]);
+    expect(container.textContent).not.toContain(t("common.modified"));
+    expect(container.textContent).not.toContain(t("settings.appliesAfterActivation"));
   });
 });
 

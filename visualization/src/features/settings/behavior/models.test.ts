@@ -242,6 +242,41 @@ describe("bindings atom", () => {
       implementation: "embedding_similarity",
     });
   });
+
+  it("encodeBinding omits unset values and keeps an explicit zero threshold", () => {
+    // Unpicked targets and unset options disappear from the wire entirely.
+    expect(encodeBinding("a.b", { implementation: "llm_task" })).toEqual({
+      consumer: "a.b",
+      implementation: "llm_task",
+    });
+    expect(
+      encodeBinding("a.b", { implementation: "llm_task", taskProfile: "x" }),
+    ).toEqual({
+      consumer: "a.b",
+      implementation: "llm_task",
+      target: { task_profile: "x" },
+    });
+    // 0 is a valid explicit decision threshold — not discarded as empty.
+    expect(
+      encodeBinding("a.b", {
+        implementation: "decision",
+        use: "u",
+        relevanceThreshold: 0,
+      }),
+    ).toEqual({
+      consumer: "a.b",
+      implementation: "decision",
+      target: { use: "u" },
+      options: { relevance_threshold: 0 },
+    });
+    expect(
+      encodeBinding("a.b", { implementation: "decision", use: "u" }),
+    ).toEqual({
+      consumer: "a.b",
+      implementation: "decision",
+      target: { use: "u" },
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
