@@ -1,6 +1,11 @@
 ## 联调和轨迹优化
 
 
+## 近期
+web：fetch claw -> inspect
+时间和时区
+学习 desktoolkit 风格和动画 code 块 以及 / slash 指令唤出（动画） 
+
 ## WorkSpace
 - workspace action & context 段检查，摘要
 - workspace 完整读取；analyse 和 read；write 和 compose（phase2 决策是否需要 phase3 继续撰写）；phase3 生成的内容作为 action result 返回（可以类似 inspect 的效果返回预览和续接）；
