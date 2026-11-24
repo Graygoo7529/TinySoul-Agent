@@ -1054,7 +1054,6 @@ class ContextEngine:
             },
         )
         self._turn_id = ""
-        self._preparing_turn = False
         return completion
 
     def abort_turn(self) -> None:
@@ -1063,8 +1062,6 @@ class ContextEngine:
         if not self._turn_id:
             return
         self._turn_id = ""
-
-        self._preparing_turn = False
 
     def _require_turn(self) -> None:
         if not self._turn_id:

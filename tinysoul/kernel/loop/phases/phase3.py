@@ -31,7 +31,6 @@ from tinysoul.runtime import (
     observation_enabled,
 )
 from tinysoul.kernel.action.runtime_bridge import RuntimeActionBridge
-from tinysoul.kernel.context.runtime_bridge import RuntimeContextBridge
 from tinysoul.kernel.loop.runtime_bridge import RuntimeLoopBridge
 
 from ..interaction.cancellation import TurnCancellation
@@ -59,7 +58,6 @@ class Phase3Unit:
         action: ActionEngine,
         bus: SignalBus,
         module_runner: RuntimeModuleRunner | None = None,
-        context_bridge: RuntimeContextBridge | None = None,
         action_bridge: RuntimeActionBridge | None = None,
         loop_bridge: RuntimeLoopBridge | None = None,
         signal_consumer: ContextSignalConsumer | None = None,
@@ -70,7 +68,6 @@ class Phase3Unit:
         self._action = action
         self._bus = bus
         self._module_runner = module_runner
-        self._context_bridge = context_bridge or RuntimeContextBridge()
         self._action_bridge = action_bridge or RuntimeActionBridge()
         self._loop_bridge = loop_bridge or RuntimeLoopBridge()
         self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)

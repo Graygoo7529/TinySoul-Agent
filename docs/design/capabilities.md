@@ -11,9 +11,12 @@ Capabilities 承载通过 Action 使用的外围业务能力，不拥有独立�
 ```text
 tinysoul/plugins/capabilities/
   <capability>/
+    plugin.py
     config.py
     dependencies.py
     errors.py
+    failures.py
+    runtime_bridge.py
     models.py
     service.py
     actions.py
@@ -36,6 +39,8 @@ configs/capabilities/
 ```
 
 文件拆分只影响维护位置，不改变 TOML section identity。每个 capability parser 只解释自己的子树并拒绝未知键。Infra 的 ConfigEnvironment 负责 include、合并、来源诊断和环境覆盖，不拥有 capability 业务字段。
+
+配置解释由各插件直接声明，不另设聚合 capabilities settings。公共容器的未知子键由 PluginDefinitions 校验。配置和依赖启动失败通过各 capability 自有的失败枚举与 Runtime bridge 表达；局部请求失败保留独立短原因，不与 Runtime 失败枚举混用。
 
 项目 Action Catalog 的 visibility 负责情景选择，capability 配置负责执行适配器、依赖、凭据与资源上限。registrar 显式注册获授动作，缺少支持的动作标为 unsupported；最终有效集合为 grants、情景选择和执行支持的交集。关闭动作可见性不跳过已启用能力的依赖检查。
 
@@ -64,6 +69,10 @@ capability enabled=true + dependencies unavailable
 ```
 
 后端 support 与 Action visibility 分别计算。若 capability 仍启用，其依赖与凭据错误必须使候选 Generation 失败。
+
+Web/Resource 在插件世代构建时检查启用能力的依赖并准备共享 service；Web 同时解析所需凭据。三个 profile 只注册 executor，不重复检查或构造服务。全部动作关闭时不准备 service；单次进程、取消控制与临时资源仍归当前调用，不在共享 service 中持有 Turn Context。每个新候选世代重新准备，不跨世代缓存就绪结果。
+
+这些运行就绪检查不放入静态 AgentAssembly 构建或配置保存。冷启动由装配入口经所属 capability bridge 表达启动失败；apply/reload 保留 ConfigError 供请求入口拒绝候选，旧世代继续服务。依赖诊断键位于 `capabilities.web.dependencies.*` / `capabilities.resource.dependencies.*`，不代表可配置字段；Infra requirement identity 保持不变。
 
 启动检查不能替代执行期防御。环境在启动后被修改、worker 导入失败或外部二进制不可运行时，单次 action 仍返回局部失败；配置形态错误和 capability 装配不变量失败保留模块边界语义。
 

@@ -8,6 +8,7 @@ from tinysoul.agent import UserTurnRequest
 from tinysoul.gateway.endpoint import EndpointEngine
 from tinysoul.gateway.endpoint.http import create_endpoint_app
 from tinysoul.infra.config import ConfigMutation
+from tinysoul.infra import DependencyCheck, DependencyChecker, DependencyRequirement
 from tinysoul.infra.references import ReferenceError
 from tinysoul.kernel.context import ContextEngine
 from tinysoul.kernel.context.errors import ContextContractError, ContextInvariantError
@@ -20,6 +21,131 @@ from tests.agent.support import (
 )
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.mark.parametrize("operation", ("apply", "reload"))
+@pytest.mark.parametrize("owner", ("web", "resource"))
+async def test_capability_activation_config_failure_preserves_generation_and_saved_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    owner: str,
+) -> None:
+    missing = False
+
+    def check(
+        _checker: DependencyChecker, requirements: tuple[DependencyRequirement, ...]
+    ) -> tuple[DependencyCheck, ...]:
+        return tuple(
+            DependencyCheck(
+                requirement_id=item.id,
+                available=not (missing and owner == "resource"),
+                missing_modules=(
+                    (item.modules[0],) if missing and owner == "resource" else ()
+                ),
+            )
+            for item in requirements
+        )
+
+    monkeypatch.setattr(DependencyChecker, "check_all", check)
+    endpoints: list[EndpointEngine] = []
+    agent = await _create(tmp_path, _LLM(), endpoints=endpoints)
+    await agent.start()
+    controller = agent.runtime.configuration
+
+    def mutation(path: str, value: bool | float) -> ConfigMutation:
+        source = next(
+            item for item in controller.environment.sources if path in item.values
+        )
+        return ConfigMutation(source.source_id, path, "set", value)
+
+    def files() -> dict[Path, bytes]:
+        return {
+            path.relative_to(agent.runtime.project_root): path.read_bytes()
+            for path in (agent.runtime.project_root / "configs").rglob("*.toml")
+        }
+
+    def body(change: ConfigMutation) -> dict[str, object]:
+        return {
+            "operations": [{
+                "source_id": change.source_id,
+                "path": change.path,
+                "op": change.op,
+                "value": change.value,
+            }]
+        }
+
+    try:
+        # Explicitly disable unrelated adapters instead of depending on template defaults.
+        await agent.patch_config(tuple(
+            mutation(path, False)
+            for path in (
+                "capabilities.web.search_by_kimi.enabled",
+                "capabilities.web.discover_pages.enabled",
+                "capabilities.web.fetch_with_defuddle.enabled",
+                "capabilities.web.fetch_with_trafilatura.enabled",
+                "capabilities.resource.convert_with_markitdown.enabled",
+                "capabilities.resource.convert_with_pypdf.enabled",
+            )
+        ))
+        await agent.reload_config()
+        old_generation = agent.runtime.generation_handle.snapshot().generation
+        workspace = agent.services.get(WorkspaceService)
+        before_workspace = await workspace.snapshot()
+        endpoint = endpoints[0]
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(
+                app=create_endpoint_app(endpoint, endpoint.settings)
+            ),
+            base_url="http://test",
+            headers={"Authorization": f"Bearer {'x' * 32}"},
+        ) as client:
+            # A pre-existing saved edit must survive either rejected activation.
+            saved = await client.patch(
+                "/v2/config",
+                json=body(mutation("capabilities.expand.timeout_seconds", 71.0)),
+            )
+            assert saved.status_code == 200 and saved.json()["pending_reload"] is True
+            enabled_key = (
+                "capabilities.web.search_by_kimi.enabled" if owner == "web"
+                else "capabilities.resource.convert_with_pypdf.enabled"
+            )
+            candidate = mutation(enabled_key, True)
+            missing = True
+            if operation == "reload":
+                saved = await client.patch("/v2/config", json=body(candidate))
+                assert saved.status_code == 200 and saved.json()["state"] == "saved"
+            before_files = files()
+            rejected = await client.post(
+                f"/v2/config/{operation}",
+                json=body(candidate) if operation == "apply" else None,
+            )
+            assert rejected.status_code == 422, rejected.text
+            error = rejected.json()["error"]
+            assert error["code"] == "config.invalid"
+            assert error["details"]["key"] == (
+                "capabilities.web.search_by_kimi.api_key_env" if owner == "web"
+                else "capabilities.resource.dependencies.pypdf"
+            )
+            assert "value" not in error["details"]
+            assert files() == before_files
+            assert agent.runtime.generation_handle.snapshot().generation is old_generation
+            assert await workspace.snapshot() == before_workspace
+            assert (await client.get("/v2/config")).json()["pending_reload"] is True
+
+            # Repair the candidate without giving tests any real external credential.
+            missing = False
+            repaired = mutation(enabled_key, owner == "resource")
+            accepted = await client.post("/v2/config/apply", json=body(repaired))
+            assert accepted.status_code == 200, accepted.text
+            assert accepted.json()["state"] == "active"
+            assert accepted.json()["pending_reload"] is False
+            assert agent.runtime.generation_handle.snapshot().generation is not old_generation
+            assert await agent.services.get(WorkspaceService).snapshot() == before_workspace
+            expanded = controller.environment.section_tree("capabilities.expand")
+            assert expanded["timeout_seconds"] == 71.0
+    finally:
+        await agent.shutdown()
 
 
 async def test_v2_turn_admission_question_budget_and_result_share_sdk_owner(

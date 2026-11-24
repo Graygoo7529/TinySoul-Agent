@@ -8,7 +8,7 @@ from typing import cast
 import pytest
 
 from tinysoul.kernel.action import ActionExecutionControl
-from tinysoul.plugins.capabilities import parse_capabilities_settings
+from tinysoul.plugins.capabilities.web.config import parse_web_settings
 from tinysoul.plugins.capabilities.web.dependencies import kimi_search_api_key
 from tinysoul.plugins.capabilities.web.service import WebCapabilityService
 from tinysoul.infra import JsonValue, StagingDirectoryManager
@@ -36,7 +36,7 @@ async def test_real_kimi_search_returns_answer_and_structured_results(
     environment = ConfigEnvironment.from_project_root(
         Path(configured_root).expanduser().resolve()
     )
-    settings = parse_capabilities_settings(environment.section_tree("capabilities")).web
+    settings = environment.parse_section("capabilities.web", parse_web_settings)
     assert settings.search_by_kimi.enabled is True
     staging = StagingDirectoryManager(tmp_path.resolve())
     staging.prepare()

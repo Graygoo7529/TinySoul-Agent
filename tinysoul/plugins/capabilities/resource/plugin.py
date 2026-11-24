@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from functools import partial
 
 from tinysoul.infra import StagingDirectoryManager
-from tinysoul.kernel.action.runtime_bridge import RuntimeActionBridge
 from tinysoul.kernel.registration import (
     GenerationBuildContext,
     PluginConfig,
@@ -14,10 +13,12 @@ from tinysoul.kernel.registration import (
     ProfileKind,
 )
 from tinysoul.plugins.workspace.services import WorkspaceService
-from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
 
 from .config import ResourceSettings, parse_resource_settings
 from .actions import register_resource_actions
+from .dependencies import require_resource_dependencies
+from .runtime_bridge import RuntimeResourceBridge
+from .service import ResourceConversionService
 
 
 @dataclass(frozen=True)
@@ -32,7 +33,7 @@ class ResourcePlugin:
             "capabilities.resource",
             ResourceSettings,
             lambda tree, root: parse_resource_settings(tree),
-            RuntimeActionBridge().from_config_error,
+            RuntimeResourceBridge().from_config_error,
         ),
     )
 
@@ -42,6 +43,12 @@ class ResourcePlugin:
         workspace = context.services.get(WorkspaceService)
         staging = context.services.get(StagingDirectoryManager)
         settings = context.settings.get(ResourceSettings)
+        service: ResourceConversionService | None = None
+        if settings.convert_with_markitdown.enabled or settings.convert_with_pypdf.enabled:
+            require_resource_dependencies(settings)
+            service = ResourceConversionService(
+                workspace=workspace, staging=staging, settings=settings
+            )
 
         def extend(
             kind: ProfileKind, profile: ProfileBuildContext
@@ -51,10 +58,8 @@ class ResourcePlugin:
                 requires=(WorkspaceService,),
                 actions=partial(
                     register_resource_actions,
-                    workspace=workspace,
-                    staging=staging,
                     settings=settings,
-                    runtime_bridge=RuntimeWorkspaceBridge(),
+                    service=service,
                 ),
             )
 

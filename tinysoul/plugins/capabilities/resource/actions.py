@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from tinysoul.prompts.plugins.capabilities import resource as prompt_text
 from tinysoul.kernel.action import (
+    ActionContractError,
     ActionEngineBuilder,
     ActionExecution,
     ActionExecutionContext,
@@ -16,9 +17,7 @@ from tinysoul.kernel.action import (
     ActionResultStage,
 )
 from tinysoul.infra import (
-    DependencyChecker,
     JsonObject,
-    StagingDirectoryManager,
     StagingError,
 )
 from tinysoul.plugins.workspace import (
@@ -26,10 +25,8 @@ from tinysoul.plugins.workspace import (
     WorkspaceContractError,
 )
 
-from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from .config import ResourceSettings
-from .dependencies import require_resource_dependencies
 from .errors import (
     ResourceContractError,
     ResourceProcessingError,
@@ -60,11 +57,9 @@ class ResourceConversionExecutor(ActionExecutor):
         *,
         converter: ResourceConverter,
         service: ResourceConversionService,
-        runtime_bridge: RuntimeWorkspaceBridge | None = None,
     ) -> None:
         self._converter = converter
         self._service = service
-        self._runtime_bridge = runtime_bridge
 
     async def execute(
         self,
@@ -136,14 +131,10 @@ def register_resource_actions(
     builder: ActionEngineBuilder,
     *,
     settings: ResourceSettings,
-    workspace: WorkspaceService,
-    staging: StagingDirectoryManager,
-    runtime_bridge: RuntimeWorkspaceBridge | None = None,
-    dependency_checker: DependencyChecker | None = None,
+    service: ResourceConversionService | None,
 ) -> ActionEngineBuilder:
-    """Register enabled Resource executors and declare runtime support."""
+    """Bind the generation's prepared service and declare runtime support."""
 
-    require_resource_dependencies(settings, checker=dependency_checker)
     markitdown = settings.convert_with_markitdown.enabled
     pypdf = settings.convert_with_pypdf.enabled
     if not markitdown:
@@ -152,18 +143,14 @@ def register_resource_actions(
         builder.mark_actions_unsupported(RESOURCE_PYPDF_ACTION)
     if not markitdown and not pypdf:
         return builder
-    service = ResourceConversionService(
-        workspace=workspace,
-        settings=settings,
-        staging=staging,
-    )
+    if service is None:
+        raise ActionContractError("Enabled Resource actions require a prepared service")
     if markitdown:
         builder.register_executor(
             RESOURCE_MARKITDOWN_ACTION,
             ResourceConversionExecutor(
                 converter=ResourceConverter.MARKITDOWN,
                 service=service,
-                runtime_bridge=runtime_bridge,
             ),
             executor_id=_RESOURCE_MARKITDOWN_HANDLER,
         )
@@ -173,7 +160,6 @@ def register_resource_actions(
             ResourceConversionExecutor(
                 converter=ResourceConverter.PYPDF,
                 service=service,
-                runtime_bridge=runtime_bridge,
             ),
             executor_id=_RESOURCE_PYPDF_HANDLER,
         )

@@ -77,7 +77,7 @@ def require_web_dependencies(
         )
         raise ConfigError(
             "Enabled Web capability dependency is unavailable",
-            key=f"capabilities.dependencies.{result.requirement_id}",
+            key=f"capabilities.web.dependencies.{result.requirement_id.removeprefix('web.')}",
             value=list(missing),
             expected="installed distributions, importable modules, and executables",
         )

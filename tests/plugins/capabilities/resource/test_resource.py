@@ -13,6 +13,7 @@ import pytest
 
 from tinysoul.kernel.action import (
     ActionCall,
+    ActionContractError,
     ActionEngineBuilder,
     ActionExecution,
     ActionExecutionContext,
@@ -28,7 +29,6 @@ from tinysoul.kernel.action.backends import (
     ProcessRequest,
     ProcessStatus,
 )
-from tinysoul.plugins.capabilities import parse_capabilities_settings
 from tinysoul.plugins.capabilities.resource.actions import (
     RESOURCE_PYPDF_ACTION,
     ResourceConversionExecutor,
@@ -39,6 +39,7 @@ from tinysoul.plugins.capabilities.resource.config import (
     PdfConversionSettings,
     PdfPageRenderMode,
     ResourceSettings,
+    parse_resource_settings,
 )
 from tinysoul.plugins.capabilities.resource.dependencies import (
     require_resource_dependencies,
@@ -59,7 +60,9 @@ from tinysoul.infra import (
     StagingDirectoryManager,
 )
 from tinysoul.infra.config import ConfigError
-from tinysoul.runtime import RunScope
+from tinysoul.runtime import RUNTIME_STARTUP_FAILED, RunScope
+from tinysoul.plugins.capabilities.resource.runtime_bridge import RuntimeResourceBridge
+from tinysoul.kernel.action.catalog.catalog import ActionCatalog
 from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 
@@ -94,19 +97,17 @@ async def test_worker_output_failure_becomes_local_resource_failure(tmp_path):
 
 
 def test_resource_config_parses_split_action_settings() -> None:
-    settings = parse_capabilities_settings(
+    settings = parse_resource_settings(
         {
-            "resource": {
-                "max_pdf_pages": 12,
-                "convert_with_markitdown": {
-                    "enabled": True,
-                    "formats": ["docx"],
-                    "extract_images": False,
-                },
-                "convert_with_pypdf": {"enabled": False},
-            }
+            "max_pdf_pages": 12,
+            "convert_with_markitdown": {
+                "enabled": True,
+                "formats": ["docx"],
+                "extract_images": False,
+            },
+            "convert_with_pypdf": {"enabled": False},
         }
-    ).resource
+    )
 
     assert settings.max_pdf_pages == 12
     assert settings.convert_with_markitdown.formats == ("docx",)
@@ -116,26 +117,14 @@ def test_resource_config_parses_split_action_settings() -> None:
 
 def test_resource_config_reports_exact_nested_key() -> None:
     with pytest.raises(ConfigError) as error:
-        parse_capabilities_settings(
-            {
-                "resource": {
-                    "convert_with_pypdf": {"extract_images": "yes"},
-                }
-            }
-        )
+        parse_resource_settings({"convert_with_pypdf": {"extract_images": "yes"}})
 
     assert error.value.key == "capabilities.resource.convert_with_pypdf.extract_images"
 
 
 def test_resource_config_rejects_nested_unknown_key() -> None:
     with pytest.raises(ConfigError) as error:
-        parse_capabilities_settings(
-            {
-                "resource": {
-                    "convert_with_markitdown": {"fallback": True},
-                }
-            }
-        )
+        parse_resource_settings({"convert_with_markitdown": {"fallback": True}})
 
     assert error.value.key == "capabilities.resource.convert_with_markitdown.fallback"
 
@@ -341,7 +330,27 @@ def test_enabled_resource_dependency_must_be_available() -> None:
             checker=MissingDependencyChecker(),
         )
 
-    assert error.value.key == "capabilities.dependencies.resource.markitdown"
+    assert error.value.key == "capabilities.resource.dependencies.markitdown"
+
+
+def test_resource_configuration_bridge_projects_bounded_schema_diagnostics() -> None:
+    error = RuntimeResourceBridge().from_config_error(
+        ConfigError("private", key="k" * 300, expected="e" * 300, value="secret")
+    )
+    assert error.reason == RUNTIME_STARTUP_FAILED
+    assert error.payload == {
+        "module": "resource", "kind": "resource.configuration_failed",
+        "key": "k" * 256, "expected": "e" * 256,
+    }
+
+
+def test_enabled_resource_registration_requires_prepared_service() -> None:
+    with pytest.raises(ActionContractError):
+        register_resource_actions(
+            ActionEngineBuilder(ActionCatalog()),
+            settings=ResourceSettings(),
+            service=None,
+        )
 
 
 def test_disabled_resource_actions_are_absent_from_effective_catalog(
@@ -370,8 +379,7 @@ def test_disabled_resource_actions_are_absent_from_effective_catalog(
     engine = register_resource_actions(
         ActionEngineBuilder(ActionCatalogLoader().load(catalog_root)),
         settings=settings,
-        workspace=WorkspaceService(_workspace(tmp_path)),
-        staging=_staging(tmp_path),
+        service=None,
     ).build()
 
     assert "workspace" not in engine.domain_names()

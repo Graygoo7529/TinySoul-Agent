@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 
 from tinysoul.infra import StagingDirectoryManager, StagingError
-from tinysoul.infra.config import ConfigError
 from tinysoul.infra.model_services import ModelServices
 from tinysoul.infra.references import ReferenceResolver
 from tinysoul.kernel.action import ActionEngineBuilder, ActionError, LoadedActionCatalog
@@ -239,8 +238,6 @@ class ProfileAssembly:
                 message="Profile contributions could not be resolved.",
                 payload={"error_type": type(exc).__name__},
             ) from exc
-        except ConfigError as exc:
-            raise RuntimeActionBridge().from_config_error(exc) from exc
         except ActionError as exc:
             raise RuntimeActionBridge().startup_failure(
                 message="Profile actions could not be initialized.",

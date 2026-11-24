@@ -11,7 +11,7 @@ from pathlib import Path
 from threading import RLock
 
 from tinysoul.infra.continuation import OpaqueContinuationCodec
-from tinysoul.infra.filesystem import atomic_write_bytes, atomic_write_text, read_text_prefix
+from tinysoul.infra.filesystem import atomic_write_bytes, read_text_prefix
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.paging import PageOptions
 from tinysoul.infra.references import (

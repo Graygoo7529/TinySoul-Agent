@@ -8,7 +8,7 @@ from datetime import date
 
 
 from ..errors import MemoryContractError
-from ..refs import MemoryKind, MemoryRef
+from ..refs import MemoryRef
 
 
 @dataclass(frozen=True)

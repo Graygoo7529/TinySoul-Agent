@@ -164,4 +164,4 @@ class ReflectionBuilder:
             bus=self._bus,
             observations=self._observations,
         )
-        return ReflectionTurnEntry(runner, kind=kind), profile
+        return ReflectionTurnEntry(runner), profile

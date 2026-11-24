@@ -16,6 +16,7 @@ from tests.support.catalog import builtin_action_catalog_root
 from tinysoul.infra import (
     DependencyCheck,
     DependencyChecker,
+    DependencyRequirement,
     JsonValue,
     StagingDirectoryManager,
     dumps_json,
@@ -25,6 +26,7 @@ from tinysoul.infra.config import ConfigError
 from tinysoul.infra.network import NetworkMode, NetworkPolicy, ResolvedNetwork
 from tinysoul.kernel.action import (
     ActionCall,
+    ActionContractError,
     ActionEngineBuilder,
     ActionExecution,
     ActionExecutionContext,
@@ -42,7 +44,6 @@ from tinysoul.kernel.action.backends import (
 from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
 from tinysoul.kernel.action.execution.executor import ActionExecutionCancelled
 from tinysoul.kernel.action.planning.rendering import ActionResultRenderer
-from tinysoul.plugins.capabilities import parse_capabilities_settings
 from tinysoul.plugins.capabilities.web.actions import (
     WEB_FETCH_TRAFILATURA_ACTION,
     WEB_SEARCH_KIMI_ACTION,
@@ -68,8 +69,11 @@ from tinysoul.plugins.capabilities.web.config import (
     KimiSearchSettings,
     WebFetchSettings,
     WebSettings,
+    parse_web_settings,
 )
-from tinysoul.plugins.capabilities.web.dependencies import kimi_search_api_key
+from tinysoul.plugins.capabilities.web.dependencies import (
+    kimi_search_api_key, require_web_dependencies,
+)
 from tinysoul.plugins.capabilities.web.errors import (
     WebProcessingError,
     web_failure_disposition,
@@ -81,22 +85,22 @@ from tinysoul.plugins.capabilities.web.service import (
 )
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 from tinysoul.plugins.workspace.services import WorkspaceService
-from tinysoul.runtime import RunScope
+from tinysoul.runtime import RUNTIME_STARTUP_FAILED, RunScope
+from tinysoul.plugins.capabilities.web.runtime_bridge import RuntimeWebBridge
+from tinysoul.kernel.action.catalog.catalog import ActionCatalog
 
 
 def test_web_config_parses_independent_kimi_search_and_fetch_actions() -> None:
-    settings = parse_capabilities_settings(
+    settings = parse_web_settings(
         {
-            "web": {
-                "search_by_kimi": {
-                    "enabled": True,
-                    "max_output_tokens": 4_096,
-                },
-                "fetch_with_defuddle": {"enabled": True},
-                "fetch_with_trafilatura": {"enabled": False},
-            }
+            "search_by_kimi": {
+                "enabled": True,
+                "max_output_tokens": 4_096,
+            },
+            "fetch_with_defuddle": {"enabled": True},
+            "fetch_with_trafilatura": {"enabled": False},
         }
-    ).web
+    )
 
     assert settings.search_by_kimi.enabled is True
     assert settings.search_by_kimi.api_key_env == "KIMI_SEARCH_API_KEY"
@@ -107,9 +111,7 @@ def test_web_config_parses_independent_kimi_search_and_fetch_actions() -> None:
 
 
 def test_web_config_accepts_supported_no_thinking_kimi_model() -> None:
-    settings = parse_capabilities_settings(
-        {"web": {"search_by_kimi": {"model": "kimi-k2.5"}}}
-    ).web
+    settings = parse_web_settings({"search_by_kimi": {"model": "kimi-k2.5"}})
 
     assert settings.search_by_kimi.model == "kimi-k2.5"
 
@@ -119,7 +121,7 @@ def test_web_config_rejects_kimi_model_without_no_thinking_protocol(
     model: str,
 ) -> None:
     with pytest.raises(ConfigError) as error:
-        parse_capabilities_settings({"web": {"search_by_kimi": {"model": model}}})
+        parse_web_settings({"search_by_kimi": {"model": model}})
 
     assert error.value.key == "capabilities.web.search_by_kimi.model"
 
@@ -969,54 +971,53 @@ def test_disabled_web_actions_are_absent_from_effective_catalog(
     engine = register_web_actions(
         ActionEngineBuilder(ActionCatalogLoader().load(catalog_root)),
         settings=settings,
-        runtime_env={},
-        workspace=WorkspaceService(_workspace(tmp_path)),
-        staging=_staging(tmp_path),
+        service=None,
     ).build()
 
     assert "web" not in engine.domain_names()
     assert engine.action_identifiers() == ()
 
 
-def test_action_policy_does_not_skip_capability_credential_validation(
-    tmp_path: Path,
-) -> None:
-    catalog_root = tmp_path / "catalog"
-    with builtin_action_catalog_root() as package_catalog:
-        shutil.copytree(package_catalog / "web", catalog_root / "web")
-    action_path = catalog_root / "web" / "actions" / "search_by_kimi.toml"
-    action_path.write_text(
-        action_path.read_text(encoding="utf-8").replace(
-            "[runtime]\ntimeout_seconds",
-            "[visibility]\ndefault = false\n\n[runtime]\ntimeout_seconds",
-        ),
-        encoding="utf-8",
+def test_enabled_web_registration_requires_prepared_service() -> None:
+    with pytest.raises(ActionContractError):
+        register_web_actions(
+            ActionEngineBuilder(ActionCatalog()),
+            settings=WebSettings(search_by_kimi=KimiSearchSettings(enabled=True)),
+            service=None,
+        )
+
+
+def test_web_configuration_bridge_projects_bounded_schema_diagnostics() -> None:
+    error = RuntimeWebBridge().from_config_error(
+        ConfigError("private", key="k" * 300, expected="e" * 300, value="secret")
     )
-    settings = WebSettings(
-        search_by_kimi=KimiSearchSettings(enabled=True),
-        fetch_with_defuddle=WebFetchSettings(enabled=False),
-        fetch_with_trafilatura=WebFetchSettings(enabled=False),
-    )
+    assert error.reason == RUNTIME_STARTUP_FAILED
+    assert error.payload == {
+        "module": "web", "kind": "web.configuration_failed",
+        "key": "k" * 256, "expected": "e" * 256,
+    }
+
+
+def test_web_dependency_failure_uses_owner_key() -> None:
+    class MissingDependencyChecker(DependencyChecker):
+        def check_all(
+            self, requirements: tuple[DependencyRequirement, ...]
+        ) -> tuple[DependencyCheck, ...]:
+            assert requirements[0].id == "web.kimi_search"
+            return (
+                DependencyCheck(
+                    requirement_id=requirements[0].id,
+                    available=False,
+                    missing_distributions=("openai",),
+                ),
+            )
 
     with pytest.raises(ConfigError) as error:
-        register_web_actions(
-            ActionEngineBuilder(ActionCatalogLoader().load(catalog_root)),
-            settings=settings,
-            runtime_env={},
-            workspace=WorkspaceService(_workspace(tmp_path)),
-            staging=_staging(tmp_path),
-            dependency_checker=_AvailableDependencyChecker(),
+        require_web_dependencies(
+            WebSettings(search_by_kimi=KimiSearchSettings(enabled=True)),
+            checker=MissingDependencyChecker(),
         )
-
-    assert error.value.key == "capabilities.web.search_by_kimi.api_key_env"
-
-
-class _AvailableDependencyChecker(DependencyChecker):
-    def check_all(self, requirements):
-        return tuple(
-            DependencyCheck(requirement_id=requirement.id, available=True)
-            for requirement in requirements
-        )
+    assert error.value.key == "capabilities.web.dependencies.kimi_search"
 
 
 class _SearchRunner(ControlledProcessRunner):

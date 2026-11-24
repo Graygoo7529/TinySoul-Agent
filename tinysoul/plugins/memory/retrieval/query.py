@@ -7,7 +7,7 @@ from hashlib import sha256
 
 
 from ..documents import PersistentMemoryDocument, StoredMemoryDocument
-from ..errors import MemoryContractError, MemoryInvariantError
+from ..errors import MemoryInvariantError
 from ..refs import MemoryRef
 
 

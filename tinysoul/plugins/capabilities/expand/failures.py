@@ -3,9 +3,12 @@
 from enum import StrEnum
 
 
+class ExpandFailureKind(StrEnum):
+    CONFIGURATION_FAILED = "expand.configuration_failed"
+    EXECUTION_CLOSE_FAILED = "expand.execution_close_failed"
+
+
 class ExpandFailure(StrEnum):
-    CONFIGURATION_FAILED = "configuration_failed"
-    EXECUTION_CLOSE_FAILED = "execution_close_failed"
     INVALID_REQUEST = "invalid_request"
     UNAVAILABLE = "unavailable"
     SCHEMA = "unsupported_schema"

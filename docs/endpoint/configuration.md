@@ -115,6 +115,10 @@ LLM 的 basis 为实际输入片段指认，Embedding 为真实向量贡献，de
 
 `POST /v2/config/apply` 接受非空 `operations` 或 `preset_id`，必须且只能提供其中一种。候选统一校验并 prepare generation 后，原子保存文件并发布；发布前失败恢复此次事务触及的文件，保留调用前已经存在的 pending 配置。只有 idle 且没有排队根 work 时可激活。成功响应为 `state=active`、`generation_id`、`pending_reload=false`，并带 `changed_fields`、`changed_sources`、`matching_presets`。`reload` 沿同一发布流程激活已保存配置。
 
+Web/Resource 的启用能力在候选世代构建时检查本机依赖与所需凭据，PATCH 不执行这些运行就绪检查。apply/reload 缺失依赖或凭据返回 `422 config.invalid`，`details.key` 为 `capabilities.web.dependencies.<id>`、`capabilities.resource.dependencies.<id>` 或 `capabilities.web.search_by_kimi.api_key_env`；依赖键是诊断位置，不是可编辑配置字段。关闭 Action visibility 不跳过已启用能力的检查，全部关闭的 capability 不检查其可选依赖。
+
+候选准备失败时，apply 不保存本次修改，保留调用前已有的 pending 配置；reload 保留已经保存的候选。两者均不更换当前世代或使其服务失效，修正候选后可以再次激活。非配置的 Runtime 激活失败仍返回 `500 config.activation_failed`，不统一降级为 422；当前不可激活仍为 `409 config.activation_unavailable`。
+
 `GET/POST /v2/config/presets`、`GET/PUT/DELETE /v2/config/presets/{id}` 管理运行方案，方案记录存于 `configs/presets/`。
 
 - 创建请求为 `name, description?, include_budgets=true`。从当前配置文件捕获，不接收来源选择或草稿操作；保存方案只写方案文件。

@@ -56,7 +56,7 @@ async def test_outer_turn_transfer_is_unwound_without_downgrade() -> None:
         transfer=transfer,
     )
 
-    entry = ReflectionTurnEntry(_TurnRunner(outcome), kind="home")
+    entry = ReflectionTurnEntry(_TurnRunner(outcome))
     with pytest.raises(RuntimeTransferInterrupt) as captured:
         await entry.run(
             "review home",

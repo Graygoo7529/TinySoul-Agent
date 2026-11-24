@@ -6,7 +6,6 @@ from collections.abc import Mapping, Sequence
 from datetime import date
 from enum import StrEnum
 from hashlib import sha256
-import re
 
 from tinysoul.infra.references import (
     markdown_references,

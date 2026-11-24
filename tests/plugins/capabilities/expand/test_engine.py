@@ -4,9 +4,8 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.integration
-
 from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.infra.config import ConfigError
 from tinysoul.infra.network import NetworkMode, NetworkPolicy
 from tinysoul.infra.process import ManagedProcessRequest, StdioProcess
 from tinysoul.plugins.capabilities.expand.config import (
@@ -20,8 +19,29 @@ from tinysoul.plugins.capabilities.expand.failures import (
     ExpandRequestError,
 )
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
+from tinysoul.plugins.capabilities.expand.runtime_bridge import RuntimeExpandBridge
+from tinysoul.runtime import RUNTIME_AGENT_END, RUNTIME_STARTUP_FAILED
 
 
+def test_expand_runtime_bridge_preserves_boundary_and_local_failure_contracts() -> None:
+    bridge = RuntimeExpandBridge()
+    error = ConfigError("private", key="k" * 300, expected="e" * 300, value="secret")
+    configuration = bridge.from_config_error(error)
+    assert configuration.reason == RUNTIME_STARTUP_FAILED
+    assert configuration.payload == {
+        "module": "expand", "kind": "expand.configuration_failed",
+        "key": "k" * 256, "expected": "e" * 256,
+    }
+    closed = bridge.close_failed(RuntimeError("private process details"))
+    assert closed.reason == RUNTIME_AGENT_END
+    assert closed.payload == {
+        "module": "expand", "kind": "expand.execution_close_failed",
+        "error_type": "RuntimeError",
+    }
+    assert ExpandFailure.ARGUMENTS.value == "invalid_arguments"
+
+
+@pytest.mark.integration
 async def test_real_sdk_stdio_discovery_validation_and_resource_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -128,6 +148,7 @@ async def test_real_sdk_stdio_discovery_validation_and_resource_output(
         await engine.close()
 
 
+@pytest.mark.integration
 async def test_real_sdk_streamable_http_discovery_and_call(tmp_path: Path) -> None:
     server_process = await StdioProcess.start(
         ManagedProcessRequest(
@@ -171,6 +192,7 @@ async def test_real_sdk_streamable_http_discovery_and_call(tmp_path: Path) -> No
         await server_process.close()
 
 
+@pytest.mark.integration
 async def test_mcp_error_binary_policy_and_lost_write_reply(tmp_path: Path) -> None:
     workspace = WorkspaceEngineBuilder(
         WorkspaceSettings(root=tmp_path / "workspace")

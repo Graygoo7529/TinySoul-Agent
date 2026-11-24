@@ -67,7 +67,6 @@ class Phase2Unit:
         self._context = context
         self._action = action
         self._llm = llm
-        self._bus = bus
         self._task_profile = task_profile
         self._domain_skills = domain_skills or EmptyDomainSkillProvider()
         self._context_bridge = context_bridge or RuntimeContextBridge()

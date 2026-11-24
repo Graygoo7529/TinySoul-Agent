@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
 
 from tinysoul.infra import (
-    DependencyChecker,
     JsonObject,
-    StagingDirectoryManager,
     StagingError,
 )
-from tinysoul.infra.network import ResolvedNetwork
 from tinysoul.kernel.action import (
+    ActionContractError,
     ActionEngineBuilder,
     ActionExecution,
     ActionExecutionContext,
@@ -27,11 +24,9 @@ from tinysoul.plugins.workspace import (
     WorkspaceError,
 )
 from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
-from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.prompts.plugins.capabilities import web as prompt_text
 
 from .config import WebSettings
-from .dependencies import kimi_search_api_key, require_web_dependencies
 from .errors import (
     WebContractError,
     WebProcessingError,
@@ -137,11 +132,9 @@ class WebFetchExecutor(ActionExecutor):
         *,
         extractor: WebExtractor,
         service: WebCapabilityService,
-        runtime_bridge: RuntimeWorkspaceBridge | None = None,
     ) -> None:
         self._extractor = extractor
         self._service = service
-        self._runtime_bridge = runtime_bridge
 
     async def execute(
         self,
@@ -259,16 +252,10 @@ def register_web_actions(
     builder: ActionEngineBuilder,
     *,
     settings: WebSettings,
-    runtime_env: Mapping[str, str],
-    network: ResolvedNetwork = ResolvedNetwork(),
-    workspace: WorkspaceService,
-    staging: StagingDirectoryManager,
-    runtime_bridge: RuntimeWorkspaceBridge | None = None,
-    dependency_checker: DependencyChecker | None = None,
+    service: WebCapabilityService | None,
 ) -> ActionEngineBuilder:
-    """Register enabled Web executors and declare runtime support."""
+    """Bind the generation's prepared service and declare runtime support."""
 
-    require_web_dependencies(settings, checker=dependency_checker)
     search_enabled = settings.search_by_kimi.enabled
     discovery_enabled = settings.discover_pages.enabled
     defuddle_enabled = settings.fetch_with_defuddle.enabled
@@ -288,14 +275,8 @@ def register_web_actions(
         and not trafilatura_enabled
     ):
         return builder
-    service = WebCapabilityService(
-        workspace=workspace,
-        settings=settings,
-        runtime_env=runtime_env,
-        network=network,
-        staging=staging,
-        kimi_api_key=kimi_search_api_key(settings, runtime_env),
-    )
+    if service is None:
+        raise ActionContractError("Enabled Web actions require a prepared service")
     if search_enabled:
         builder.register_executor(
             WEB_SEARCH_KIMI_ACTION,
@@ -312,7 +293,6 @@ def register_web_actions(
             WebFetchExecutor(
                 extractor=WebExtractor.DEFUDDLE,
                 service=service,
-                runtime_bridge=runtime_bridge,
             ),
         )
     if trafilatura_enabled:
@@ -321,7 +301,6 @@ def register_web_actions(
             WebFetchExecutor(
                 extractor=WebExtractor.TRAFILATURA,
                 service=service,
-                runtime_bridge=runtime_bridge,
             ),
         )
     return builder

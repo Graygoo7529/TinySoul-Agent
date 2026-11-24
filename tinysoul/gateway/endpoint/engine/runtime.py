@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 from tinysoul.agent.requests import UserTurnRequest
-from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import CalendarDay, CalendarDayError
 from tinysoul.kernel.interaction import QuestionAnswer
 from tinysoul.kernel.loop.interaction.inbox import InboxReceipt

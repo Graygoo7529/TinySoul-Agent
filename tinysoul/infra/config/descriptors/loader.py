@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import field
 from importlib.resources import files
 from importlib.resources.abc import Traversable
 from typing import cast

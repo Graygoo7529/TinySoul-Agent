@@ -3,7 +3,7 @@
 from enum import StrEnum
 
 from tinysoul.prompts.plugins.capabilities import expand as prompt_text
-from tinysoul.infra.json import JsonObject, JsonValue, dumps_json
+from tinysoul.infra.json import JsonObject, JsonValue
 from tinysoul.infra.process import ManagedProcessCloseError
 from tinysoul.kernel.action import (
     ActionEngineBuilder,
@@ -20,7 +20,7 @@ from tinysoul.kernel.retrieval.contracts import (
     SearchFailure,
     SearchContext,
     SearchFailureKind,
-    RetrievalRequest, ModelStep,
+    ModelStep,
 )
 from tinysoul.kernel.retrieval.requests import parse_retrieval_request
 from tinysoul.plugins.workspace import WorkspaceError

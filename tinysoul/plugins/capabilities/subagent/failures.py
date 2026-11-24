@@ -3,13 +3,15 @@
 from enum import StrEnum
 
 
+class SubagentFailureKind(StrEnum):
+    CONFIGURATION_FAILED = "subagent.configuration_failed"
+    EXECUTION_CLOSE_FAILED = "subagent.execution_close_failed"
+
+
 class SubagentFailure(StrEnum):
     INVALID_REQUEST = "invalid_request"
     UNAVAILABLE = "unavailable"
     BUSY = "busy"
-    PROTOCOL = "protocol_failure"
-    CONFIGURATION_FAILED = "configuration_failed"
-    EXECUTION_CLOSE_FAILED = "execution_close_failed"
 
 
 class SubagentRequestError(Exception):

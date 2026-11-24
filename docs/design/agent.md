@@ -60,6 +60,8 @@ daily 触发在 Agent 边界拆为 Home 与触发日前一日 Memory 两个独�
 
 组成定义在配置解析与 owner 创建前校验配置所有权。AgentBuilder 将 Harness 自有的 config、agent、action、loop、llm、context、infra、reflection 范围传给 PluginDefinitions；插件范围与保留范围之间、插件彼此之间均不得相等或形成 dotted 父子重叠。capabilities 是公共容器，各 capabilities 子范围仍由插件拥有。配置范围使用 dotted lower_snake_case，配置 settings 类型在插件之间也只有一个 owner。Kernel 只做通用声明校验，不硬编码 Harness 的业务配置名称。generation 获得已解析的 settings 集合，构建服务则严格按插件 requires 筛选。
 
+静态装配与运行就绪分开。Web/Resource 的依赖、凭据和 service 在每个候选世代准备一次，各 profile 只绑定已准备的服务，不重新探测环境。全部关闭的能力不构造 service；profile Context 与单次执行资源不随服务共享。依赖诊断沿所属配置命名空间归属，无附加配置范围别名。Profile 装配不将任意 ConfigError 转成 Action 失败：冷启动由外层 owner 映射，热激活保留配置错误，真正的 Action/Registration/Context 边界失败仍维持原分类。
+
 SDK patch_config 与 HTTP PATCH 统一只校验并原子保存候选，返回 saved/pending_reload。当前运行世代继续服务；reload 在 idle 边界读取候选、校验并构造新世代后切换 RuntimeHandle。活动/等待 Turn、已排队根请求、日切或既有激活会拒绝 reload。已获激活权后新到根可排队，但异步等待激活结束，候选失败后从旧世代继续分派。
 
 候选构建不启动来源；提交时先暂停旧来源，完成新日准备和新来源启动后切换世代。候选失败关闭候选并恢复旧来源；已经保存的磁盘候选仍明确报告。来源激活失败在 Agent 边界转换为有限启动失败，保留 source 和 error_type；既有 Runtime 语义失败保持归属，不把来源实现异常直接传给 Gateway。切换成功后的退休只回收旧资源，失败返回诊断，不伪回滚可见新世代。插件运行来源随世代配置替换；EndpointHost、终端、实例锁与观察缓冲保持稳定。

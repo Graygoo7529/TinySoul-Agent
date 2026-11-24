@@ -26,12 +26,13 @@ from tinysoul.kernel.action.backends import (
     ProcessStatus,
 )
 from tinysoul.kernel.action.catalog.loader import ActionCatalogLoader
-from tinysoul.plugins.capabilities import parse_capabilities_settings
 from tinysoul.plugins.capabilities.web.actions import (
     WEB_DISCOVER_PAGES_ACTION,
     WebDiscoveryExecutor,
 )
-from tinysoul.plugins.capabilities.web.config import WebDiscoverySettings, WebSettings
+from tinysoul.plugins.capabilities.web.config import (
+    WebDiscoverySettings, WebSettings, parse_web_settings,
+)
 from tinysoul.plugins.capabilities.web.dependencies import web_dependency_requirements
 from tinysoul.plugins.capabilities.web.backends.discovery import (
     DiscoveryRequest,
@@ -79,19 +80,17 @@ async def test_seed_failure_retains_classification_facts(error, reason, disposit
 
 
 def test_discovery_config_and_dependency_are_independent() -> None:
-    settings = parse_capabilities_settings(
+    settings = parse_web_settings(
         {
-            "web": {
-                "discover_pages": {
-                    "enabled": True,
-                    "max_visit_depth": 2,
-                    "max_pages": 8,
-                    "max_concurrency": 2,
-                },
-                "fetch_with_trafilatura": {"enabled": False},
-            }
+            "discover_pages": {
+                "enabled": True,
+                "max_visit_depth": 2,
+                "max_pages": 8,
+                "max_concurrency": 2,
+            },
+            "fetch_with_trafilatura": {"enabled": False},
         }
-    ).web
+    )
 
     assert settings.discover_pages.enabled is True
     assert settings.discover_pages.max_visit_depth == 2

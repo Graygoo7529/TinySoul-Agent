@@ -1,15 +1,16 @@
 # Runtime 失败桥接统一与死抽象清理执行计划
 
 - 日期：2026-11-23
-- 状态：`ready`（准备实施；设计已确认，生产与测试代码尚未修改）
+- 状态：`done`（P1–P4、A1–A8 已逐项核对；完整 Full 与 ty 门禁通过）
 - 初次核对基线：`0fe0e75e`
 - 修订核对基线：`b4f91b95`（与初次基线相比，本计划涉及的生产、测试及设计文档无差异）
+- 实施基线：`415d85d1`（维护者已提交修订计划；生产代码与审阅基线一致）
 - 依据：
-  - [AGENTS.md](../../AGENTS.md)
-  - [Runtime 设计](../design/runtime.md)
-  - [Capabilities 设计](../design/capabilities.md)
-  - [Agent 设计](../design/agent.md)
-  - [Endpoint 配置协议](../endpoint/configuration.md)
+  - [AGENTS.md](../../../AGENTS.md)
+  - [Runtime 设计](../../design/runtime.md)
+  - [Capabilities 设计](../../design/capabilities.md)
+  - [Agent 设计](../../design/agent.md)
+  - [Endpoint 配置协议](../../endpoint/configuration.md)
   - 本线程维护者对审阅建议的确认：“合理，请进一步分析和修订执行计划；若计划明确可行，则进行准备实施状态。”
 
 ## 0. 确认结论与实施准入
@@ -29,12 +30,12 @@
 - [x] 核对诊断键消费者与测试迁移入口；未发现仓库内前端按旧依赖诊断键分支，Resource 有一处精确键断言需要更新。
 - [x] 明确冷启动、PATCH、apply/reload 与关闭边界；不修改既有激活事务或资源回收状态机。
 - [x] 明确改动文件、测试归属、文档同步、执行顺序和验收标准。
-- 未决设计项：无。本轮只完成计划修订与实施准备；P1–P4 仍未开始。
-- `ready` 不代表功能已实现或门禁已通过。开始生产代码修改时转为 `in_progress`；只有实现、文档与门禁全部核对后才能转为 `done` 并归档。
+- 未决设计项：无。维护者已明确授权“按此实施，实施完成后基于 AGENTS.md 和实施情况核对该执行计划”；实现、文档与门禁已全部核对，完成记录见 §6–§8。
+- 状态沿 `ready → in_progress → done` 推进；完成与归档基于实际验证，不以轮次或测试数量代替语义验收。
 
 ## 1. 目标与改动预览
 
-本计划修正已核实的模块失败桥接、能力插件启动所有权及无消费者代码问题，不重建执行内核或通用异常管理平台。下表的目标均为待实施内容，不表示当前代码已经具备这些行为。
+本计划修正已核实的模块失败桥接、能力插件启动所有权及无消费者代码问题，不重建执行内核或通用异常管理平台。下表保留实施前状态与确认目标；实际完成结果、验证及规约复核见 §5–§8。
 
 | 切面 | 当前状态 | 改进后目标语义 |
 | --- | --- | --- |
@@ -312,6 +313,7 @@
 | --- | --- |
 | `tests/test_architecture.py` | 单一枚举登记、非空/完整身份/实际引用守卫及最小反例测试 |
 | `tests/agent/composition/test_build_failures.py` | 四个 capability 的冷启动归属；静态构建不探测 Web/Resource；世代准备一次和 visibility 不绕过检查 |
+| `tests/kernel/test_registration.py` | 补齐通用容器未知子键在 owner parser 前被拒绝的回归 |
 | `tests/plugins/capabilities/expand/test_engine.py` | `from_config_error` / `close_failed` 契约，局部短原因不变 |
 | `tests/plugins/capabilities/subagent/test_engine.py` | `from_config_error` / `close_failed` 契约，局部短原因不变 |
 | `tests/kernel/jobs/test_registry.py` | 改动 Bridge 的配置载荷与各 Job 边界失败映射，不重复完整监督场景 |
@@ -328,45 +330,45 @@
 | `docs/design/agent.md` | 区分静态装配与能力运行就绪，说明 profile 复用世代服务及配置失败出口 |
 | `docs/endpoint/configuration.md` | 422/500 分类、依赖诊断新键、PATCH/apply/reload 的候选与旧世代状态 |
 
-既有 `tests/kernel/test_registration.py` 只复查/运行容器未知子键与归属契约，不新增不存在的 `error_prefixes` 测试。`docs/design/runtime.md` 复核与既有三层失败契约一致；无需添加已被正文覆盖的重复条款。各测试优先放入上表现有文件，不为此次清理新增测试框架或重复 fixture。
+核对发现 `tests/kernel/test_registration.py` 原先覆盖声明归属、但没有 configure 容器未知子键的直接用例，因此补一个 owner 回归，不新增不存在的 `error_prefixes` 测试。`docs/design/runtime.md` 已复核与既有三层失败契约一致，无需添加重复条款。Expand/Subagent 的轻量 Bridge 测试进入 Fast，原真实 MCP/ACP 测试改为逐项 integration 标记，不改变其套件归属。不新增测试文件或生产框架。
 
 ---
 
 ## 5. 分阶段执行步骤
 
-P0 为 §0 已完成的分析与准入检查。以下实施项保持未完成；每阶段的代码、相关测试与受影响文档一起推进。
+P0 为 §0 已完成的分析与准入检查。每阶段的代码、相关测试与受影响文档一起推进，实际完成情况如下。
 
-### P1：失败枚举与 Bridge 契约（待开始）
+### P1：失败枚举与 Bridge 契约（已完成）
 
-- [ ] 拆分 `expand/failures.py`（`ExpandFailureKind` vs `ExpandFailure`）与 `subagent/failures.py`（`SubagentFailureKind` vs `SubagentFailure`，移除 `PROTOCOL`）。
-- [ ] 新增 `web/{failures,runtime_bridge}.py` 与 `resource/{failures,runtime_bridge}.py`。
-- [ ] 对齐六个 Bridge 的形态和按入口选择的诊断 helper，不扩展 reason、空接口或无消费者字段。
-- [ ] 补公开入口行为测试与局部短原因回归，同时完成枚举登记和 AST 非空/归属/使用守卫。
-- [ ] 复核 Runtime 设计，运行对应聚焦测试与 Fast；记录结果，不将绿色结构测试代替后续装配验收。
+- [x] 拆分 `expand/failures.py`（`ExpandFailureKind` vs `ExpandFailure`）与 `subagent/failures.py`（`SubagentFailureKind` vs `SubagentFailure`，移除 `PROTOCOL`）。
+- [x] 新增 `web/{failures,runtime_bridge}.py` 与 `resource/{failures,runtime_bridge}.py`。
+- [x] 对齐六个 Bridge 的形态和按入口选择的诊断 helper，不扩展 reason、空接口或无消费者字段。
+- [x] 补公开入口行为测试与局部短原因回归，同时完成枚举登记和 AST 非空/归属/使用守卫。
+- [x] 复核 Runtime 设计，运行对应聚焦测试与 Fast；记录结果，不将绿色结构测试代替后续装配验收。
 
-### P2：世代准备与配置失败出口（待开始，依赖 P1）
+### P2：世代准备与配置失败出口（已完成）
 
-- [ ] 调整两个 dependency helper 的诊断键，保留 requirement id；更新精确断言，不修改插件配置协议或 Agent 归属映射。
-- [ ] Web/Resource 接入自有 Bridge，在世代内检查和构造 service 一次；全部关闭不构造。
-- [ ] 将 registrar 改为纯注册并迁移调用方；不保留旧签名、回退构造或跳过检查开关。
-- [ ] 移除 `ProfileAssembly.prepare` 中将 `ConfigError` 强制包装为 `RuntimeActionBridge` 的分支。
-- [ ] 完成静态构建、准备次数、visibility、冷启动与真实 HTTP apply/reload 回归；覆盖 422/500 分类和候选失败后可重新激活。
-- [ ] 同步 Capabilities、Agent 设计与 Endpoint 配置协议，运行聚焦测试与 Fast。
+- [x] 调整两个 dependency helper 的诊断键，保留 requirement id；更新精确断言，不修改插件配置协议或 Agent 归属映射。
+- [x] Web/Resource 接入自有 Bridge，在世代内检查和构造 service 一次；全部关闭不构造。
+- [x] 将 registrar 改为纯注册并迁移调用方；不保留旧签名、回退构造或跳过检查开关。
+- [x] 移除 `ProfileAssembly.prepare` 中将 `ConfigError` 强制包装为 `RuntimeActionBridge` 的分支。
+- [x] 完成静态构建、准备次数、visibility、冷启动与真实 HTTP apply/reload 回归；覆盖 422/500 分类和候选失败后可重新激活。
+- [x] 同步 Capabilities、Agent 设计与 Endpoint 配置协议，运行聚焦测试与 Fast。
 
-### P3：死抽象与冗余状态清理（待开始）
+### P3：死抽象与冗余状态清理（已完成）
 
-- [ ] 删除 `tinysoul/plugins/capabilities/config.py`，收敛 `tinysoul/plugins/capabilities/__init__.py`，并将 5 个 capability 测试文件迁移至各子能力 `parse_<name>_settings`。
-- [ ] 清理 Context、Phase1/2/3 的指定未读字段/参数；核对 P2 已删除 Web/Resource 冗余 bridge。
-- [ ] 删除 Reflection Entry.kind 的参数、校验与属性，更新 builder/test；保留实际情景校验和外层 transfer 传播。
-- [ ] 清理 10 个非门面模块中的 12 处未使用导入，以及本轮接口调整产生的无用导入。
-- [ ] 核对门面、继承属性及通用容器校验未受破坏；运行聚焦测试与 Fast。
+- [x] 删除 `tinysoul/plugins/capabilities/config.py`，收敛 `tinysoul/plugins/capabilities/__init__.py`，并将 5 个 capability 测试文件迁移至各子能力 `parse_<name>_settings`。
+- [x] 清理 Context、Phase1/2/3 的指定未读字段/参数；核对 P2 已删除 Web/Resource 冗余 bridge。
+- [x] 删除 Reflection Entry.kind 的参数、校验与属性，更新 builder/test；保留实际情景校验和外层 transfer 传播。
+- [x] 清理 10 个非门面模块中的 12 处未使用导入，以及本轮接口调整产生的无用导入。
+- [x] 核对门面、继承属性及通用容器校验未受破坏；运行聚焦测试与 Fast。
 
-### P4：交付核对与计划归档（待开始，依赖 P1–P3）
+### P4：交付核对与计划归档（已完成）
 
-- [ ] 逐项复核 §7 验收矩阵、实际文件差异与同期文档；不使用“全仓零死抽象”代替本计划的有限清理范围。
-- [ ] 运行完整 Full 本地门禁与 `ty check`；记录报告、失败及解决证据，不跳过用例或放宽业务断言换取通过。
-- [ ] 检查 Endpoint 诊断键变更和已删除 Python 接口无残留引用；检查无前端、固定模型文案或无关结构变化。
-- [ ] 全部验收项通过后，将本计划条目更新为已完成，状态改为 `done`，重命名为 `20261123-done-Runtime失败桥接统一与死抽象清理执行计划.md` 并移入 `docs/analysis/done/`。
+- [x] 逐项复核 §7 验收矩阵、实际文件差异与同期文档；不使用“全仓零死抽象”代替本计划的有限清理范围。
+- [x] 运行完整 Full 本地门禁与 `ty check`；记录报告、失败及解决证据，不跳过用例或放宽业务断言换取通过。
+- [x] 检查 Endpoint 诊断键变更和已删除 Python 接口无残留引用；检查无前端、固定模型文案或无关结构变化。
+- [x] 全部验收项通过后，将本计划条目更新为已完成，状态改为 `done`，重命名为 `20261123-done-Runtime失败桥接统一与死抽象清理执行计划.md` 并移入 `docs/analysis/done/`。
 
 ---
 
@@ -425,25 +427,46 @@ uv run --locked --extra dev ty check
 | --- | --- | --- |
 | 审阅复现，基线 `b4f91b95` | 四个 MCP/ACP Bridge 调用均抛 RuntimeContractError | 失败枚举与 Runtime 命名空间契约确实冲突 |
 | 审阅复现，同基线 | Web/Resource 静态配置归 Action、旧依赖键路由归 Agent；一次成功世代 dependency helper 各调用三次 | 所有权错位与重复检查属实 |
-| 审阅复现，同基线 | 隔离项目 + FakeLLM + 受控依赖检查：EndpointConfigurationEngine apply/reload 缺失 Kimi 凭据均返回 500，旧世代保留 | 热激活分类错误属实；未执行 HTTP 传输，实施仍需补 ASGI 回归 |
+| 审阅复现，同基线 | 隔离项目 + FakeLLM + 受控依赖检查：EndpointConfigurationEngine apply/reload 缺失 Kimi 凭据均返回 500，旧世代保留 | 热激活分类错误属实；当时未执行 HTTP 传输，实施期已补 ASGI 回归 |
 | 审阅聚焦测试，同基线 | `uv run --locked --extra dev python scripts/test.py --suite full tests/test_architecture.py tests/agent/composition/test_build_failures.py`：41 passed，1 个 pytest cache 写入权限 warning | 既有测试通过但未覆盖缺陷；不是修复后的验收结果 |
-| 本轮实施准备 | 服务/进程局部状态、关闭态构造、测试与配置事务路径进一步静态核对 | 方案具备实施条件；不宣告代码已完成 |
-| 本轮文档验证 | `git diff --check` 通过；清单脚本核对新增 4、删除 1、修改 30 个生产文件，现有文件/文档链接/测试命令路径有效，实施勾选项仍全部未完成 | 本轮只修改计划，状态可置为 ready；不替代业务测试与完整门禁 |
-| P1–P4 | 待实施后填写命令、结果与报告位置 | 完整 Full 与 ty 尚未作为本计划实施验收运行 |
+| 准备轮分析 | 服务/进程局部状态、关闭态构造、测试与配置事务路径进一步静态核对 | 方案具备实施条件；当时尚未修改生产代码 |
+| 准备轮文档验证 | `git diff --check` 通过；清单脚本核对新增 4、删除 1、修改 30 个生产文件，现有文件/文档链接/测试命令路径有效 | 准备状态为 ready，不替代业务测试与完整门禁 |
+| P1 聚焦 | Full 选择架构、Jobs、Execution、Expand/Subagent owner 文件，`-k 'bridge or runtime_failure_kind'`：33 passed；报告 `7536dc7f8d604b4c87007967e7847786` | 四个既有 Bridge 修复和命名空间守卫通过；当时 Web/Resource owner 测试随后补齐 |
+| P1–P3 聚焦 | §6.2 第一条命令：193 passed / 30 deselected；报告 `02b008f7feff4313bf7b55d3d2c208f6` | capability、Phase、Reflection、registration 与架构主线通过 |
+| Agent/HTTP/初始化聚焦 | §6.2 第二条命令：69 passed；报告 `5f660a0fcd04451e917179b052f608bc` | 真 Agent + ASGI 的 422/500、旧世代/文件保留、再次激活、初始化通过 |
+| 默认 Fast | `uv run --locked --extra dev python scripts/test.py`：1386 passed / 155 deselected；报告 `3820ebe615024993a6584bbfafa6ce3c` | 包含补充的容器未知子键守卫及已进入 Fast 的 MCP/ACP Bridge 测试 |
+| 类型检查 | `uv run --locked --extra dev ty check`：All checks passed | 未使用宽泛忽略或新增 Any 掩盖边界 |
+| External 收集 | `uv run --locked --extra dev python scripts/test.py --suite external --collect-only tests/plugins/capabilities/web/test_real_web_api.py`：1 test collected；报告 `32190527521b414abadee969f912eabd` | parser 迁移后可导入与收集；未执行真实 Web 调用 |
+| P4 差异与 AST 核对 | 35 个生产文件操作与 §4 完全一致；18 个 owner Bridge 为 frozen dataclass；12 处指定导入、7 个未读属性及旧接口引用清理完毕 | 无 Runtime 内核、通用注册/归属映射、模型固定文案或前端改动 |
+| 完整 Full | `uv run --locked --extra dev python scripts/test.py --suite full`：1538 passed / 3 deselected，185.33s；报告 `9e5923e2ff2347879438378d15a3dbdf` | 全部非 External 本地门禁通过，包含真实本机 MCP/ACP、进程、Agent/HTTP、初始化和 wheel 验收 |
 
-准备阶段只修订本计划，执行文档差异、清单和引用核对；不提前更新设计正文为“已实现”。此前 cache warning 不作为跳过门禁的理由；若后续测试确有宿主文件访问干扰，先独立复现，再按 AGENTS.md 的工件目录流程处理。
+报告位于 Git 忽略的 `.local-test/reports/<报告 ID>/`。实现中曾发现测试构造的 unavailable DependencyCheck 未填写缺失项、测试误依赖正式模板关闭态、HTTP 动态 kwargs 不满足具体参数类型；分别修正测试输入、显式关闭无关 adapter、改用具名 json 参数。没有修改业务断言、跳过测试或加入类型忽略。审阅阶段的 cache warning 未在上述通过的实施检查中出现。
 
 ---
 
 ## 7. 完成标准与规约核对
 
-以下均为待验收项；`ready` 阶段不勾选。
+以下验收项均已对照实现、文档与 §6 实测结果核对。
 
-- [ ] **A1（Bridge 与局部协议）**：六个新增/改动 Bridge 的合法输入返回正确 RuntimeException；Expand/Subagent 不再因缺少前缀触发 RuntimeContractError。局部短原因及 `expand.<reason>` HTTP 错误码不变。
-- [ ] **A2（owner 诊断归属）**：Web/Resource 配置及新依赖诊断键在冷启动准确归属对应 owner；不保留旧诊断键 alias，不新增配置范围声明或实际 dependencies 配置字段。
-- [ ] **A3（唯一准备路径）**：Web/Resource 静态 build 不做运行就绪检查；每个启用 capability 每个候选世代准备一次，三个 profile 纯注册；全部关闭不探测/构造，visibility 不绕过就绪检查。
-- [ ] **A4（激活分类与状态）**：apply/reload 的能力配置失败经 HTTP 返回 422；真正非配置 Runtime 激活失败仍 500。旧世代/服务有效、磁盘候选语义正确，失败后可再次激活；不新增恢复状态机。
-- [ ] **A5（Bridge 形态与载荷）**：改动 Bridge 使用 frozen dataclass、显式映射和适用的公共 helper；消息保持摘要语义，载荷有界且 JSON 安全。无空配置入口、通用基类或变量名清理扩散。
-- [ ] **A6（架构守卫）**：所有 owner bridge 纳入枚举登记核对；空匹配、未使用导入、错 owner、漏登记不能通过，Infra/Runtime 无反向 bridge；行为测试验证真实转换而非只验证源码形态。
-- [ ] **A7（有限清理完整）**：聚合 parser、指定未读字段、冗余 bridge 参数、Reflection Entry.kind 和 12 处导入清理完成；有效 bus 参数、Phase3 bus、继承读取、真实情景校验与公开有效门面保留。
-- [ ] **A8（文档与门禁）**：Capabilities/Agent 设计及 Endpoint 协议与实际行为同步；Runtime 设计复核完成；聚焦、Fast、完整 Full 和 ty 均有实际结果记录，交付门禁通过后才标记 done 并归档。
+- [x] **A1（Bridge 与局部协议）**：六个新增/改动 Bridge 的合法输入返回正确 RuntimeException；Expand/Subagent 不再因缺少前缀触发 RuntimeContractError。局部短原因及 `expand.<reason>` HTTP 错误码不变。
+- [x] **A2（owner 诊断归属）**：Web/Resource 配置及新依赖诊断键在冷启动准确归属对应 owner；不保留旧诊断键 alias，不新增配置范围声明或实际 dependencies 配置字段。
+- [x] **A3（唯一准备路径）**：Web/Resource 静态 build 不做运行就绪检查；每个启用 capability 每个候选世代准备一次，三个 profile 纯注册；全部关闭不探测/构造，visibility 不绕过就绪检查。
+- [x] **A4（激活分类与状态）**：apply/reload 的能力配置失败经 HTTP 返回 422；真正非配置 Runtime 激活失败仍 500。旧世代/服务有效、磁盘候选语义正确，失败后可再次激活；不新增恢复状态机。
+- [x] **A5（Bridge 形态与载荷）**：改动 Bridge 使用 frozen dataclass、显式映射和适用的公共 helper；消息保持摘要语义，载荷有界且 JSON 安全。无空配置入口、通用基类或变量名清理扩散。
+- [x] **A6（架构守卫）**：所有 owner bridge 纳入枚举登记核对；空匹配、未使用导入、错 owner、漏登记不能通过，Infra/Runtime 无反向 bridge；行为测试验证真实转换而非只验证源码形态。
+- [x] **A7（有限清理完整）**：聚合 parser、指定未读字段、冗余 bridge 参数、Reflection Entry.kind 和 12 处导入清理完成；有效 bus 参数、Phase3 bus、继承读取、真实情景校验与公开有效门面保留。
+- [x] **A8（文档与门禁）**：Capabilities/Agent 设计及 Endpoint 协议与实际行为同步；Runtime 设计复核完成；聚焦、Fast、完整 Full 和 ty 均有实际结果记录，交付门禁通过后才标记 done 并归档。
+
+## 8. AGENTS.md 与实际实现逐项复核
+
+| 规约/计划项 | 实际实现与核对证据 |
+| --- | --- |
+| 三层失败与 owner 所有权（A1/A2） | Expand/Subagent 分离局部枚举；六个 Bridge 的入口测试核对 module/kind/reason 和诊断字段；Web/Resource 插件绑定自有 Bridge。冷启动参数化覆盖四个 capability，旧局部 Action reason 与 Expand HTTP code 保留 |
+| 唯一世代生命周期（A3） | 两个 `plugin.py` 完成一次准备；registrar 只消费 settings/service。composition 测试同时观察 dependency helper、service 构造与三个 profile 注册，关闭态零准备，启用态一次准备。执行 service、进程资源和 profile Context 的实现未复制或改写 |
+| 失败分类不重建激活状态机（A4） | `ProfileAssembly.prepare` 仅移除 ConfigError 的越权分支。AgentBuilder、PluginDefinitions、ConfigController、Endpoint 生产映射均未修改；真实 HTTP 回归验证失败前后 generation 身份与 Workspace service 有效、磁盘字节保持、pending 仍在、修正后激活成功 |
+| 明确类型、有限诊断与控制原因（A5） | 新失败标识为 StrEnum；Bridge frozen；配置 helper 不携带 source/value/message。新增缺失 service 拒绝使用 ActionContractError，属于装配契约，不抛裸内置异常；没有新增 broad except、Runtime reason、Trap handler 或恢复链 |
+| 测试保护真实风险（A6） | AST 守卫用完整身份、文件集合和成员使用检查；合成反例覆盖局部枚举、未使用导入和错 owner。轻量 Bridge 用例在 Fast，真实 MCP/ACP 仍 integration；容器未知子键只在 registration owner 补一次 |
+| 死抽象与误删防护（A7） | 删除聚合 parser 和冗余注入，不保留 alias。保留 Phase1/2 bus 参数、Phase3 bus 使用、真实 Reflection kind 选择/校验、外层 transfer 传播及继承读取字段；AST 与引用检索核对指定清单 |
+| 文案、依赖方向及接口同步（A8） | 新错误文案只用于 Runtime/装配诊断，不进入模型固定提示包。Capabilities/Agent 设计和 Endpoint 配置协议已同步；Runtime 设计契约原文仍适用。无新依赖、锁文件变化、前端或通用基础设施扩张 |
+
+实际范围与计划无生产边界偏离。唯一测试范围补充是 `tests/kernel/test_registration.py` 的未知容器子键回归；轻量测试 marker 调整用于落实 AGENTS.md 的套件语义。完整门禁已通过，计划在逐项核对后完成归档；未运行真实 provider 或公网 External 测试，未执行 Git 提交或推送。

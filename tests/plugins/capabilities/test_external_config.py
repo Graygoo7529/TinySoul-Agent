@@ -9,8 +9,10 @@ from tinysoul.infra.config import (
     ConfigError,
     ConfigMutation,
 )
-from tinysoul.plugins.capabilities.config import parse_capabilities_settings
-from tinysoul.plugins.capabilities.expand.config import validate_expand_bindings
+from tinysoul.plugins.capabilities.expand.config import (
+    parse_expand_settings,
+    validate_expand_bindings,
+)
 
 
 async def test_mcp_named_collection_preserves_tool_keys_and_checks_candidate_credentials(
@@ -26,8 +28,8 @@ async def test_mcp_named_collection_preserves_tool_keys_and_checks_candidate_cre
     config = ConfigEnvironment.from_project_root(tmp_path, env={})
 
     def validate(candidate: ConfigEnvironment) -> None:
-        settings = candidate.parse_section("capabilities", parse_capabilities_settings)
-        validate_expand_bindings(settings.expand, candidate.runtime_env)
+        settings = candidate.parse_section("capabilities.expand", parse_expand_settings)
+        validate_expand_bindings(settings, candidate.runtime_env)
 
     controller = ConfigController(root=tmp_path, environment=config, validator=validate)
     await controller.patch(
@@ -47,9 +49,9 @@ async def test_mcp_named_collection_preserves_tool_keys_and_checks_candidate_cre
         )
     )
     settings = controller.environment.reload().parse_section(
-        "capabilities", parse_capabilities_settings
+        "capabilities.expand", parse_expand_settings
     )
-    server = settings.expand.servers[0]
+    server = settings.servers[0]
     assert (
         server.allows("notes.search")
         and not server.allows("notes")

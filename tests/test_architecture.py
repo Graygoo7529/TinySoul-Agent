@@ -22,27 +22,35 @@ from tinysoul.plugins.session.failures import SessionFailureKind
 from tinysoul.plugins.execution.failures import ExecutionFailureKind
 from tinysoul.kernel.jobs.failures import JobFailureKind
 from tinysoul.plugins.workspace.failures import WorkspaceFailureKind
+from tinysoul.plugins.capabilities.expand.failures import ExpandFailureKind
+from tinysoul.plugins.capabilities.subagent.failures import SubagentFailureKind
+from tinysoul.plugins.capabilities.web.failures import WebFailureKind
+from tinysoul.plugins.capabilities.resource.failures import ResourceFailureKind
 
 
-@pytest.mark.parametrize(
-    ("module", "failure_kind"),
-    (
-        ("action", ActionFailureKind),
-        ("agent", AgentFailureKind),
-        ("archive", ArchiveFailureKind),
-        ("context", ContextFailureKind),
-        ("endpoint", EndpointFailureKind),
-        ("home", AgentHomeFailureKind),
-        ("llm", LLMFailureKind),
-        ("loop", LoopFailureKind),
-        ("reflection", ReflectionFailureKind),
-        ("memory", MemoryFailureKind),
-        ("session", SessionFailureKind),
-        ("execution", ExecutionFailureKind),
-        ("jobs", JobFailureKind),
-        ("workspace", WorkspaceFailureKind),
-    ),
+REGISTERED_RUNTIME_FAILURE_KINDS: tuple[tuple[str, type[StrEnum]], ...] = (
+    ("action", ActionFailureKind),
+    ("agent", AgentFailureKind),
+    ("archive", ArchiveFailureKind),
+    ("context", ContextFailureKind),
+    ("endpoint", EndpointFailureKind),
+    ("home", AgentHomeFailureKind),
+    ("llm", LLMFailureKind),
+    ("loop", LoopFailureKind),
+    ("reflection", ReflectionFailureKind),
+    ("memory", MemoryFailureKind),
+    ("session", SessionFailureKind),
+    ("execution", ExecutionFailureKind),
+    ("jobs", JobFailureKind),
+    ("workspace", WorkspaceFailureKind),
+    ("expand", ExpandFailureKind),
+    ("subagent", SubagentFailureKind),
+    ("web", WebFailureKind),
+    ("resource", ResourceFailureKind),
 )
+
+
+@pytest.mark.parametrize(("module", "failure_kind"), REGISTERED_RUNTIME_FAILURE_KINDS)
 def test_runtime_failure_kind_values_are_module_qualified(
     module: str,
     failure_kind: type[StrEnum],
@@ -51,6 +59,84 @@ def test_runtime_failure_kind_values_are_module_qualified(
     for item in failure_kind:
         assert item.value.startswith(prefix)
         assert item.value != prefix
+
+
+def _referenced_failure_kinds(tree: ast.Module, package: str) -> set[str]:
+    """Resolve enum member uses, not just imports with a matching short name."""
+    bindings: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if node.level:
+                module = importlib.util.resolve_name("." * node.level + module, package)
+            for alias in node.names:
+                bindings[alias.asname or alias.name] = f"{module}.{alias.name}"
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                local = alias.asname or alias.name.split(".", 1)[0]
+                bindings[local] = alias.name if alias.asname else local
+
+    def resolve(node: ast.expr) -> str:
+        if isinstance(node, ast.Name):
+            return bindings.get(node.id, "")
+        if isinstance(node, ast.Attribute):
+            parent = resolve(node.value)
+            return f"{parent}.{node.attr}" if parent else ""
+        return ""
+
+    return {
+        identity
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and (identity := resolve(node.value)).endswith("FailureKind")
+    }
+
+
+def test_every_runtime_bridge_uses_registered_failure_kind() -> None:
+    root = Path(__file__).resolve().parents[1]
+    registered: dict[Path, type[StrEnum]] = {}
+    for _, kind in REGISTERED_RUNTIME_FAILURE_KINDS:
+        package = kind.__module__.rsplit(".", 1)[0]
+        path = root.joinpath(*package.split("."), "runtime_bridge.py")
+        assert path not in registered, f"Duplicate bridge owner: {path}"
+        registered[path] = kind
+    discovered = set((root / "tinysoul").rglob("runtime_bridge.py"))
+    assert discovered == set(registered), discovered.symmetric_difference(registered)
+    for path in discovered:
+        assert path.relative_to(root).parts[1] not in {"infra", "runtime"}
+        kind = registered[path]
+        references = _referenced_failure_kinds(
+            _source_tree(path), kind.__module__.rsplit(".", 1)[0]
+        )
+        assert references == {f"{kind.__module__}.{kind.__name__}"}, (path, references)
+
+
+@pytest.mark.parametrize(
+    ("source", "owned"),
+    (
+        ("from .failures import ExpandFailure\nx = ExpandFailure.CONFIGURATION_FAILED", False),
+        ("from .failures import ExpandFailureKind", False),
+        (
+            "from tinysoul.kernel.action.failures import ActionFailureKind\n"
+            "x = ActionFailureKind.CONFIGURATION_FAILED",
+            False,
+        ),
+        (
+            "from .failures import ExpandFailureKind as Failure\n"
+            "x = Failure.CONFIGURATION_FAILED",
+            True,
+        ),
+        (
+            "import tinysoul.plugins.capabilities.expand.failures as failures\n"
+            "x = failures.ExpandFailureKind.CONFIGURATION_FAILED",
+            True,
+        ),
+    ),
+)
+def test_bridge_enum_discovery_requires_owned_member_use(source: str, owned: bool) -> None:
+    package = "tinysoul.plugins.capabilities.expand"
+    references = _referenced_failure_kinds(ast.parse(source), package)
+    assert (references == {f"{package}.failures.ExpandFailureKind"}) is owned
 
 
 @pytest.mark.parametrize(

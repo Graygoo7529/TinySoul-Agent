@@ -42,6 +42,19 @@ from tinysoul.plugins.workspace.errors import WorkspaceContractError
 from tinysoul.plugins.workspace.services import WorkspaceService
 from tinysoul.llm.protocol.messages import JsonPart
 from tinysoul.prompts.plugins import execution as execution_text
+from tinysoul.plugins.execution.runtime_bridge import RuntimeExecutionBridge
+from tinysoul.runtime import RUNTIME_STARTUP_FAILED
+
+
+def test_execution_configuration_bridge_projects_bounded_schema_diagnostics() -> None:
+    error = RuntimeExecutionBridge().from_config_error(
+        ConfigError("private", key="k" * 300, expected="e" * 300, value="secret")
+    )
+    assert error.reason == RUNTIME_STARTUP_FAILED
+    assert error.payload == {
+        "module": "execution", "kind": "execution.configuration_failed",
+        "key": "k" * 256, "expected": "e" * 256,
+    }
 
 
 def _owners(

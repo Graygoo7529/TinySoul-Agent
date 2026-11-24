@@ -9,8 +9,6 @@ from tinysoul.kernel.loop.turn import TurnOutcome
 from tinysoul.kernel.loop.interaction.inbox import TurnInbox
 from tinysoul.runtime import RunLevel, RunScope, RuntimeTransferInterrupt
 
-from ..errors import ReflectionContractError
-
 
 class ReflectionTurnRunner(Protocol):
     async def run(
@@ -27,13 +25,10 @@ class ReflectionTurnRunner(Protocol):
 
 
 class ReflectionTurnEntry:
-    """Own generic Turn outcome interpretation for one Reflection task kind."""
+    """Propagate outer transfers from the shared Reflection Turn kernel."""
 
-    def __init__(self, runner: ReflectionTurnRunner, *, kind: str) -> None:
-        if kind not in {"home", "memory"}:
-            raise ReflectionContractError(f"Unknown Reflection Turn kind: {kind}")
+    def __init__(self, runner: ReflectionTurnRunner) -> None:
         self._runner = runner
-        self._kind = kind
 
     async def run(
         self,

@@ -14,7 +14,6 @@ from tinysoul.runtime.sources import EventSink, SourceState, SourceStatus
 
 from .config import ReflectionScheduleSettings
 from .config import ReflectionSettings
-from .runtime_bridge import ReflectionRuntimeBridge
 from tinysoul.kernel.registration import GenerationBuildContext, PluginGeneration
 from tinysoul.runtime.sources import RuntimeTimer
 from .errors import ReflectionContractError

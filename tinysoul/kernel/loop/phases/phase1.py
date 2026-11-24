@@ -53,7 +53,6 @@ class Phase1Unit:
         self._context = context
         self._action = action
         self._llm = llm
-        self._bus = bus
         self._task_profile = task_profile
         self._context_bridge = context_bridge or RuntimeContextBridge()
         self._action_bridge = action_bridge or RuntimeActionBridge()

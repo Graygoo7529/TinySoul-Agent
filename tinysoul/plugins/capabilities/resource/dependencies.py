@@ -62,7 +62,7 @@ def require_resource_dependencies(
         )
         raise ConfigError(
             "Enabled Resource capability dependency is unavailable",
-            key=f"capabilities.dependencies.{result.requirement_id}",
+            key=f"capabilities.resource.dependencies.{result.requirement_id.removeprefix('resource.')}",
             value=list(missing),
             expected="installed distributions, importable modules, and executables",
         )

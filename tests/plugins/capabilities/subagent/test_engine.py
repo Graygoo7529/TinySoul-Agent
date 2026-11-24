@@ -4,9 +4,8 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.integration
-
 from tinysoul.infra.concurrency import JoinedOperations
+from tinysoul.infra.config import ConfigError
 from tinysoul.infra.network import NetworkMode, NetworkPolicy
 from tinysoul.infra.process import ManagedProcessRequest, StdioProcess
 from tinysoul.kernel.jobs import JobRegistry, JobState
@@ -29,10 +28,31 @@ from tinysoul.plugins.capabilities.subagent.segments.connections import (
 )
 from tinysoul.plugins.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 from tinysoul.runtime.events import EnvironmentEvent, EventReceipt
+from tinysoul.plugins.capabilities.subagent.runtime_bridge import RuntimeSubagentBridge
+from tinysoul.runtime import RUNTIME_AGENT_END, RUNTIME_STARTUP_FAILED
 
 TURN_ID = "2026-07-12/1"
 NEXT_TURN_ID = "2026-07-12/2"
 DAY_TURN_ID = "2026-07-13/1"
+
+
+def test_subagent_runtime_bridge_preserves_boundary_and_local_failure_contracts() -> None:
+    bridge = RuntimeSubagentBridge()
+    configuration = bridge.from_config_error(
+        ConfigError("private", key="k" * 300, expected="e" * 300, value="secret")
+    )
+    assert configuration.reason == RUNTIME_STARTUP_FAILED
+    assert configuration.payload == {
+        "module": "subagent", "kind": "subagent.configuration_failed",
+        "key": "k" * 256, "expected": "e" * 256,
+    }
+    closed = bridge.close_failed(RuntimeError("private process details"))
+    assert closed.reason == RUNTIME_AGENT_END
+    assert closed.payload == {
+        "module": "subagent", "kind": "subagent.execution_close_failed",
+        "error_type": "RuntimeError",
+    }
+    assert SubagentFailure.BUSY.value == "busy"
 
 
 async def _settled(jobs: JobRegistry, turn: str, identity: str) -> None:
@@ -51,6 +71,7 @@ async def _prompt_ready(engine: SubagentEngine, identity: str, prompt: str) -> N
             await asyncio.sleep(0.01)
 
 
+@pytest.mark.integration
 async def test_real_acp_permission_same_turn_reuse_and_new_turn_isolation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

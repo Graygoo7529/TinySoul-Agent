@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 
 
 from ..documents import (
@@ -12,7 +12,7 @@ from ..documents import (
     StoredMemoryDocument,
     inline_memory_refs,
 )
-from ..errors import MemoryContractError, MemoryInvariantError
+from ..errors import MemoryInvariantError
 from ..refs import MemoryKind, MemoryRef
 from ..storage.persistent import MemoryStore
 

@@ -130,6 +130,21 @@ def test_plugin_configuration_allows_sibling_capability_scopes() -> None:
     )
 
 
+def test_plugin_configuration_rejects_unowned_container_children_before_parsing(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "tinysoul.toml").write_text(
+        "[capabilities.unowned]\nenabled = true\n", encoding="utf-8"
+    )
+    definitions = PluginDefinitions(
+        (_DefinitionPlugin("probe", _Configuration("capabilities.probe", _SettingsA)),)
+    )
+    config = ConfigEnvironment.from_project_root(tmp_path, env={})
+    with pytest.raises(ConfigError) as caught:
+        definitions.configure(config, tmp_path)
+    assert caught.value.key == "capabilities.unowned"
+
+
 @pytest.mark.parametrize(
     "section", ["Capabilities.probe", "capabilities..probe", "probe-"]
 )

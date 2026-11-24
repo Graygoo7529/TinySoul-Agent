@@ -6,6 +6,7 @@ from asyncio import Event
 import pytest
 
 from tinysoul.infra.concurrency import CleanupDiagnostic, JoinedOperations
+from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject
 from tinysoul.kernel.jobs import (
     JobError,
@@ -25,11 +26,41 @@ from tinysoul.kernel.loop.interaction.inbox import (
     WaitReason,
     WakeReason,
 )
-from tinysoul.runtime import RuntimeException
+from tinysoul.runtime import (
+    RUNTIME_AGENT_END, RUNTIME_STARTUP_FAILED, RUNTIME_TURN_END, RuntimeException,
+)
+from tinysoul.kernel.jobs.failures import JobFailureKind
+from tinysoul.kernel.jobs.runtime_bridge import RuntimeJobsBridge
 
 
 OWNER_TURN = "2026-07-12/1"
 TURN_ID = "2026-07-12/2"
+
+
+def test_jobs_configuration_bridge_projects_bounded_schema_diagnostics() -> None:
+    error = RuntimeJobsBridge().from_config_error(
+        ConfigError("private", key="k" * 300, expected="e" * 300, value="secret")
+    )
+    assert error.reason == RUNTIME_STARTUP_FAILED
+    assert error.payload == {
+        "module": "jobs", "kind": "jobs.configuration_failed",
+        "key": "k" * 256, "expected": "e" * 256,
+    }
+
+
+@pytest.mark.parametrize(
+    ("kind", "reason"),
+    (
+        (JobFailureKind.CONFIGURATION_FAILED, RUNTIME_STARTUP_FAILED),
+        (JobFailureKind.CONTRACT_VIOLATION, RUNTIME_TURN_END),
+        (JobFailureKind.SUPERVISION_FAILED, RUNTIME_TURN_END),
+        (JobFailureKind.EXECUTION_CLOSE_FAILED, RUNTIME_AGENT_END),
+    ),
+)
+def test_jobs_bridge_preserves_failure_transfers(kind: JobFailureKind, reason: str) -> None:
+    error = RuntimeJobsBridge().from_error(JobError("private", kind=kind))
+    assert error.reason == reason
+    assert error.payload == {"module": "jobs", "kind": kind.value, "error_type": "JobError"}
 
 
 class _Backend:

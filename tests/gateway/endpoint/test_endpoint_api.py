@@ -940,8 +940,10 @@ def test_network_status_uses_configuration_failure_contract(tmp_path: Path) -> N
     assert response.json()["error"]["details"]["key"] == "execution.network.mode"
 
 
-def test_config_activation_failure_uses_config_error_and_keeps_file(
+@pytest.mark.parametrize("operation", ("apply", "reload"))
+def test_nonconfiguration_activation_failure_keeps_500_and_saved_file(
     tmp_path: Path,
+    operation: str,
 ) -> None:
     config_dir = tmp_path / "configs"
     config_dir.mkdir()
@@ -985,9 +987,39 @@ def test_config_activation_failure_uses_config_error_and_keeps_file(
     assert response.status_code == 200
     assert response.json()["state"] == "saved"
     assert target.read_text(encoding="utf-8") != original
-    reload_response = client.post("/v2/config/reload", headers=_auth())
+    saved = target.read_bytes()
+    reload_response = client.post(
+        f"/v2/config/{operation}",
+        headers=_auth(),
+        json=(
+            {"operations": [{
+                "source_id": "project:configs/action.toml",
+                "path": "capabilities.expand.timeout_seconds",
+                "op": "set",
+                "value": 40.0,
+            }]}
+            if operation == "apply" else None
+        ),
+    )
     assert reload_response.status_code == 500
     assert reload_response.json()["error"]["code"] == "config.activation_failed"
+    assert target.read_bytes() == saved
+
+
+def test_expand_local_failure_http_code_keeps_one_owner_prefix(tmp_path: Path) -> None:
+    from tinysoul.plugins.capabilities.expand.failures import ExpandFailure, ExpandRequestError
+
+    engine, _gateway, _events = _engine(tmp_path)
+    app = create_endpoint_app(engine, engine.settings)
+
+    @app.get("/test-expand-failure")
+    async def reject() -> None:
+        raise ExpandRequestError(ExpandFailure.ARGUMENTS, "Invalid tool arguments")
+
+    with TestClient(app) as client:
+        response = client.get("/test-expand-failure", headers=_auth())
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "expand.invalid_arguments"
 
 
 def test_anthropic_model_capability_lookup_uses_saved_binding_without_exposing_key(

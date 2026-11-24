@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import cast
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys

@@ -5,7 +5,6 @@ from functools import partial
 
 from tinysoul.infra import StagingDirectoryManager
 from tinysoul.infra.network import ResolvedNetwork
-from tinysoul.kernel.action.runtime_bridge import RuntimeActionBridge
 from tinysoul.kernel.registration import (
     GenerationBuildContext,
     PluginConfig,
@@ -14,11 +13,13 @@ from tinysoul.kernel.registration import (
     ProfileBuildContext,
     ProfileKind,
 )
-from tinysoul.plugins.workspace.runtime_bridge import RuntimeWorkspaceBridge
 from tinysoul.plugins.workspace.services import WorkspaceService
 
 from .actions import register_web_actions
 from .config import WebSettings, parse_web_settings
+from .dependencies import kimi_search_api_key, require_web_dependencies
+from .runtime_bridge import RuntimeWebBridge
+from .service import WebCapabilityService
 
 
 @dataclass(frozen=True)
@@ -33,7 +34,7 @@ class WebPlugin:
             "capabilities.web",
             WebSettings,
             lambda tree, root: parse_web_settings(tree),
-            RuntimeActionBridge().from_config_error,
+            RuntimeWebBridge().from_config_error,
         ),
     )
 
@@ -43,6 +44,25 @@ class WebPlugin:
         workspace = context.services.get(WorkspaceService)
         staging = context.services.get(StagingDirectoryManager)
         settings = context.settings.get(WebSettings)
+        service: WebCapabilityService | None = None
+        if any(
+            action.enabled
+            for action in (
+                settings.search_by_kimi,
+                settings.discover_pages,
+                settings.fetch_with_defuddle,
+                settings.fetch_with_trafilatura,
+            )
+        ):
+            require_web_dependencies(settings)
+            service = WebCapabilityService(
+                workspace=workspace,
+                staging=staging,
+                settings=settings,
+                runtime_env=context.runtime_env,
+                network=context.services.get(ResolvedNetwork),
+                kimi_api_key=kimi_search_api_key(settings, context.runtime_env),
+            )
 
         def extend(
             kind: ProfileKind, profile: ProfileBuildContext
@@ -52,12 +72,8 @@ class WebPlugin:
                 requires=(WorkspaceService,),
                 actions=partial(
                     register_web_actions,
-                    workspace=workspace,
-                    staging=staging,
                     settings=settings,
-                    network=context.services.get(ResolvedNetwork),
-                    runtime_bridge=RuntimeWorkspaceBridge(),
-                    runtime_env=dict(context.runtime_env),
+                    service=service,
                 ),
             )
 
