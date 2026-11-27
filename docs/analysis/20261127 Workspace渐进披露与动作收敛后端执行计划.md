@@ -1,9 +1,11 @@
 # Workspace 渐进披露与动作收敛后端执行计划
 
 - 日期：2026-11-27
-- 状态：`pending`（已完成现状核查与方案定稿，待维护者确认后实施）
+- 状态：`ready`（维护者已确认全仓 Context 段预算统一为 tokens、不保留旧版兼容、先实施 Workspace 后端；已完成全链路代码审计修订）
 - 核对基线：`712abf02`
-- 关联计划：[Workspace 契约同步与界面精简前端执行计划](20261127%20Workspace契约同步与界面精简前端执行计划.md)
+- 关联计划：
+  - [Workspace 契约同步与界面精简前端执行计划](20261127%20Workspace契约同步与界面精简前端执行计划.md)
+  - [Context 统一预算与 Session 多级压缩后端执行计划](20261127%20Context统一预算与Session多级压缩后端执行计划.md)
 - 依据：
   - [AGENTS.md](../../AGENTS.md)
   - [Workspace 设计](../design/workspace.md)
@@ -20,7 +22,7 @@
 
 | 已确认决策 | 目标语义与实施约束 |
 | --- | --- |
-| `WorkspaceSegment` 段内水位折叠 | 段内每次 `prepare` 按 `max_context_chars = 10240`、`default_expand_depth = 3` 做无状态确定性树折叠（低优派生目录默认折叠，超水位子目录折叠为带子项计数的目录摘要并通过 `workspace.inspect` 按需展开，不丢弃资源入口）；不接入全局 `SegmentCapability.RECLAIM` 动态改预算，保持 100% 无状态纯投影并避免 `State` 顺位先于 `TurnTrace` 被削减 |
+| `WorkspaceSegment` 段内 Token 水位折叠 | 全仓常驻 Context 段预算统一采用 `tokens`（在 P1 先落地纯 `infra` 层的 `tinysoul/infra/tokens.py` 确定性估算器）；段内每次 `prepare` 按 `max_context_tokens = 3000`、`default_expand_depth = 3` 做无状态确定性树折叠（低优派生目录默认折叠，超水位子目录折叠为带子项计数的目录摘要并通过 `workspace.inspect` 按需展开，不丢弃资源入口）；不接入全局 `SegmentCapability.RECLAIM` 动态改预算，保持 100% 无状态纯投影并避免 `State` 顺位先于 `TurnTrace` 被削减 |
 | 统一“一切皆文档”目录披露与磁盘上限解耦 | 目录摘要展示直接/子树资源统计而非无意义的 `0 bytes`；`workspace.inspect` 统一承担文件正文、子目录及根 `workspace:` 的有界分页披露（结果经 `TurnTrace` 单轮保护后可折叠，不反向把 `WorkspaceSegment` 变成有状态展开表）；磁盘扫描上限 `max_files` 放宽至 `5000` 并补充常见派生忽略目录 |
 | 彻底移除 `tag` 与 `description` | 从 `WorkspaceManifest`（升级为 `schema_version = 5`）、`WorkspaceResourceRecord`、`WORKSPACE_SEARCH_FILTERS`、Action Catalog、Endpoint 路由与 Schema 中完整移除 `tags` 与 `description`；`manifest` 回归 100% 确定性磁盘派生索引，消除覆写后描述腐烂与提示词虚假承诺 |
 | 读写动作正交收敛（19 → 11） | 移除 `list`、`read`、`insert`、`tag`、`describe`、`analyze`、`trash_list`；`write` 更名为 `workspace.create`（默认新建，保留 `overwrite: bool = false`，收紧内联上限 `max_create_chars = 12288`） |
@@ -30,7 +32,7 @@
 
 进度检查项：
 
-- [ ] P1：配置模型、配置目录描述符与纯派生 Manifest Schema v5 重构
+- [ ] P1：`infra/tokens.py` 纯文本估算基座、配置模型、配置目录描述符与纯派生 Manifest Schema v5 重构
 - [ ] P2：`WorkspaceSegment` 无状态渐进式树折叠投影与根 `workspace:` 披露支持
 - [ ] P3：`edit` 锚点语义、`create`、`restore` 原路径恢复与 `compose` 片段定位生成实现
 - [ ] P4：Action Catalog、模型用途绑定、固定提示词、Home Skills 与 Endpoint 契约同步
@@ -42,7 +44,7 @@
 
 | 切面 | 当前状态 | 改进后目标语义 |
 | --- | --- | --- |
-| `WorkspaceSegment` 上下文投影 | 平铺输出 `manifest.resources` 全量条目，无字符/层级预算；目录显示 `Directory, 0 bytes` | 每次 `prepare` 按 `max_context_chars = 10240` 与 `default_expand_depth = 3` 输出无状态紧凑树视图；派生目录（`jobs`、`mcp`、`connections`、`*.assets`）默认折叠；目录显示真实子项统计，不接入全局 `RECLAIM` 动态改预算 |
+| `WorkspaceSegment` 上下文投影 | 平铺输出 `manifest.resources` 全量条目，无预算约束；目录显示 `Directory, 0 bytes` | 每次 `prepare` 按 `max_context_tokens = 3000` 与 `default_expand_depth = 3` 输出无状态紧凑树视图；派生目录（`jobs`、`mcp`、`connections`、`*.assets`）默认折叠；目录显示真实子项统计，不接入全局 `RECLAIM` 动态改预算 |
 | 磁盘发现上限与索引协议 | `max_files = 100`，`WorkspaceManifest` schema v4 含手工 `description` 与 `tags`，`move`/`restore` 需预写中间元数据防丢失 | `max_files = 5000`，`ignore_dirs` 增补 `.venv`、`node_modules`；Manifest 升至 schema v5，仅保留 8 个确定性磁盘字段；移除中间元数据预写与 `tags` 搜索过滤字段 |
 | 发现与读取动作 | 同时存在 `search`、`inspect`、`list`、`read`、`trash_list` 5 个枚举/读取动作 | 仅保留 `workspace.search` 与 `workspace.inspect`（支持文本范围/章节、子目录及根 `workspace:` 分页），与 Home/Memory/Context 完全统一 |
 | 创建、生成与局部修改动作 | `write`（32k 字面量）与 `compose` 边界重叠；`insert(after_line)` 易受行号漂移影响；`edit` 报错笼统且插入需重复原文 | `workspace.create` 负责确定性短文本新建/显式覆盖（`12288` 字符）；`workspace.edit` 支持 `position` 锚点替换/前后插入与精确行号诊断；`workspace.append` 负责尾部追加；`workspace.compose` 支持整文件撰写及 `#fragment` 片段改写/插入 |
@@ -63,7 +65,7 @@
 
 1. `tinysoul/plugins/workspace/projection.py:106-174` 中，`WorkspaceSegment` 注册为 `SegmentDescriptor("workspace", "workspace", SegmentSlot.WORKING, 20)`（默认 `SegmentShape.STATE`，`capabilities=frozenset()`），每次 `render()` 将 `manifest.resources` 全量拼接输出，无任何字符或深度预算。
 2. 核查段内水位折叠与全局压力回收（`TurnSegments.reclaim` `tinysoul/kernel/context/segments/collection.py:238-257`）的关系：
-   - 在每次 `prepare()` 已按 `max_context_chars = 10240`（约 2.5k tokens，不足默认 262k 窗口的 1%）完成树折叠后，`WorkspaceSegment` 已像 `memory.max_active_chars`（12288）和 `home.max_skill_catalog_chars`（8192）一样天然有界，不会成为全局窗口压力源；
+   - 在每次 `prepare()` 已按 `max_context_tokens = 3000`（约 9k～10.5k 字符，不足默认 262k 窗口的 1.2%）完成树折叠后，`WorkspaceSegment` 天然有界，不会成为全局窗口压力源；
    - `TurnSegments.reclaim` 的回收顺序固定为 `STATE → HEAP → STACK → MAP`。若让 `WorkspaceSegment`（`STATE`）接入 `RECLAIM` 动态缩减预算，在长对话因 `TurnTrace`（`STACK`）膨胀触发窗口压力时，系统会先削减当前正在使用的工作区目录，而非先折叠过期的 `TurnTrace`；
    - 因此明确采用**仅在 `prepare()` 执行段内固定水位树折叠、不声明 `SegmentCapability.RECLAIM`、不维护可变本轮预算**的纯无状态方案。
 3. 磁盘扫描耦合问题：`tinysoul/plugins/workspace/config.py:21` 默认 `max_files = 100`；一旦工作区目录与文件总数达到 100（如 PDF 拆图或多次脚本产物），`reconcile()` 返回 `limit_reached=True, complete=False`，导致 `WorkspaceTurnPreparationHandler.prepare`（`projection.py:373-385`）直接抛出 `WorkspaceFailureKind.IO_FAILED` 阻断新 Turn 启动。
@@ -85,34 +87,37 @@
    - `mutations.py:183-189` 中 `edit_text` 对“未找到”和“匹配多处”抛出同一无 `feedback` 的 `WorkspaceContractError`，模型只收到笼统的 `INVALID_WORKSPACE_REQUEST`；
    - `operations.py:313-427` 中 `workspace.compose` 仅支持整文件读取与覆写，缺少复用 `fragment_range`（`tinysoul/kernel/retrieval/disclosure.py:616-654`）做章节/行区间局部生成的能力；
    - `mutations.py:269-289` 中 `restore_resource` 仅接受 `trash:workspace/<32hex>`，移除 `trash_list` 后需支持按原 `workspace:<path>` 定位最近删除项。
-3. **残留方法与配置引用**：
-   - `WorkspacePlugin.model_uses`（`plugin.py:130-136`）、`assets/{standard,development}/configs/action/routing.toml:16-25`、`infra/config/catalog/context.toml:315-406` 仍持有 `describe`、`analyze`、`max_read_chars` 及 `workspace.analysis.*` 定义，需整体对齐。
+3. **残留方法、归档视图与配置引用**：
+   - `WorkspaceArchiveView`（`engine.py:120-168, 548`）与 `ArchivedWorkspaceSegment`（`projection.py:208, 242`）仍直接引用 `max_read_chars` 与 `item.context_summary`，`WorkspaceReader.read_text` / `prepare_task_input`（`reader.py:95, 268`）默认回退 `max_read_chars`，移除 `context_summary` 与重命名 `max_inspect_chars` 时必须同步收敛；
+   - `WorkspaceChangeOperation`（`events.py:35-49`、`engine.py:946-952`）中，`WRITE` 仍服务于底层 `write_text`（供 `workspace.create`、`workspace.compose` 与 Endpoint `PUT /v2/workspace/resource` 共用），应保留 `WRITE` 并仅移除无消费者的 `DESCRIBE`、`INSERT`、`TAG`；
+   - `WorkspacePlugin.model_uses`（`plugin.py:130-136`）、`assets/{standard,development}/configs/action/routing.toml:16-25`、`infra/config/catalog/context.toml:315-406`、`prompts/README.md:19` 仍持有 `describe`、`analyze`、`max_read_chars` 及 `workspace.analysis.*` 定义，需整体对齐。
 
 ---
 
 ## 3. 详细改进设计
 
-### 3.1 配置模型重构（`WorkspaceSettings` 与配置目录同步）
+### 3.1 Token 估算基座前置与配置模型重构（`infra/tokens.py` & `WorkspaceSettings`）
 
-修改 `tinysoul/plugins/workspace/config.py`：
-
-1. **常量与字段调整**：
+1. **前置落地纯基础设施 `tinysoul/infra/tokens.py`（与后续 Context 计划共用）**：
+   - 严格遵守 `tests/test_architecture.py:145`（`infra` 仅允许依赖 `infra`，严禁导入 `tinysoul.llm`）：提供无外部重依赖的确定性纯函数 `estimate_text_tokens(text: str) -> int`（ASCII 按 `3.5 chars/token`、非 ASCII 按 `1.0 char/token` 上取整）与 `estimate_json_tokens(value: JsonValue) -> int`；
+   - 注：Workspace 后端阶段仅由 `WorkspaceSegment` 消费 `estimate_text_tokens`，暂不改动 `llm/execution/context_window.py`（留待 Context 后端 C1 切换），确保本计划独立实施与测试验证边界完全自洽。
+2. **`WorkspaceSettings` 常量与字段调整（`tinysoul/plugins/workspace/config.py`）**：
    - `DEFAULT_MAX_FILES = 5000`（原 `100`）；
    - `DEFAULT_IGNORE_DIRS` 在现有列表基础上增补 `".venv"`、`"node_modules"`，避免在工作区内执行环境/包管理命令时扫描数万第三方依赖文件；
-   - `DEFAULT_MAX_CONTEXT_CHARS = 10240`（`WorkspaceSegment` 默认字符预算，要求 `>= 512`）；
+   - `DEFAULT_MAX_CONTEXT_TOKENS = 3000`（`WorkspaceSegment` 默认常驻 Token 预算，要求 `>= 128`，全仓统一使用 `tokens` 表述段预算）；
    - `DEFAULT_EXPAND_DEPTH = 3`（默认树展开深度，要求 `>= 1`；1 表示仅根目录直接子项，3 表示默认展开至 `dir/subdir/file`）；
-   - `DEFAULT_MAX_INSPECT_CHARS = 8192`（替换原 `max_read_chars`，对齐 `session.max_inspect_chars`、`memory.inspect.max_page_chars`、`context.max_trace_inspect_chars`，要求 `>= MIN_CONTINUATION_PAGE_CHARS`）；
+   - `DEFAULT_MAX_INSPECT_CHARS = 8192`（单页读取切片边界仍用字符，替换原 `max_read_chars`，对齐 `session.max_inspect_chars`、`memory.inspect.max_page_chars`、`context.max_trace_inspect_chars`，要求 `>= MIN_CONTINUATION_PAGE_CHARS`）；
    - `DEFAULT_MAX_CREATE_CHARS = 12288`（约束 `workspace.create` 内联字面量文本长度，要求 `0 < max_create_chars <= max_write_chars`）；
    - `DEFAULT_MAX_WRITE_CHARS = 65536`（原 `32768`，约束单文件完整可编辑文本、`compose` 最终落盘文本及 Endpoint 全文写入上限）。
-2. **`WorkspaceComposeSettings` 替代 `WorkspaceAnalysisSettings`**：
+3. **`WorkspaceComposeSettings` 替代 `WorkspaceAnalysisSettings`**：
    - 移除 `workspace.analysis` 配置子树与 `WorkspaceAnalysisSettings`；
    - 新增 `WorkspaceComposeSettings`（对应配置节 `[workspace.compose]`）：
      - `max_instruction_chars: int = 4096`
      - `max_reference_refs: int = 8`
      - `max_reference_chars: int = 32768`（单个参考文本资源读取上限）
-3. **同步配置文件与配置元数据目录**：
+4. **同步配置文件与配置元数据目录**：
    - 更新 `tinysoul/assets/standard/configs/workspace.toml` 与 `tinysoul/assets/development/configs/workspace.toml`；
-   - 更新 `tinysoul/infra/config/catalog/context.toml` 中 `surface = "workspace"` 的字段定义：移除 `workspace.max_read_chars` 与 `workspace.analysis.*`，新增 `workspace.max_context_chars`、`workspace.default_expand_depth`、`workspace.max_inspect_chars`、`workspace.max_create_chars` 及 `workspace.compose.*`（组名 `workspace.compose`）。
+   - 更新 `tinysoul/infra/config/catalog/context.toml` 中 `surface = "workspace"` 的字段定义：移除 `workspace.max_read_chars` 与 `workspace.analysis.*`，新增 `workspace.max_context_tokens`、`workspace.default_expand_depth`、`workspace.max_inspect_chars`、`workspace.max_create_chars` 及 `workspace.compose.*`（组名 `workspace.compose`）。
 
 ### 3.2 纯派生 Manifest Schema v5 与存储简化
 
@@ -139,9 +144,9 @@
    - 从 `WorkspaceManifest.resources` 构建内存树，统计每个目录的直接子目录数、直接文件数及子树总文件数、子树最大 `mtime_ns`；
    - 定义低优派生目录判定规则：顶层 `workspace:jobs`、`workspace:mcp`、`workspace:connections`，以及任意层级名称以 `.assets` 结尾的目录。此类目录在 `WorkspaceSegment` 中**默认保持折叠**，仅展示一行目录聚合摘要，不自动展开内部明细。
 2. **有界广度优先（BFS）树折叠算法（纯函数无状态投影）**：
-   - 输入：`manifest`、`max_chars`（`settings.max_context_chars = 10240`）、`max_depth`（`settings.default_expand_depth = 3`）；
-   - 第 1 步（根层基线）：收集深度为 1 的所有条目（普通目录与文件优先于低优派生目录，同类按名称稳定排序；若仅根层条目渲染已超 `max_chars`，按子树/文件 `mtime_ns` 降序保留最近活跃项，并在末尾追加根折叠提示行 `... (+N more root items folded; use workspace.inspect on "workspace:" to browse)`）；
-   - 第 2 步（逐层按水位展开）：对深度 `d = 1 .. max_depth - 1` 的非低优非空目录，按子树最新 `mtime_ns` 降序尝试展开其直接子项；若展开该目录后总渲染字符数 `<= max_chars`，则采纳展开（深度 `< max_depth - 1` 的子目录进入下一层候选），否则保持折叠为目录摘要（有结构压缩而非丢弃路径）；
+   - 输入：`manifest`、`max_tokens`（`settings.max_context_tokens = 3000`）、`max_depth`（`settings.default_expand_depth = 3`），使用 `infra.tokens.estimate_text_tokens` 计量渲染文本；
+   - 第 1 步（根层基线）：收集深度为 1 的所有条目（普通目录与文件优先于低优派生目录，同类按名称稳定排序；若仅根层条目渲染已超 `max_tokens`，按子树/文件 `mtime_ns` 降序保留最近活跃项，并在末尾追加根折叠提示行 `... (+N more root items folded; use workspace.inspect on "workspace:" to browse)`）；
+   - 第 2 步（逐层按水位展开）：对深度 `d = 1 .. max_depth - 1` 的非低优非空目录，按子树最新 `mtime_ns` 降序尝试展开其直接子项；若展开该目录后总渲染估算 token 数 `<= max_tokens`，则采纳展开（深度 `< max_depth - 1` 的子目录进入下一层候选），否则保持折叠为目录摘要（有结构压缩而非丢弃路径）；
    - **渲染格式（模型可读文本）**：
      - 空目录：`- workspace:output (Directory, empty)`
      - 已展开目录：记为 `- workspace:src (Directory: 2 dirs, 4 files)`，其已展开子项按稳定路径序紧随其后；
@@ -185,7 +190,7 @@
 - 参数：
   - `target_ref: str`（支持 `workspace:path/to/file.md` 或带定位片段 `workspace:path/to/file.md#heading-slug` / `workspace:path/to/file.md#L20-L60`）
   - `instruction: str`（必填，受 `compose.max_instruction_chars` 约束）
-  - `references: list[str] = []`（可选只读参考资源，受 `compose.max_reference_refs` 与 `compose.max_reference_chars` 约束；比较重名时按去掉 `#fragment` 后的基础资源路径排除自引用冲突，或允许引用同文件的其他片段）
+  - `references: list[str] = []`（可选只读参考资源，受 `compose.max_reference_refs` 与 `compose.max_reference_chars` 约束；整文件生成时禁止包含同一 `target_ref` 文件，带 `#fragment` 局部生成时禁止传入完全相同的 `target_ref` 片段但允许引用同文件的其他 `#heading` / `#Lstart-Lend` 片段）
   - `mode: "replace" | "before" | "after" = "replace"`（片段定位模式；无 `#fragment` 时仅接受默认的 `"replace"`，传入 `"before"`/`"after"` 返回局部错误引导添加 `#fragment` 或改用 `workspace.append`）
   - `overwrite: bool = False`（仅对**无 `#fragment` 且目标文件已存在**时要求 `overwrite=True`；带 `#fragment` 时本身即表示对已有文件的显式局部改写，无需额外传 `overwrite=True`）
 - 执行流程：
@@ -210,8 +215,8 @@
 1. **`tinysoul/plugins/workspace/` 内部清理**：
    - 删除 `tinysoul/plugins/workspace/actions/analysis.py`（`WorkspaceAnalyzeExecutor`）；
    - `prompts.py`：删除 `WorkspaceAnalysisPromptBuilder`，保留并精简服务于 `compose` 的 `WorkspacePromptReferenceResolver`（单参考读取上限改用 `settings.compose.max_reference_chars`）；
-   - `inspection/models.py` & `inspection/reader.py`：删除仅服务于 `analyze` 与 `workspace.read` 的 `WorkspaceAnalysis*` 类型、`prepare_analysis_references`、`WorkspaceTextRangeResult`、`WorkspaceReader.read_text_range`（注：保留 `inspection/text.py` 的底层 `read_text_range` 函数供 `browse_text` 继续分页读取）；
-   - `engine.py` & `services.py` & `__init__.py`：移除 `WorkspaceTag`、`tag`、`set_description`、`insert_text`、`read_text_range`、`prepare_analysis_references`；`WorkspaceChangeOperation` 移除 `INSERT`、`TAG`、`DESCRIBE`。
+   - `inspection/models.py` & `inspection/reader.py`：删除仅服务于 `analyze` 与 `workspace.read` 的 `WorkspaceAnalysis*` 类型、`prepare_analysis_references`、`WorkspaceTextRangeResult`、`WorkspaceReader.read_text_range`（保留 `inspection/text.py` 的底层 `read_text_range` 函数供 `browse_text` 继续分页读取）；将 `WorkspaceReader.read_text` 与 `prepare_task_input` 的默认上限从 `max_read_chars` 切换为 `max_inspect_chars`；
+   - `engine.py`、`projection.py`、`events.py`、`services.py`、`__init__.py`：移除 `WorkspaceTag`、`tag`、`set_description`、`insert_text`、`read_text_range`、`prepare_analysis_references`；`WorkspaceChangeOperation` 保留底层 `WRITE`（服务 `write_text`），移除 `INSERT`、`TAG`、`DESCRIBE`；`WorkspaceArchiveView` 将 `max_read_chars` 更名为 `max_inspect_chars`，`ArchivedWorkspaceSegment` 将 `item.context_summary` 切换为 `item.summary`。
 2. **`tinysoul/gateway/endpoint/` 契约同步**：
    - `http/routes/workspace.py`：删除 `PUT /v2/workspace/tags` 与 `POST /v2/workspace/insert`；
    - `http/schemas/workspace.py`：删除 `WorkspaceTagRequest`、`WorkspaceInsertRequest`；`WorkspaceEdit` 增加 `position: WorkspaceEditPosition = WorkspaceEditPosition.REPLACE`；`WorkspaceRestoreRequest` 调整为可选 `trash_ref: str | None = None` 与 `ref: str | None = None`（模型校验恰提供其一）；
@@ -235,11 +240,11 @@
 
 | 阶段 | 核心工作 | 主要涉及文件 |
 | --- | --- | --- |
-| **P1：配置与存储基座** | 更新 `WorkspaceSettings` / `WorkspaceComposeSettings` 及配置目录；升级 `WorkspaceManifest` 至 schema v5，移除 `tags`/`description` 及冗余迁移逻辑 | `tinysoul/plugins/workspace/config.py`<br>`tinysoul/plugins/workspace/storage/{manifest,reconcile,mutations,trash}.py`<br>`tinysoul/infra/config/catalog/context.toml`<br>`tinysoul/assets/{standard,development}/configs/workspace.toml` |
-| **P2：渐进披露与根引用** | 实现 `WorkspaceSegment` 无状态树折叠投影；支持根 `"workspace:"` 的 `inspect`、`canonical_reference` 与 `search` 目录范围；更新 `WORKSPACE_SEARCH_FILTERS` | `tinysoul/plugins/workspace/projection.py`<br>`tinysoul/plugins/workspace/engine.py`<br>`tinysoul/prompts/plugins/workspace.py` |
-| **P3：动作重构与服务收敛** | 实现 `create`、锚点 `edit`、片段 `compose`、原路径 `restore`；删除 `analysis.py` 及 7 个废弃动作分支与 `WorkspaceService`/`Reader` 死方法 | `tinysoul/plugins/workspace/actions/{__init__,operations}.py`（删除 `analysis.py`）<br>`tinysoul/plugins/workspace/{prompts,services,plugin,__init__}.py`<br>`tinysoul/plugins/workspace/inspection/{models,reader}.py` |
+| **P1：Token 基座、配置与存储** | 新增纯 `infra` 层 `tinysoul/infra/tokens.py`；更新 `WorkspaceSettings` / `WorkspaceComposeSettings` 及配置目录；升级 `WorkspaceManifest` 至 schema v5，移除 `tags`/`description` 及冗余迁移逻辑 | `tinysoul/infra/tokens.py`<br>`tinysoul/plugins/workspace/config.py`<br>`tinysoul/plugins/workspace/storage/{manifest,reconcile,mutations,trash}.py`<br>`tinysoul/infra/config/catalog/context.toml`<br>`tinysoul/assets/{standard,development}/configs/workspace.toml` |
+| **P2：渐进披露与根引用** | 实现 `WorkspaceSegment` 无状态 Token 水位树折叠投影及 `ArchivedWorkspaceSegment` 同步；支持根 `"workspace:"` 的 `inspect`、`canonical_reference` 与 `search` 目录范围；更新 `WORKSPACE_SEARCH_FILTERS` | `tinysoul/plugins/workspace/projection.py`<br>`tinysoul/plugins/workspace/engine.py`<br>`tinysoul/prompts/plugins/workspace.py` |
+| **P3：动作重构与服务收敛** | 实现 `create`、锚点 `edit`、片段 `compose`、原路径 `restore`；删除 `analysis.py` 及 7 个废弃动作分支与 `WorkspaceService`/`Reader`/`Events` 死方法与死枚举 | `tinysoul/plugins/workspace/actions/{__init__,operations}.py`（删除 `analysis.py`）<br>`tinysoul/plugins/workspace/{events,prompts,services,plugin,__init__}.py`<br>`tinysoul/plugins/workspace/inspection/{models,reader}.py` |
 | **P4：资产与 Endpoint 同步** | 更新 Action Catalog `.toml`、`routing.toml`、Home `DOMAIN.md` / `working.md` / `skills_action`；同步 Endpoint 路由与 Schema | `tinysoul/assets/common/configs/action/catalog/workspace/**`<br>`tinysoul/assets/{standard,development}/configs/action/routing.toml`<br>`tinysoul/assets/common/home/**`<br>`tinysoul/gateway/endpoint/{engine/workspace.py,http/routes/workspace.py,http/schemas/workspace.py}` |
-| **P5：文档、测试与门禁** | 同步设计文档与 Endpoint 文档；迁移跨模块测试中的 `workspace.list`/`read`/`write`/`analyze` 假动作名，重写/新增 Workspace 单测与集成测试，跑通 Full + `ty check` | `AGENTS.md`、`docs/design/{workspace,action}.md`、`docs/design/capabilities/resource.md`、`docs/endpoint/workspace.md`<br>`tests/plugins/workspace/**`、`tests/gateway/endpoint/**`、`tests/agent/**`、`tests/kernel/**`、`tests/support/**` |
+| **P5：文档、测试与门禁** | 同步设计文档、`prompts/README.md` 与 Endpoint 文档；迁移跨模块测试中的 `workspace.list`/`read`/`write`/`analyze` 假动作名，重写/新增 `tokens` 与 Workspace 单测及集成测试，跑通 Full + `ty check` | `AGENTS.md`、`tinysoul/prompts/README.md`、`docs/design/{workspace,action}.md`、`docs/design/capabilities/resource.md`、`docs/endpoint/workspace.md`<br>`tests/infra/test_tokens.py`、`tests/plugins/workspace/**`、`tests/gateway/endpoint/**`、`tests/agent/**`、`tests/kernel/**`、`tests/support/**` |
 
 ---
 
@@ -247,7 +252,7 @@
 
 1. **Workspace Owner 单元测试（`tests/plugins/workspace/`）**：
    - Manifest Schema v5：验证 8 字段序列化/反序列化，拒绝旧 v4 或含 `tags`/`description` 的未知字段；验证目录 `size=0, summary="Directory"`；验证 `max_files=5000` 及 `.venv`/`node_modules` 忽略规则；
-   - `WorkspaceSegment` 渐进树折叠投影：验证层级 `<= 3` 展开、超深目录折叠、`jobs`/`mcp`/`connections`/`*.assets` 默认折叠、超 `max_context_chars` 水位时按 `mtime_ns` 优先展开最近活跃子树并将其余子目录折叠为带计数摘要、根级超水位提示及同一 `manifest` 确定性渲染；
+   - `WorkspaceSegment` 渐进树折叠投影：验证层级 `<= 3` 展开、超深目录折叠、`jobs`/`mcp`/`connections`/`*.assets` 默认折叠、超 `max_context_tokens` 水位时按 `mtime_ns` 优先展开最近活跃子树并将其余子目录折叠为带计数摘要、根级超水位提示及同一 `manifest` 确定性渲染；
    - `inspect` 与根引用：验证 `inspect("workspace:")` 分页及 `continuation`、子目录计数摘要、`canonical_reference("workspace:")` 解析；
    - `create` / `edit` / `compose` / `restore`：
      - `create` 默认拒绝覆盖、`overwrite=True` 允许覆盖、超 `max_create_chars` 返回可修正失败；
@@ -271,7 +276,7 @@
 对照 `AGENTS.md` 核心定义与设计原则逐项核验：
 
 1. **概念与所有权一致性（合理）**：
-   - `WorkspaceSegment` 保持 `STATE` 形状与 100% 无状态纯投影：在 `prepare()` 按自身 `max_context_chars = 10240` 水位做树结构折叠（保留折叠目录引用与子项计数，绝不静默丢弃入口），目录按需展开走统一的 `workspace.inspect` → `TurnTrace` 可折叠结果，既不引入第二套“Working 展开状态机”，也避免了介入全局 `RECLAIM` 导致 `State` 先于旧 `TurnTrace` 被削减的顺位倒挂。
+   - `WorkspaceSegment` 保持 `STATE` 形状与 100% 无状态纯投影：在 `prepare()` 按自身 `max_context_tokens = 3000` 水位做树结构折叠（保留折叠目录引用与子项计数，绝不静默丢弃入口），目录按需展开走统一的 `workspace.inspect` → `TurnTrace` 可折叠结果，既不引入第二套“Working 展开状态机”，也避免了介入全局 `RECLAIM` 导致 `State` 先于旧 `TurnTrace` 被削减的顺位倒挂，并提前铺好 `infra/tokens.py` 供后续 Context 计划无缝复用。
 2. **模型认知与动作正交性（合理）**：
    - Workspace 从 19 个动作收敛为 11 个，消除了 `list` vs `inspect` vs `search`、`read` vs `inspect`、`write` vs `compose`、`insert` vs `edit` 四组历史重叠；
    - “短文本字面量用 `create`、锚点精确改/插用 `edit`、尾部追加用 `append`、整篇或 `#fragment` 章节长文用 `compose`”完全覆盖所有文本生产场景，且避开了 Phase2 大 JSON 转义失败与无 CAS 下的行号漂移问题。

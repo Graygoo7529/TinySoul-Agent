@@ -1,7 +1,7 @@
 # Context 统一预算与 Session 多级压缩后端执行计划
 
 - 日期：2026-11-27
-- 状态：`pending`（已完成全链路代码核查与架构设计，待维护者确认细项后实施）
+- 状态：`ready`（维护者已确认全仓 Context 段预算 100% 统一为 tokens、不兼容旧版存储、在 Workspace 后端完成后实施；已完成架构守卫与 Cycle 时序审计细化）
 - 核对基线：`712abf02`
 - 关联计划：
   - [Context 统一预算与 Session 多级压缩前端执行计划](20261127%20Context统一预算与Session多级压缩前端执行计划.md)
@@ -33,7 +33,7 @@
 
 进度检查项：
 
-- [ ] C1：`infra/tokens.py` 统一确定性 Token 估算器及 `llm/execution/context_window.py` 对齐
+- [ ] C1：`llm/protocol/tokens.py` 协议消息估算（复用先行落地的 `infra/tokens.py`）与 `llm/execution/context_window.py` 对齐
 - [ ] C2：`kernel/context` 段预算协议（`SegmentBudgetPolicy`）、段级自压缩调度与全局协同压力回收重构
 - [ ] C3：`TurnTrace`、`Home`（基线/动态分离 + LRU）、`Memory`（去空壳）、`Plan`/`Jobs`/`Connections` 段内冰山自压缩实现
 - [ ] C4：`Session` 动作语义分级、L0–L3 四级线性历史冰山与 `SessionMap` v2 重构
@@ -73,17 +73,19 @@
 
 ## 2. 详细改进设计
 
-### 2.1 统一确定性 Token 估算基础设施（`tinysoul/infra/tokens.py`）
+### 2.1 统一确定性 Token 估算分层（`infra/tokens.py` + `llm/protocol/tokens.py`）
 
-遵循 `infra` 纯基础设施原则（无第三方分词库重依赖、纯函数、O(N) 确定性计算）：
+严格遵循 `tests/test_architecture.py:145-150` 的模块依赖方向约束（`infra` 仅允许导入 `infra`，`llm` 允许导入 `infra/llm`，`kernel` 与 `plugins` 允许导入 `infra/llm`）：
 
-1. **文本与结构估算规则**：
+1. **纯基础设施标尺（`tinysoul/infra/tokens.py`，在先行的 Workspace 计划 P1 已落地）**：
    - 对字符串区分 ASCII 字符（`ord(ch) < 128`，按 `3.5 chars ≈ 1 token` 上取整）与非 ASCII 字符（中日韩及符号 `ord(ch) >= 128`，按 `1.0 char ≈ 1 token` 计）：
      `estimate_text_tokens(text) = ceil(ascii_count / 3.5 + non_ascii_count)`；
-   - JSON 值避免重复序列化大对象，对基础标量/容器递归累加键值 token 与结构分隔符开销；
-   - 统一提供 `estimate_message_tokens(message)`、`estimate_messages_tokens(messages)` 与 `estimate_tool_scope_tokens(tool_scope)`（保留合理的消息头与工具定义结构开销；内联 `ImagePart` 按 `max(85, len(data) // 750)` 估算视觉 token，同时继续受 `context.max_image_bytes` 字节硬上限独立约束）。
-2. **`LLM` 与 `Context` 共用同一标尺**：
-   - `tinysoul/llm/execution/context_window.py` 的 `ConservativeRequestTokenEstimator` 改为直接调用 `infra.tokens`；
+   - `estimate_json_tokens(value: JsonValue) -> int`：避免重复序列化大对象，对基础标量/容器递归累加键值 token 与结构分隔符开销；
+   - `estimate_image_tokens(byte_length: int) -> int`：按 `max(85, byte_length // 750)` 估算视觉 token（内联图像同时继续受 `context.max_image_bytes` 字节硬上限独立约束）。
+2. **协议消息与工具作用域估算（`tinysoul/llm/protocol/tokens.py`）**：
+   - 基于 `infra.tokens` 封装针对 `Message`、`ToolCall`、`ToolScope` 的 `estimate_message_tokens(message)`、`estimate_messages_tokens(messages)` 与 `estimate_tool_scope_tokens(tool_scope)`，供 `llm`、`kernel/context` 与 `plugins` 共用，绝不在 `infra` 中反向导入 `llm.protocol`。
+3. **`LLM` 窗口预检统一标尺**：
+   - `tinysoul/llm/execution/context_window.py` 的 `ConservativeRequestTokenEstimator` 改为直接调用 `llm.protocol.tokens`；
    - 供应商 API 真实分词超限返回 `ProviderErrorKind.CONTEXT_LIMIT` 时，`task.py:511` 的 `provider_reported_limit=True` 兜底路径保持不变。
 
 ### 2.2 Context 段预算模型与双层压缩调度（`tinysoul/kernel/context/`）
@@ -139,8 +141,9 @@ class CompressibleSegment(Protocol):
 
 #### 2.2.2 可用弹性池解析公式
 
-1. **参考有效窗口 $W_{\text{ref}}$**：
-   - Generation 装配时，取 `min(context.max_window_tokens, primary_loop_model_window_tokens)`（若配置了多个主循环模型，取 Phase1/Phase2 首选模型的较小窗口；独立单测无模型时默认 `131072`）；
+1. **参考有效窗口 $W_{\text{ref}}$（无耦合注入）**：
+   - 由 `LLMRunner` 门面暴露只读查询 `reference_window_tokens(*profiles: str) -> int | None`（读取主循环 Phase1/Phase2 首选模型的 `context_window_tokens` 最小值）；
+   - `UserTurnBuilder` 与 `Reflection` 组装器将其传入 `build_turn_context(..., reference_window_tokens=...)` → `ContextEngineBuilder`，与 `context.max_window_tokens` 取较小值作为 $W_{\text{ref}}$（独立单测未绑定模型时默认回退 `131072`），保持 `kernel/context` 与 `LLMSettings` 路由配置完全解耦，同时遵守 `test_agent_builder_does_not_assemble_turn_kernel_details`；
    - 全局触发线：`trigger_tokens = int(W_ref * context.compression_trigger_ratio)`（默认 `0.80`）；
    - 预留非段开销：`context.reserved_overhead_tokens`（默认 `16384` tokens，覆盖 Phase2 Tool Schemas、`TaskPrompt` 临时挂载 Skill 与模型输出预留的常规空间）。
 2. **固定基线扣除与比例池分配**：
@@ -150,12 +153,15 @@ class CompressibleSegment(Protocol):
      `effective_max_i = clamp(int(elastic_pool_tokens * w_i), min_tokens_i, max_tokens_i)`
      `target_i = int(effective_max_i * target_ratio_i)`。
 
-#### 2.2.3 两级触发逻辑
+#### 2.2.3 两级触发逻辑与 Cycle 边界保护时序
 
-1. **第一级：段自身高水位触发（常态主力，确定性执行）**
-   - 在 Turn `open()` 完成以及每次 `consume_signal_batch()` / `merge_pending_inputs()` 提交后，`ContextEngine` 遍历所有 `CompressibleSegment`：
+1. **第一级：段自身高水位触发（Cycle 边界常态主力，保护同轮编辑与缓存命中）**
+   - **关键时序设计**：在 **Turn `open()` 初始化完成时**，以及**每个完整 Cycle 边界（`CycleRunner` 进入新 Cycle 前的边界结算点 / Phase3 结果落入后，而非同一 Cycle 内 Phase1 → Phase2 之间）**，调用 `ContextEngine.reconcile_segment_budgets()` 遍历所有 `CompressibleSegment`：
    - 若 `segment.countable_tokens() > budget.effective_max_tokens`，立即调用 **`segment.compress_to(budget.target_tokens)`**（尽力而为，不抛异常中断正常流程）；
-   - **特例说明（回答维护者讨论点 2）**：像 `plan`、`jobs`、`connections` 这类配置为 `mode = FIXED, global_reclaim = False, target_ratio = 0.65~0.70` 的段，**完全不会被全局窗口压力打扰，但当自身在超长 Turn 中增长触及 `max_tokens` 时，会自动按 `target_ratio` 将已完结历史项折叠回落**！
+   - **为什么不在同一 Cycle 的 Phase1 与 Phase2 之间自压缩 `TurnTrace`**：
+     1. Cycle $N$ Phase3 刚通过 `workspace.inspect` 读入的原文页受 `_protected_overlays` 保护；Cycle $N+1$ Phase1 只能选域（如选中 `workspace`），随后立即触发 `mark_model_consumed` 释放保护——紧接着的 **Cycle $N+1$ Phase2** 正好需要对照这页原文构造 `workspace.edit(old_text=...)`。将常规自压缩锚定在 Cycle 边界，可保证新读入的 `inspect` 页面完整服务完 **Phase1 + Phase2 整个决策轮**，并在进入 Cycle $N+2$ 前确定性折叠回收（完全符合 `AGENTS.md:51`“解除保护不立即移除正文”）；
+     2. 同时避免在同一 Cycle 的 Phase1 与 Phase2 之间改写 `MessageStack` 中部历史，保住同 Cycle 内 Phase1 → Phase2 的供应商 Prompt Cache 前缀命中率！（注：Phase1 执行 `core.background` 动态加载 `Home` 时，对 `Home` 段单独检查动态高水位即可。）
+   - **固定小增长段特例**：像 `plan`、`jobs`、`connections` 这类配置为 `mode = FIXED, global_reclaim = False, target_ratio = 0.65~0.70` 的段，**完全不会被全局窗口压力打扰，但当自身在超长 Turn 中增长触及 `max_tokens` 时，会在 Cycle 边界自动按 `target_ratio` 将已完结历史项折叠回落**。
 2. **第二级：全局窗口阈值协同触发（`reclaim_pressure` 保险阀）**
    - 当 LLM 执行边界因某候选模型窗口较小（如降级到 64k 备选模型）、超大 MCP 工具集或分词偏差抛出 `ModelContextPressureError(usage)` 时：
    - 计算该候选模型的目标总消息容量：
@@ -184,7 +190,7 @@ class CompressibleSegment(Protocol):
 | `jobs` | `jobs.toml` | `FIXED`（`max_tokens = 1536`） | `0.65` | `False` | 始终完整保留 `RUNNING`/`WAITING_INPUT` 活动任务；超水位时将较早终态（`COMPLETED`/`FAILED`/`STOPPED`）任务折叠为单行摘要 `job_id [state] -> result_refs` |
 | `connections` | `subagent.toml` | `FIXED`（`max_tokens = 1024`） | `0.70` | `False` | 完整保留活动委派连接；超水位时将较早空闲（`idle`）连接压缩为 `connection_id (agent_id, idle)` |
 
-> **衔接说明**：Workspace 执行计划中的 `workspace.max_context_chars = 10240` 在与本计划合拢时统一对齐为 `workspace.max_context_tokens = 3000`（按 `infra/tokens.py` 约对应 9k～10.5k 字符），消除全仓唯一残留的常驻段字符预算键。
+> **衔接说明**：先行的 Workspace 后端计划已将 `workspace.max_context_tokens = 3000` 与 `tinysoul/infra/tokens.py` 落地；本计划在 C2/C5 直接为 `WorkspaceSegment` 补齐 `SegmentBudgetSpec(mode=FIXED, max_tokens=3000, target_ratio=1.0, global_reclaim=False, settings_page="workspace")` 声明以纳入 Context Overview 统一监控面板。
 
 ---
 
@@ -228,7 +234,7 @@ class CompressibleSegment(Protocol):
 
 #### 2.4.3 `SessionMap` 图结构 v2 与无重复压缩投影（`annotations/models.py` & `views/`）
 
-1. **存储结构升级（`map.json` `version = 2`）**：
+1. **存储结构升级（`map.json` 严格校验 `version == 2`，不保留 v1 历史兼容分支）**：
    - `SemanticNode`：
      - 新增字段 `turn_refs: tuple[str, ...] = ()`（校验每项为合法 `session:turn/YYYY-MM-DD/<seq>`，上限 64）；当 `kind == AnnotationKind.THREAD` 时，`turn_refs` 必填非空，直接表达该话题覆盖的轮次集合；`kind == AnnotationKind.NOTE` 时 `turn_refs` 可选；
      - `title` 上限 `160` 字符，`body` 上限从 `4000` 收紧为 `1200` 字符（促使模型提炼高密度话题脉络而非复制对话原文），`source_refs`（具体证据引用，上限 32）保持不变。
@@ -290,10 +296,14 @@ class CompressibleSegment(Protocol):
    - `max_skill_catalog_tokens = 2048`（替换原 `max_skill_catalog_chars = 8192`；`max_read_chars`/`max_write_chars` 保持字符单位不变）
    - 新增动态背景预算：`[home.context]`：`mode = "pool_share"`、`pool_share = 0.15`、`min_tokens = 4096`、`max_tokens = 16384`、`target_ratio = 0.65`
 4. **`workspace.toml`、`jobs.toml`、`capabilities/subagent.toml`**：
-   - `workspace.max_context_tokens = 3000`（衔接 Workspace 计划）
+   - `workspace.max_context_tokens = 3000`（已由先行 Workspace 计划落地，本计划直接接入 `SegmentBudgetSpec` 概览展示）
    - `jobs.max_context_tokens = 1536`、`jobs.context_target_ratio = 0.65`
-   - `capabilities.subagent.max_connections_tokens = 1024`
-5. 同步更新 `tinysoul/infra/config/catalog/context.toml` 与预设导出白名单 `tinysoul/infra/config/editing/presets.py`。
+   - `capabilities.subagent.max_connections_tokens = 1024`、`capabilities.subagent.connections_target_ratio = 0.70`
+5. **配置元数据目录与预设（Presets）同步**：
+   - `tinysoul/infra/config/catalog/context.toml`：更新 `context_rules`、`session`、`home` 段预算字段；
+   - `tinysoul/infra/config/catalog/execution.toml`：在 `surface = "jobs"` 下补充 `jobs.max_context_tokens`、`jobs.context_target_ratio`；
+   - `tinysoul/infra/config/catalog/capabilities.toml`：在 `surface = "capabilities.subagent"` 下补充 `capabilities.subagent.max_connections_tokens`、`capabilities.subagent.connections_target_ratio`；
+   - `tinysoul/infra/config/editing/presets.py`（`_BUDGETS` 与 `sections`）及 `docs/endpoint/contracts/examples/preset.json`：将旧 `session.max_background_chars`、`context.trace_chunk_chars` 替换为新 Token 预算路径。
 
 ---
 
@@ -301,18 +311,18 @@ class CompressibleSegment(Protocol):
 
 | 阶段 | 核心交付内容 | 主要涉及模块/文件 |
 | --- | --- | --- |
-| **C1：Token 标尺基座** | 实现 `tinysoul/infra/tokens.py`；切换 `llm/execution/context_window.py` 使用共享估算器并补齐中英文/代码/工具定义估算单测 | `tinysoul/infra/tokens.py`<br>`tinysoul/llm/execution/context_window.py` |
-| **C2：Context 预算与调度内核** | 定义 `SegmentBudgetSpec` / `CompressibleSegment`；在 `ContextEngine` & `TurnSegments` 实现弹性池解析、段级自压缩触发与按权重全局 `reclaim_pressure`；扩展 `installed_overview` | `tinysoul/kernel/context/{config,engine,compress,background}.py`<br>`tinysoul/kernel/context/segments/{protocol,collection,registration}.py` |
+| **C1：LLM 协议 Token 估算对齐** | 基于先行落地的 `infra/tokens.py` 新增 `tinysoul/llm/protocol/tokens.py`（`Message`/`ToolScope` 估算）并暴露 `reference_window_tokens`；切换 `llm/execution/context_window.py` 使用统一标尺并补齐中英文/代码/工具定义估算单测 | `tinysoul/llm/protocol/tokens.py`<br>`tinysoul/llm/execution/context_window.py`<br>`tinysoul/llm/runner.py` |
+| **C2：Context 预算与调度内核** | 定义 `SegmentBudgetSpec` / `CompressibleSegment`；在 `ContextEngine`、`TurnSegments` 与 `CycleRunner` 实现参考窗口注入、弹性池解析、Cycle 边界段级自压缩触发与按权重全局 `reclaim_pressure`；扩展 `installed_overview` | `tinysoul/kernel/context/{config,engine,compress,background}.py`<br>`tinysoul/kernel/context/segments/{protocol,collection,registration}.py`<br>`tinysoul/kernel/loop/{assembly,cycle}.py`<br>`tinysoul/agent/user/builder.py`、`tinysoul/plugins/reflection/**` |
 | **C3：各段自压缩与去空壳** | `TurnTraceHeap` 接入 token 分块与周期自压缩；`Home` 分离受保护基线与动态 LRU 预算（含当批加载保护）；`Memory` 移除空壳 `SELECT/RECLAIM`；`Plan`、`Jobs`、`Connections` 实现各自固定上限自压缩 | `tinysoul/kernel/context/builtin/{core,trace,working}.py`<br>`tinysoul/plugins/home/{config,background,engine}.py`<br>`tinysoul/plugins/memory/background.py`<br>`tinysoul/kernel/jobs/{config,segment}.py`<br>`tinysoul/plugins/capabilities/subagent/{config,segments/connections.py}` |
 | **C4：Session 四级冰山与 Map v2** | 实现 Session 动作四分类投影、L0–L3 线性冰山压缩；升级 `SessionMap` v2（`turn_refs`、移除 `COVERS`、轻量可选 `edge.body`、单次边渲染）；更新 `core.session.organize` catalog 与提示词 | `tinysoul/plugins/session/{config,projection}.py`<br>`tinysoul/plugins/session/annotations/models.py`<br>`tinysoul/plugins/session/views/{background,interaction,inspection,navigation}.py`<br>`tinysoul/prompts/plugins/session.py`<br>`tinysoul/assets/common/configs/action/catalog/core/actions/session_organize.toml` |
-| **C5：配置目录、契约与门禁** | 更新 `standard`/`development` TOML、`infra/config/catalog/context.toml`、`presets.py`；更新 `AGENTS.md`、`docs/design/{context,session,llm}.md`、`docs/endpoint/` schema 与示例；运行 Full 测试与 `ty check` | `tinysoul/infra/config/**`、`tinysoul/assets/**`<br>`AGENTS.md`、`docs/design/**`、`docs/endpoint/**`<br>`tests/**` |
+| **C5：配置目录、契约与门禁** | 更新 `standard`/`development` TOML、`infra/config/catalog/{context,execution,capabilities}.toml`、`presets.py`；更新 `AGENTS.md`、`docs/design/{context,session,llm}.md`、`docs/endpoint/` schema 与示例；运行 Full 测试与 `ty check` | `tinysoul/infra/config/**`、`tinysoul/assets/**`<br>`AGENTS.md`、`docs/design/**`、`docs/endpoint/**`<br>`tests/**` |
 
 ---
 
 ## 5. 合理性与可行性验证分析
 
 1. **所有权与依赖方向严格合规**：
-   - `infra/tokens.py` 位于最底层基础设施，`llm`、`kernel/context` 与 `plugins` 单向依赖它，不引入跨层反向引用；
+   - `infra/tokens.py` 仅做纯文本/JSON/字节估算（零上层依赖），`llm/protocol/tokens.py` 负责 `Message`/`ToolScope` 估算，`kernel/context` 与 `plugins` 单向依赖 `infra` 与 `llm`，100% 满足 `tests/test_architecture.py`；
    - 各插件继续在各自 TOML 节持有自身段预算配置，通过段注册描述符向 `ContextEngine` 声明 `SegmentBudgetSpec`，内核统一计算弹性池但绝不硬编码外围插件业务规则。
 2. **边界极端情况闭环**：
    - **当批次加载保护**：`Home` 动态加载某篇较大文档时，本批次 `prepare/install` 后若触发自压缩，刚请求加载的 ref 标记为当批活跃，优先逐出更早历史加载项，绝不出现“刚 `load` 进来还没给模型看就被自己逐出”的死循环；

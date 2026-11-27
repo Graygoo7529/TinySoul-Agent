@@ -1,7 +1,7 @@
 # Workspace 契约同步与界面精简前端执行计划
 
 - 日期：2026-11-27
-- 状态：`pending`（待后端契约落地或与后端计划协同实施）
+- 状态：`ready`（上游后端契约已定稿并对齐 `workspace.max_context_tokens`，待后端落地后实施）
 - 核对基线：`712abf02`
 - 上游依赖：[Workspace 渐进披露与动作收敛后端执行计划](20261127%20Workspace渐进披露与动作收敛后端执行计划.md)、更新后的 [Endpoint Workspace 协议](../endpoint/workspace.md)
 - 依据：
@@ -17,7 +17,7 @@
 | --- | --- | --- |
 | Manifest & Record（`GET /v2/workspace/manifest` 等） | `schema_version` 升至 `5`；`WorkspaceResourceRecord` 移除 `tags` 与 `description` 字段；目录 `size=0, summary="Directory"` | 更新 `WorkspaceResourceRecord` TS 接口；移除文件树、详情页头、回收站卡片中的标签徽章、描述行及标签编辑弹窗 |
 | Endpoint 写入与恢复路由 | 移除 `PUT /v2/workspace/tags`、`POST /v2/workspace/insert`；`POST /v2/workspace/edit` 的单项新增可选 `position?: "replace" \| "before" \| "after"`；`POST /v2/workspace/restore` 支持 `{ trash_ref }` 或 `{ ref }` | `WorkspaceClient` 移除 `setTags`（原本即未使用 `/insert`）；`WorkspaceTextEdit` 类型补充可选 `position`；`restore` 客户端支持 `{ trash_ref } \| { ref }` |
-| 配置目录（`/v2/config` & `WorkspacePage`） | 移除 `workspace.max_read_chars` 与 `workspace.analysis.*`；新增 `workspace.max_context_chars`、`workspace.default_expand_depth`、`workspace.max_inspect_chars`、`workspace.max_create_chars` 及 `workspace.compose.*` | 更新 `Settings -> WorkspacePage.tsx` 分组路径、移除 `pinned/tmp/important` 提示条，并同步 `i18n/catalog/zh-CN.ts` 字段译文 |
+| 配置目录（`/v2/config` & `WorkspacePage`） | 移除 `workspace.max_read_chars` 与 `workspace.analysis.*`；新增 `workspace.max_context_tokens`、`workspace.default_expand_depth`、`workspace.max_inspect_chars`、`workspace.max_create_chars` 及 `workspace.compose.*` | 更新 `Settings -> WorkspacePage.tsx` 分组路径、移除 `pinned/tmp/important` 提示条，并同步 `i18n/catalog/zh-CN.ts` 字段译文 |
 | Trace / Live Action 展示 | 移除 `workspace.list`、`read`、`insert`、`tag`、`describe`、`analyze`、`trash_list`；`workspace.write` 更名为 `workspace.create`；`edit` 含 `position`；`compose` 可含 `mode`/`fragment`/`target_range` | 更新 `ACTION_FAMILY` 注册表；清理 `analysisModel.ts`、`resultAnalysis.tsx`、`resultSearchInspect.tsx`、`resultShared.tsx` 死分支；支持 `workspace.create`、锚点 `edit` 与片段 `compose` 展示 |
 
 进度检查项：
@@ -92,7 +92,7 @@
      - **位置、容量与上下文披露**：
        - `workspace.root`
        - `workspace.max_files`（`min: 1`）
-       - `workspace.max_context_chars`（`min: 512`）
+       - `workspace.max_context_tokens`（`min: 128`）
        - `workspace.default_expand_depth`（`min: 1`）
        - `workspace.max_inspect_chars`（`min: 512`）
        - `workspace.max_create_chars`（`min: 1`）
@@ -110,7 +110,7 @@
        - `workspace.compose.max_reference_chars`（`min: 1`）
 2. **`visualization/src/i18n/catalog/zh-CN.ts`**：
    - 删除 `workspace.max_read_chars` 与 `workspace.analysis.*` 6 个旧键；
-   - 新增 `workspace.max_context_chars`、`workspace.default_expand_depth`、`workspace.max_inspect_chars`、`workspace.max_create_chars` 及 `workspace.compose.*` 的中文名称与说明（英文标题与说明直接来自后端 `infra/config/catalog/context.toml`）。
+   - 新增 `workspace.max_context_tokens`、`workspace.default_expand_depth`、`workspace.max_inspect_chars`、`workspace.max_create_chars` 及 `workspace.compose.*` 的中文名称与说明（英文标题与说明直接来自后端 `infra/config/catalog/context.toml`）。
 
 ### 2.4 Trace 抽屉与实时活动卡片适配（F4）
 

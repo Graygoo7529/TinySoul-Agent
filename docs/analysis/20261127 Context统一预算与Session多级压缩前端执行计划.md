@@ -1,7 +1,7 @@
 # Context 统一预算与 Session 多级压缩前端执行计划
 
 - 日期：2026-11-27
-- 状态：`pending`（待与后端计划协同确认实施）
+- 状态：`ready`（上游后端计划已定稿；不兼容旧 v1 `map.json`；待对应后端落地后实施）
 - 核对基线：`712abf02`
 - 上游依赖：
   - [Context 统一预算与 Session 多级压缩后端执行计划](20261127%20Context统一预算与Session多级压缩后端执行计划.md)
@@ -45,6 +45,7 @@
    - `visualization/src/features/settings/editors/HomePage.tsx`（更新 `max_skill_catalog_tokens` 与 `[home.context]` 动态加载区预算控件）
    - `visualization/src/features/settings/editors/WorkspacePage.tsx`（对齐 `workspace.max_context_tokens`）
    - `visualization/src/features/settings/editors/ExecutionPage.tsx`（补充 `jobs.max_context_tokens` / `context_target_ratio`）
+   - `visualization/src/features/settings/editors/SubagentPage.tsx`（补充 `capabilities.subagent.max_connections_tokens` / `connections_target_ratio`，承接 `connections` 段一键跳转）
    - `visualization/src/i18n/catalog/zh-CN.ts` 与 `visualization/src/i18n/messages/{zh-CN,en-US}/{context,settings,history}.ts`
 4. **Session 历史地图与 Trace 展示（`features/history/`、`features/trace/`）**：
    - `visualization/src/features/history/disclosure.ts` & `disclosure.test.ts`（`AnnotationNodeView` 新增 `turnRefs: string[]`；`AnnotationEdgeView` 兼容空 `body`）
@@ -95,7 +96,7 @@
 | --- | --- | --- |
 | **CF1：类型与解析同步** | 更新 `api/v2/context.ts`、`history/disclosure.ts` 及对应解析单测 | 新字段类型严格匹配后端 schema；缺失活动 Turn 或旧快照优雅展示 |
 | **CF2：窗口分解组件** | 实现 `<ContextWindowBreakdown />` 并接入 `ContextPage` 与 `OverviewPanel` | 进度条总宽、全局阈值刻度线、`Home` 基线/动态拆分展开、Owner 跳转路由准确 |
-| **CF3：各页预算编辑器** | 实现 `<SegmentBudgetControl />`，更新 `ContextPage`、`SessionPage`、`HomePage`、`WorkspacePage`、`ExecutionPage` 与 `i18n/catalog/zh-CN.ts` | 草稿修改、`PATCH /v2/config`、`apply` 校验及预设（Presets）读写正常 |
+| **CF3：各页预算编辑器** | 实现 `<SegmentBudgetControl />`，更新 `ContextPage`、`SessionPage`、`HomePage`、`WorkspacePage`、`ExecutionPage`、`SubagentPage` 与 `i18n/catalog/zh-CN.ts` | 草稿修改、`PATCH /v2/config`、`apply` 校验及预设（Presets）读写正常 |
 | **CF4：SessionMap v2 视图** | 更新 `SessionMapPanel.tsx`、`SessionRefPanel.tsx`、`resultSession.tsx` 及测试夹具 | `thread.turn_refs` 跳转正常，空 `edge.body` 无多余空框 |
 
 前端验证命令（`visualization/` 目录）：
