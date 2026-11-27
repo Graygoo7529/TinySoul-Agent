@@ -1,8 +1,8 @@
 # Workspace 渐进披露与动作收敛后端执行计划
 
 - 日期：2026-11-27
-- 状态：`ready`（维护者已确认全仓 Context 段预算统一为 tokens、不保留旧版兼容、先实施 Workspace 后端；已完成全链路代码审计修订）
-- 核对基线：`712abf02`
+- 状态：`ready`（准备实施，P1–P5 均未开始；可先于 Context/Session 独立实施）
+- 初审基线：`712abf02`；实施准入复核：`6988824d`。两者之间只有计划与讨论笔记变化，没有后端实现变化。
 - 关联计划：
   - [Workspace 契约同步与界面精简前端执行计划](20261127%20Workspace契约同步与界面精简前端执行计划.md)
   - [Context 统一预算与 Session 多级压缩后端执行计划](20261127%20Context统一预算与Session多级压缩后端执行计划.md)
@@ -25,7 +25,7 @@
 | `WorkspaceSegment` 段内 Token 水位折叠 | 全仓常驻 Context 段预算统一采用 `tokens`（在 P1 先落地纯 `infra` 层的 `tinysoul/infra/tokens.py` 确定性估算器）；段内每次 `prepare` 按 `max_context_tokens = 3000`、`default_expand_depth = 3` 做无状态确定性树折叠（低优派生目录默认折叠，超水位子目录折叠为带子项计数的目录摘要并通过 `workspace.inspect` 按需展开，不丢弃资源入口）；不接入全局 `SegmentCapability.RECLAIM` 动态改预算，保持 100% 无状态纯投影并避免 `State` 顺位先于 `TurnTrace` 被削减 |
 | 统一“一切皆文档”目录披露与磁盘上限解耦 | 目录摘要展示直接/子树资源统计而非无意义的 `0 bytes`；`workspace.inspect` 统一承担文件正文、子目录及根 `workspace:` 的有界分页披露（结果经 `TurnTrace` 单轮保护后可折叠，不反向把 `WorkspaceSegment` 变成有状态展开表）；磁盘扫描上限 `max_files` 放宽至 `5000` 并补充常见派生忽略目录 |
 | 彻底移除 `tag` 与 `description` | 从 `WorkspaceManifest`（升级为 `schema_version = 5`）、`WorkspaceResourceRecord`、`WORKSPACE_SEARCH_FILTERS`、Action Catalog、Endpoint 路由与 Schema 中完整移除 `tags` 与 `description`；`manifest` 回归 100% 确定性磁盘派生索引，消除覆写后描述腐烂与提示词虚假承诺 |
-| 读写动作正交收敛（19 → 11） | 移除 `list`、`read`、`insert`、`tag`、`describe`、`analyze`、`trash_list`；`write` 更名为 `workspace.create`（默认新建，保留 `overwrite: bool = false`，收紧内联上限 `max_create_chars = 12288`） |
+| 读写动作正交收敛（域 catalog 19 → 12） | Workspace owner 的 17 个动作删 7 个（`list`、`read`、`insert`、`tag`、`describe`、`analyze`、`trash_list`），`write` 等量改名 `create`，剩 10 个。Resource owner 的 2 个转换动作仍在同域；不据总数授予 profile 能力。 |
 | `workspace.edit` 锚点插入与清晰报错 | 单项支持 `position: "replace" \| "before" \| "after" = "replace"`，允许以简短语义锚点插入新内容而无需重复抄写 `old_text`；支持行尾空白归一化匹配，并明确区分“0 处匹配”与“匹配多处（附行号）”局部反馈 |
 | `workspace.compose` 融入“Phase2 定位 + Phase3 生成” | 复用 `disclosure.fragment_range` 原生支持的 `#heading` 与 `#Lstart-Lend` 片段语法；Phase2 通过 `target_ref`（整文件或带 `#fragment`）与 `mode: "replace" \| "before" \| "after"` 完成确定性定位，Executor 提取切片与只读衔接上下文，Phase3 内嵌 LLM 以 `AnswerFormat.TEXT` 纯文本直出新内容并精确拼回 |
 | Trash 精简与按原路径恢复闭环 | 移除 `workspace.trash_list` 及残留未消费接口；`workspace.restore` 支持传入原路径 `ref`（恢复当日 Trash 中该路径最近一次删除项）或精确 `trash_ref` |
@@ -68,7 +68,7 @@
    - 在每次 `prepare()` 已按 `max_context_tokens = 3000`（约 9k～10.5k 字符，不足默认 262k 窗口的 1.2%）完成树折叠后，`WorkspaceSegment` 天然有界，不会成为全局窗口压力源；
    - `TurnSegments.reclaim` 的回收顺序固定为 `STATE → HEAP → STACK → MAP`。若让 `WorkspaceSegment`（`STATE`）接入 `RECLAIM` 动态缩减预算，在长对话因 `TurnTrace`（`STACK`）膨胀触发窗口压力时，系统会先削减当前正在使用的工作区目录，而非先折叠过期的 `TurnTrace`；
    - 因此明确采用**仅在 `prepare()` 执行段内固定水位树折叠、不声明 `SegmentCapability.RECLAIM`、不维护可变本轮预算**的纯无状态方案。
-3. 磁盘扫描耦合问题：`tinysoul/plugins/workspace/config.py:21` 默认 `max_files = 100`；一旦工作区目录与文件总数达到 100（如 PDF 拆图或多次脚本产物），`reconcile()` 返回 `limit_reached=True, complete=False`，导致 `WorkspaceTurnPreparationHandler.prepare`（`projection.py:373-385`）直接抛出 `WorkspaceFailureKind.IO_FAILED` 阻断新 Turn 启动。
+3. `max_files = 100` 限制的是合格目录和文件的记录数。恰好 100 且没有其他错误时仍可完整；尝试收录第 101 项才触及上限。未完成的扫描不覆盖完整索引；Turn 准备需要完整索引。这不是模型目录的 token 上限。
 
 ### 2.2 根引用 `workspace:` 与引用解析边界核实
 
@@ -99,7 +99,7 @@
 ### 3.1 Token 估算基座前置与配置模型重构（`infra/tokens.py` & `WorkspaceSettings`）
 
 1. **前置落地纯基础设施 `tinysoul/infra/tokens.py`（与后续 Context 计划共用）**：
-   - 严格遵守 `tests/test_architecture.py:145`（`infra` 仅允许依赖 `infra`，严禁导入 `tinysoul.llm`）：提供无外部重依赖的确定性纯函数 `estimate_text_tokens(text: str) -> int`（ASCII 按 `3.5 chars/token`、非 ASCII 按 `1.0 char/token` 上取整）与 `estimate_json_tokens(value: JsonValue) -> int`；
+   - `infra` 不依赖 `llm`。只落地本阶段有消费者的 `estimate_text_tokens(text: str) -> int`（ASCII 按 `3.5 chars/token`、非 ASCII 按 `1.0 char/token` 整体上取整）；JSON 与图像估算到 Context C1 有实际消费者时再加，不预建空接口。
    - 注：Workspace 后端阶段仅由 `WorkspaceSegment` 消费 `estimate_text_tokens`，暂不改动 `llm/execution/context_window.py`（留待 Context 后端 C1 切换），确保本计划独立实施与测试验证边界完全自洽。
 2. **`WorkspaceSettings` 常量与字段调整（`tinysoul/plugins/workspace/config.py`）**：
    - `DEFAULT_MAX_FILES = 5000`（原 `100`）；
@@ -164,7 +164,8 @@
    - 对普通子目录 `workspace:<dir>` 的 `inspect` 同步改进：子项中的目录同样展示子项计数摘要，而非 `Directory, 0 bytes`。
 3. **身份解析与搜索范围兼容**：
    - `WorkspaceEngine.canonical_reference`（`engine.py:640`）：当 `resource == "workspace:"` 且 `fragment == ""` 时，合法返回 `ResourceTarget("workspace:", "", source_day or ...)`；携带非空 `fragment` 时仍抛 `ReferenceError`；
-   - `WorkspaceEngine.retrieval_corpus`（`engine.py:674`）：当 `ResourceScope` 传入 `ref="workspace:"`（`DIRECTORY` scope）时，等价归一化为全工作区根范围 `locator = ""`，避免模型对根调 `search` 时报错。
+   - `tinysoul/agent/services.py` 的宿主 locator 解析目前也直接 `WorkspaceRef.parse(resource)`；复用 owner 的只读身份校验。由根 Inspect 经 Trace/Session 形成的链接应能解析为来源日的目录入口，前端打开该日 manifest，不发起 `blob` 或全文请求。验收包括根 Inspect → 历史引用 → 宿主 resolve，不只测 owner 函数。
+   - 从请求入口验证：`kernel/retrieval/contracts.py:219` 的 `ResourceScope` 当前在到达 owner 之前就拒绝根。仅允许 `DIRECTORY(ref="workspace:")` 表示根目录；既有 `WORKSPACE` 无 ref 语法仍有效，`FILE` 不可指根。`WorkspaceEngine.retrieval_corpus` 对目录根解除路径过滤。根不是 manifest 内额外一条文件记录，不把 `refs` 精确读取隐式展开为全部文件。
 
 ### 3.5 模型侧 Actions 重构与语义升级
 
@@ -184,7 +185,7 @@
     - 多处匹配（`count >= 2`）：计算前最多 5 处匹配的起始 1-based 行号（如 `lines 18, 64, 112`），在 `feedback` 中明确告知匹配次数与行号，引导补充上下文行消除歧义；
   - **位置合成**：
     - `REPLACE`：用 `new_text` 替换匹配区间；
-    - `BEFORE`：在匹配区间起始位置插入 `new_text`（若 `old_text` 以行首开始且 `new_text` 未以 `\n` 结尾，按原文原样拼接或由调用方控制？为避免隐式篡改行内锚点，只有当 `new_text` 不含尾部 `\n` 且匹配位于整行边界、同时插入后会产生粘连时，保持语义明确：遵循确定性原则，在文档与提示中明确说明 `BEFORE`/`AFTER` 在锚点前后拼接，若按行插入请保留换行，或在整行锚点缺少换行时自动补齐单个 `\n`——此处采用**“若锚点位于行首（`BEFORE`）且 `new_text` 非 `\n` 结尾则补 `\n`；若锚点位于行尾不含 `\n`（`AFTER`）且 `new_text` 非 `\n` 开头则补 `\n`”**的防粘连规则，若是行内子串替换仍用 `REPLACE`，兼顾自然与低错率）。
+    - `BEFORE` / `AFTER` 插在原锚点起始/结束处，不替换锚点。遵循原计划选定的行边界防粘连规则：`BEFORE` 在行首且插入文本不以 LF 结束时补一个 LF；`AFTER` 在行尾（锚点本身不含末尾 LF）且插入文本不以 LF 开始时补一个 LF；行内边界不补。回退匹配仅用归一化副本定位，再映回真实范围，不顺带清理其他行。多项按顺序在内存候选上执行，最终一次提交；覆盖重叠匹配、CRLF、EOF 和已带换行的用例。
 
 #### 3.5.3 `workspace.compose`（整篇生成 + `#fragment` 片段定位生成）
 - 参数：
@@ -208,7 +209,7 @@
 - 参数：`ref: str | None = None`、`trash_ref: str | None = None`（要求恰提供其一，同时提供或均缺省返回局部参数错误）。
 - 存储查找（`WorkspaceTrashStore` / `WorkspaceMutations.restore_resource`）：
   - 若提供 `trash_ref`（`trash:workspace/<id>`）：按现有逻辑精确加载对应回收项；
-  - 若提供 `ref`（`workspace:<relative-path>`）：经 `WorkspaceRef.parse(ref)` 规范化后，在当前活动日 `trash_store.list()`（本身已按 `(trashed_at, trash_id)` 倒序排列）中选取 `item.original.ref == canonical_ref` 的**最新一条**进行恢复；若未找到匹配项，返回明确局部反馈 `"No trashed Workspace resource matches <ref> today."`。
+  - 若提供原路径 `ref`，在 owner 锁内只从仍有 content、同一活动日且 `item.original.ref == canonical_ref` 的候选取 `max(..., key=(trashed_at, trash_id))`，同时间戳有稳定决胜，不恢复某一目录记录里的单个 descendant。当前 `WorkspaceTrashStore.list()` 是仅按 `trashed_at` **升序**，不能取首项或据此更改 HTTP 展示顺序。无匹配、目标已存在均拒绝，不覆盖。保留 `GET /v2/workspace/trash`、Trash store 与 SDK 的真实列表消费者，删除的是模型动作。
 
 ### 3.6 Gateway Endpoint、SDK 服务与死代码清理
 
@@ -229,7 +230,7 @@
    - `assets/{standard,development}/configs/action/routing.toml` 同步移除上述两条 `[[action.models.bindings]]`。
 2. **Action Catalog 与 Home Skills**：
    - `assets/common/configs/action/catalog/workspace/actions/`：删除 `list.toml`、`read.toml`、`insert.toml`、`tag.toml`、`describe.toml`、`analyze.toml`、`trash_list.toml`、`write.toml`；新建 `create.toml`；更新 `domain.toml`、`inspect.toml`、`edit.toml`、`append.toml`、`compose.toml`、`mkdir.toml`、`restore.toml` 中的参数 schema 与边界说明（消除所有指向已删除动作的文案）；
-   - `assets/common/home/agent/`：更新 `context/working.md`、`skills_domain/workspace/DOMAIN.md`，以及 `skills_action/workspace/` 下的动作指导文档（移除已删动作技能文档，更新 `compose.md`、`edit.md`、`append.md`，补充 `create.md` 如需要或保持轻量）。
+   - `tinysoul/assets/common/home/` 下分别更新 `agent/context/working.md`、`skills_domain/workspace/DOMAIN.md` 和 `skills_action/workspace/`。删除 `analyze.md`/`read.md`，检查现有 `compose.md`、`append.md`、`inspect.md`、`search.md` 的交叉引用；不假定已经有 `edit.md`，也不为每个动作机械新增 Skill。
 3. **固定提示词与设计/接口文档**：
    - `tinysoul/prompts/plugins/workspace.py` & `tinysoul/prompts/README.md`：移除 `ANALYSIS_*`、`DESCRIBE_*`、`INSERT_*`、`LISTING_INCOMPLETE` 等无消费者常量与函数，新增 `edit` 匹配诊断、`create` 超限引导、`compose` 片段定位引导与树目录渲染纯函数；
    - 同步更新 `AGENTS.md`（移除 `pinned/tmp/important` 标签描述与过时说明，对齐当前 Workspace 语义）、`docs/design/workspace.md`、`docs/design/action.md`、`docs/design/capabilities/resource.md`、`docs/endpoint/workspace.md`。
@@ -278,8 +279,15 @@
 1. **概念与所有权一致性（合理）**：
    - `WorkspaceSegment` 保持 `STATE` 形状与 100% 无状态纯投影：在 `prepare()` 按自身 `max_context_tokens = 3000` 水位做树结构折叠（保留折叠目录引用与子项计数，绝不静默丢弃入口），目录按需展开走统一的 `workspace.inspect` → `TurnTrace` 可折叠结果，既不引入第二套“Working 展开状态机”，也避免了介入全局 `RECLAIM` 导致 `State` 先于旧 `TurnTrace` 被削减的顺位倒挂，并提前铺好 `infra/tokens.py` 供后续 Context 计划无缝复用。
 2. **模型认知与动作正交性（合理）**：
-   - Workspace 从 19 个动作收敛为 11 个，消除了 `list` vs `inspect` vs `search`、`read` vs `inspect`、`write` vs `compose`、`insert` vs `edit` 四组历史重叠；
+   - Workspace 域从 19 个动作收敛为 12 个，消除了 `list` vs `inspect` vs `search`、`read` vs `inspect`、`write` vs `compose`、`insert` vs `edit` 四组历史重叠；
    - “短文本字面量用 `create`、锚点精确改/插用 `edit`、尾部追加用 `append`、整篇或 `#fragment` 章节长文用 `compose`”完全覆盖所有文本生产场景，且避开了 Phase2 大 JSON 转义失败与无 CAS 下的行号漂移问题。
 3. **无死抽象与数据完整性风险排查（可行）**：
-   - **关键风险规避**：在核查 `mutations.py:127, 204, 240, 285` 时确认，所有写操作完成后均依赖 `manifest` 包含刚提交的目标记录。本方案通过将 `max_files` 放宽 50 倍至 `5000` 并忽略 `.venv`/`node_modules`，同时保持 `reconcile` 在 `< max_files` 范围内的完整索引不变量，避免了“静默截断 manifest 导致新建末尾文件 `StopIteration`”的隐患；
-   - **跨模块影响可控**：全仓 `git grep` 已定位全部引用旧动作名、旧配置键与 `WorkspaceTag` 的测试桩和配置文件（共约 25 个后端生产/资源文件与相应测试文件），无跨插件隐式耦合，按 P1→P5 顺序推进可平滑落地并通过全部门禁。
+   - **扫描上限不是恢复机制**：增至 5000 只是降低触发概率。保留 `_index_after` 的真实语义：文件已写而索引不完整时报告 `WorkspaceIOError.committed_refs`，不伪成功、不撤回磁盘事实、不安装部分 manifest。用小配置分别验证恰好 N、N+1、写后超限。`ignore_dirs` 同时影响 `path_for`：被忽略目录不是可用的 Workspace 资源。
+
+## 7. 实施准入与交接（6988824d）
+
+- **投影与读取**：一次取得 owner 快照建树并聚合计数，不为每条目录子项反复加载 manifest；纯 `render` 不触盘。预算包含目录提示、缩进、折叠行和根入口；超长单条 ref 放不下时保留可用的 `workspace:` 分页入口，不伪造截断 ref。`seal()` 的资源事实与工作区索引区别于有界模型文字。活动目录披露保留内部目录、ignore、symlink/junction 过滤；延续已有 `DisclosurePage` 的内容、ref、day 绑定，测试同日目录变化、跨日和空目录。归档 `workspace_archive:<day>` 始终只读、保留来源日；不能指向今日同名资源。
+- **片段与调用**：`WorkspacePromptReferenceResolver` 当前直接 `stat(ref)`，`prepare_task_input` 是有界前缀读取，不能把带 `#` 的参考串原样传给文件路径 API。只在文档读取/compose 边界拆出基础 ref、单次解码片段，复用 `fragment_range`（标题区间包含标题，重复标题有后缀）。保留有真实消费者的图片参考，目录与二进制不作文本。`before/after` 保留原 span，生成空间要扣除它及拼接换行；无剩余空间、空片段、无效范围在写前局部失败。读快照 → 模型调用 → 取消检查 → owner 单文件提交，不跨模型调用持锁，不重读后擅自定位到别处、不引入 CAS；并发外部写仍可能被覆盖。精确写入/删除继续要求实体路径，不给根增加写权限；execution 的既有根 cwd 语义不变。
+- **有意断代**：v5 只派生资源索引，`manifest.day` 仍是日生命周期事实；Trash 的原路径和日期不是可从 content 推导的缓存。活动/归档 manifest、Trash 内嵌记录、旧 TOML、旧项目 catalog/routing/Home 的启用说明应随发行交接；新模板不等于自动升级已有项目。按已确认的不兼容政策明确拒绝旧格式，不自动清空旧日、删除文件或重写归档；测试使用隔离的 v5 工件，真实实例另行备份/切换，不在本计划执行 reset。
+- **对接与验收**：前端消费 12 个域动作、v5 record、两个删除路由和 restore XOR；`workspace.max_inspect_chars` 下限以 `infra.continuation.MIN_CONTINUATION_PAGE_CHARS`（当前 1024）为准。同步 `docs/design/references.md` 的旧 `workspace.read` 和根/片段语义；检查 Pydantic/SDK、有效 action catalog、模型反馈与真实 HTTP 响应，而不只验证 TOML 个数。P1 的纯文本标尺与有效 `workspace.max_context_tokens` 是交给 Context C1/C2 的产物，并非当前实现。
+- 先运行 owner、retrieval 与 Endpoint 聚焦用例，再运行默认 Fast、§5 的 Full 与 `ty check`。本次审阅只在当前实现上运行 `uv run --locked --extra dev python scripts/test.py tests/plugins/workspace tests/kernel/loop/test_pressure.py tests/kernel/loop/test_trap_handlers.py tests/plugins/session/test_organize.py`（128 passed），不作为重构验收。

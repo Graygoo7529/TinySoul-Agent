@@ -1,7 +1,7 @@
 # Workspace 契约同步与界面精简前端执行计划
 
 - 日期：2026-11-27
-- 状态：`ready`（上游后端契约已定稿并对齐 `workspace.max_context_tokens`，待后端落地后实施）
+- 状态：`ready`（方案准备就绪；依赖 Workspace 后端 P4/P5 交付实际协议、catalog 与样例，尚未实施）
 - 核对基线：`712abf02`
 - 上游依赖：[Workspace 渐进披露与动作收敛后端执行计划](20261127%20Workspace渐进披露与动作收敛后端执行计划.md)、更新后的 [Endpoint Workspace 协议](../endpoint/workspace.md)
 - 依据：
@@ -11,7 +11,7 @@
 
 ## 0. 协作边界与上游契约变更总览
 
-后端重构移除了 Workspace 的 `tags`、`description`、`insert` 及 7 个历史冗余模型动作，升级了 `WorkspaceManifest`（schema v5）、`workspace.create`、锚点 `edit`、片段 `compose` 与配置目录字段。前端计划严格在 `visualization/` 内同步上述契约、清理失效 UI 与死分支，并优化对应轨迹展示。
+以下是后端拟交付的契约，不是当前 API。前端只改 `visualization/`，按已发布的 Endpoint 协议与配置 catalog 收敛界面。根 `workspace:` 是带来源日的目录入口，不是可以预览或下载的文件。
 
 | 契约维度 | 后端变更内容 | 前端对接动作 |
 | --- | --- | --- |
@@ -94,7 +94,7 @@
        - `workspace.max_files`（`min: 1`）
        - `workspace.max_context_tokens`（`min: 128`）
        - `workspace.default_expand_depth`（`min: 1`）
-       - `workspace.max_inspect_chars`（`min: 512`）
+       - `workspace.max_inspect_chars`（取后端 catalog 的下限，计划对齐 continuation 的 1024）
        - `workspace.max_create_chars`（`min: 1`）
        - `workspace.max_write_chars`（`min: 1`）
        - `workspace.max_image_bytes`（`min: 1`）
@@ -115,7 +115,7 @@
 ### 2.4 Trace 抽屉与实时活动卡片适配（F4）
 
 1. **动作注册表（`features/trace/model/registry.ts`）**：
-   - `workspace` 域动作映射更新为当前唯一事实集合（11 个）：
+   - `workspace` 域的目标集合为 12 个（Workspace owner 10 个、Resource owner 2 个；可见性与启用状态以有效 catalog 为准）：
      - `"workspace.search": "search"`
      - `"workspace.inspect": "inspect"`
      - `"workspace.compose": "analysis"`
@@ -149,8 +149,8 @@
 前端本地验证命令（在 `visualization/` 目录下执行）：
 
 ```powershell
-pnpm test -- --run
-pnpm run typecheck
+pnpm test
+pnpm exec tsc --noEmit
 pnpm run build
 ```
 
